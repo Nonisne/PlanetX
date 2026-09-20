@@ -1,0 +1,41 @@
+// Runs every test file in its own process.
+//
+// `node --test <dir>` spawns children with piped stdio, which this sandbox denies
+// (EPERM); spawnSync with inherited stdio is allowed, and it gives each file a pristine
+// global environment — which matters because these files install DOM/fetch/storage
+// stubs and would otherwise contaminate one another.
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repo = path.join(here, '..');
+const files = [
+  'rules.test.js',
+  'launcher.test.js',
+  'research.test.js',
+  'puzzles.test.js',
+  'builtin-room.test.js',
+  'console.test.js',
+  'official-rules.test.js',
+  'review-order.test.js',
+  'room.test.js',
+  'server.test.js',
+  'client.test.js',
+  'ui.smoke.test.js',
+  'history-ui.test.js',
+  'endgame-ui.test.js',
+];
+
+const results = [];
+for (const file of files) {
+  const res = spawnSync(process.execPath, [path.join(here, file)], { stdio: 'inherit', cwd: repo });
+  if (res.error) console.error(`${file}: ${res.error.message}`);
+  results.push({ file, ok: res.status === 0 });
+}
+
+const failed = results.filter((r) => !r.ok);
+console.log('\n──────── summary ────────');
+for (const r of results) console.log(`${r.ok ? '✔' : '✖'}  ${r.file}`);
+console.log(failed.length ? `${failed.length} of ${results.length} test files failed` : `all ${results.length} test files passed`);
+process.exit(failed.length ? 1 : 0);

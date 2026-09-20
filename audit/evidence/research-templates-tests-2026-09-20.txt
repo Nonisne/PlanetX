@@ -1,0 +1,486 @@
+✔ the visible sky window slides one sector per time unit (1.026ms)
+✔ the time-track step follows the arrow for either board size (0.1355ms)
+✔ time parts wrap after 12 standard or 18 expert time units (0.078875ms)
+✔ time helpers default to the standard board and clamp negative display clocks (0.073458ms)
+✔ full and short clock labels consistently show board laps and steps (0.069583ms)
+✔ durations and the legacy display alias retain the exact number of time units (0.048875ms)
+✔ events sit on the time track and scale with the board size (0.183792ms)
+✔ costs are measured in time units (0.063125ms)
+✔ geometry helpers (0.059417ms)
+✔ object types are the six the board uses (0.128333ms)
+✔ the base rules text matches the mode (0.100125ms)
+✔ a mode id is never handed out unresolved (0.074459ms)
+✔ the scoring tables and the locate formula (0.071667ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5.415125
+✖ macOS and Windows provide executable one-click entrypoints without broad process killing (0.617916ms)
+✔ concurrent start clicks leave exactly one service and do not discard its identity (312.653334ms)
+✔ invalid PORT values fail clearly without creating a service record (293.246916ms)
+✖ macOS entrypoints resolve Node with Finder PATH, open only a ready page, and stop from another directory (83.898417ms)
+✔ repeat startup reuses the same project server and preserves a live room (394.697917ms)
+✔ stop finds custom-port services without needing the original PORT environment (262.757167ms)
+✔ local shutdown requires the private token and never exposes control files through the game (176.0205ms)
+✔ an occupied game port is reported without opening or shutting down the unrelated service (1151.462834ms)
+✔ stale records are harmless and malformed identities never trigger shutdown requests (206.751709ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 7
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2884.888375
+
+✖ failing tests:
+
+test at tests/launcher.test.js:75:1
+✖ macOS and Windows provide executable one-click entrypoints without broad process killing (0.617916ms)
+  AssertionError [ERR_ASSERTION]: 一键启动.command must exist
+      at TestContext.<anonymous> (file:///Users/suchenyang1/Desktop/interactiveTest/PlanetX/tests/launcher.test.js:77:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.start (node:internal/test_runner/test:1177:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/launcher.test.js:121:1
+✖ macOS entrypoints resolve Node with Finder PATH, open only a ready page, and stop from another directory (83.898417ms)
+  AssertionError [ERR_ASSERTION]: server exited before ready: /bin/zsh: can't open input file: /var/folders/_r/lwf3bz_s3vl99pctc4xygjt80000gp/T/planetx 启停测试 z7fjf4/一键启动.command
+  
+      at ready (file:///Users/suchenyang1/Desktop/interactiveTest/PlanetX/tests/launcher.test.js:64:41)
+      at async TestContext.<anonymous> (file:///Users/suchenyang1/Desktop/interactiveTest/PlanetX/tests/launcher.test.js:141:3)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+✔ research generates only ordinary-object bands and distinct-type relations (0.737833ms)
+✔ band limits run inclusively from inventory size to board size minus one (0.861875ms)
+✔ singleton inventories never produce bands, including for X and empty (0.119584ms)
+✔ each ordered pair has every relation and quantifier under one canonical topic (0.326625ms)
+✔ within limits are exactly two through half a circle minus one for each board size (0.267792ms)
+✔ feature sets are deterministic, unique and independently extensible with engine caches (0.742917ms)
+✔ bands accept every unknown start, including a four-sector arc across 12/1 (0.383959ms)
+✔ band length includes both endpoints and intervening unoccupied sectors (0.09475ms)
+✔ bands handle spread-out objects and the maximum board-size-minus-one limit (0.098417ms)
+✔ adjacent wraps across 12/1 but excludes a two-step neighbor (0.1555ms)
+✔ opposite means exactly half a circle on both 12- and 18-sector boards (0.1145ms)
+✔ within uses inclusive shortest distance in either direction and never includes the half-circle distance (2.60125ms)
+✔ some includes all subjects, and multiple subjects may share the same neighbor (0.159917ms)
+✔ some can match one subject while all is false (0.068042ms)
+✔ none holds only when every possible subject-neighbor pair fails the relation (0.053917ms)
+✔ all quantifies only the subject population, not every neighbor (0.099417ms)
+✔ empty populations keep existential and universal meanings and return numeric values (0.281209ms)
+✔ research cannot distinguish swapping X and truly empty sectors (0.956875ms)
+✔ predicate evaluation leaves frozen inputs and engine-added caches unchanged (0.123917ms)
+✔ every feature agrees with the array oracle on all 729 two-type six-sector boards (49.29925ms)
+✔ every 12-sector feature agrees with the independent oracle on varied complete inventories (5.355667ms)
+✔ every 18-sector feature agrees with the independent oracle on varied complete inventories (8.558542ms)
+✔ every feature is invariant under all rotations and reflections on both board sizes (17.9555ms)
+✔ single-object topics contain only the corresponding Chinese label (0.13775ms)
+✔ all relations and both directions share the canonical Chinese topic name (0.244459ms)
+✔ band clues follow the exact single-sentence Chinese template (0.077541ms)
+✔ adjacent/none clue preserves its subject and follows the literal Chinese template (0.0485ms)
+✔ adjacent/some clue preserves its subject and follows the literal Chinese template (0.017958ms)
+✔ adjacent/all clue preserves its subject and follows the literal Chinese template (0.019ms)
+✔ opposite/none clue preserves its subject and follows the literal Chinese template (0.103708ms)
+✔ opposite/some clue preserves its subject and follows the literal Chinese template (0.016375ms)
+✔ opposite/all clue preserves its subject and follows the literal Chinese template (0.015458ms)
+✔ within/none clue preserves its subject and follows the literal Chinese template (0.018084ms)
+✔ within/some clue preserves its subject and follows the literal Chinese template (0.022ms)
+✔ within/all clue preserves its subject and follows the literal Chinese template (0.016125ms)
+✔ every generated clue is a single sentence without extra facts or excluded objects (0.530875ms)
+✔ topic and clue rendering are pure and accept engine-added cache properties (1.005625ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96.066416
+✔ standard board validation accepts the declared inventory and circular neighbors (0.444959ms)
+✔ standard board validation rejects each forbidden placement, including wraparound (0.081333ms)
+✔ standard board validation rejects malformed boards and incorrect inventory (0.083583ms)
+✔ board validation agrees with an independent exhaustive backtracking oracle (22.504ms)
+ℹ 4446 independent valid boards; enumeration 22ms
+✔ research topics name one or two ordinary objects and contain exactly one fact (121.315666ms)
+✔ relative research preserves legal mirror candidates until observations distinguish them (3.393042ms)
+✔ generation exposes the standard server contract without serializing private constraints (3.41375ms)
+ℹ cold enumeration, feature cache, and first puzzle 1ms
+✔ expert and unknown modes are explicitly rejected instead of falling back (0.2935ms)
+✔ generation rejects invalid random sources and out-of-range draws (0.803916ms)
+✔ equal random streams reproduce puzzles and constant streams stay observation-solvable (7.49125ms)
+✔ the candidate counter covers the complete independent valid-board space (1.34325ms)
+✔ displayed facts independently match candidates and become unique with complete observations (668.260542ms)
+ℹ 32 independently solved puzzles; clue kinds within, band, x-candidates, opposite, adjacent, arc, x-neighbors, x-distance; maximum 7 statements
+✔ candidate filtering uses deduction constraints, not the stored answer (1.679167ms)
+✔ uniform board sampling uses equal-sized bins without rejection or rotation bias (16.734333ms)
+✔ generation produces varied complete puzzles within a bounded warm runtime (420.920042ms)
+ℹ 256 puzzles: 249 boards, 256 research sets, 420ms; X histogram 19,26,12,35,6,42,7,43,5,31,9,21
+✔ each player receives four fresh, deduplicated, zero-based ordinary-object exclusions (2.190917ms)
+✔ initial clue sampling handles the entire finite exclusion pool without retry loops (2.439708ms)
+✔ initial clue issuance rejects invalid counts, boards, and random sources (2.574625ms)
+✔ ordinary-object initial exclusions do not distinguish X from true empty sectors (10.498916ms)
+✔ solver rejects malformed selections instead of silently ignoring them (3.638916ms)
+✔ puzzles and their clue strings do not share mutable state through the server cache (5.855042ms)
+✔ every valid board gets six single-fact topics and an observation-unique solution (PUZZLE_EXHAUSTIVE=1) (5888.449125ms)
+ℹ 4446 unique boards certified in 5885ms; max generation 2.45ms; max 7 statements; 26676 private hands
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7190.557333
+✔ builtin exhausted legal claims reject a positive declaration without trapping the game (6.722833ms)
+✔ builtin declaration capacity uses each author history rather than hidden puzzle truth (6.730875ms)
+✔ declaration buttons enforce personal capacity and preserve old expert views (0.877291ms)
+✔ legacy rooms stay record mode, builtin accepts solo and rejects unsupported boards (0.380334ms)
+✔ builtin setup issues private initial clues and ignores forged setup data (0.203417ms)
+✔ hidden puzzle and unearned research/conference information never enter views or summaries (0.1975ms)
+✔ survey/target results are server-authoritative and X looks empty only to its querying player (0.403791ms)
+✔ builtin research returns only the chosen private clue and keeps turn/cost rules (0.291333ms)
+✔ builtin rejects manual truth, early conference, undo, calibration and host bypass actions (0.130542ms)
+✔ builtin retains range validation and rejects malformed queries without spending time (0.147667ms)
+✔ conference publishes automatically only after the shared window reaches its event (0.844625ms)
+✔ builtin advances theory track, automatically reviews and charges wrong theory once (0.2135ms)
+✔ builtin reviews multiple due sectors by sector number rather than publication order (0.284834ms)
+✔ locate checks X and both neighbors, then solo auto-reveals and scores (0.206666ms)
+✔ multiplayer final opportunity keeps truth hidden, freezes clocks, and auto-reveals afterward (0.4935ms)
+✔ builtin player list is locked after start and capped at six before start (0.105333ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21.113625
+✔ a fresh console knows nothing about the puzzle (1.090625ms)
+✔ recording a survey costs the same time as making one (0.356416ms)
+✔ each board completes a lap without changing wait costs or stored entry clocks (0.572083ms)
+✔ summaries present saved clocks in time units without rewriting old records or the shared window (0.297875ms)
+✔ wait duration validation retains its numeric behavior (0.095625ms)
+✔ surveys and scans are limited to the visible sky (0.225417ms)
+✔ the modelled sky window can be nudged to match the real board (0.072125ms)
+✔ the recorded result has to be a plausible number (0.059959ms)
+✔ targets are limited and only accept the five apparent results (0.10075ms)
+✔ research obeys the topic and back-to-back rules and keeps the player-typed name (0.179667ms)
+✔ conferences are tied to the sectors the rulebook puts them on (0.105417ms)
+✔ an expert console runs on 18 sectors with its own event sectors (0.08575ms)
+✔ conference schedules use time units on either board (0.071541ms)
+✔ a theory may only be published during a research phase, once per phase (0.186416ms)
+✔ a round’s papers share a track space, and the phase end moves the whole track (0.571375ms)
+✔ the record is a table of rounds with an operation and its result per cell (0.161459ms)
+✔ round-table waits and penalties use time units and the expert entry clock (0.059666ms)
+✔ the score table counts confirmed theories, leader bonuses and a correct locate (0.238834ms)
+✔ a correct review reveals the sector and settles every paper about it (0.138625ms)
+✔ time is per player: only your own entries move your clock (0.071167ms)
+✔ undo rewinds time and derived state (0.102458ms)
+✔ recording a correct locate requires reveal before the final summary (0.152334ms)
+✔ the console view is shaped so the shared panels can render it (0.060417ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8.771875
+✔ official action costs advance by 4/3/2, 4, 1 and 5 sectors (0.62425ms)
+✔ expert comet rules include 13 and 17 and surveys require comet endpoints (0.400166ms)
+✔ research checks the same player last action despite another player acting (1.376ms)
+✔ a free conference record does not reset the research restriction (0.096459ms)
+✔ a failed locate stays in play, pays five, and does not disclose its answer (0.405625ms)
+✔ every theory phase advances old papers even when everyone submits zero (0.521166ms)
+✔ one player cannot repeat a claim or publish two objects in one sector in the same phase (0.280875ms)
+✔ a rejected theory is public and duplicate reviews do not duplicate penalties (0.490875ms)
+✔ a correct review applies every inferred penalty in player order exactly once (0.151042ms)
+✔ simultaneous correct papers earn all authors the leader bonus (0.463ms)
+✔ tie breaks use locate points, then leader bonuses, then share the victory (0.102166ms)
+✔ local crossing keeps the skipped phase open and empty completion advances papers (0.209917ms)
+✔ correct location freezes the sky and gives the trailing player one zero-cost final opportunity (0.506708ms)
+✔ final theory batches validate atomically and outstanding papers score only after host reveal (0.262916ms)
+✔ final locate scores two per frozen sector behind and never changes the final clocks (0.548583ms)
+✔ no final opportunity is granted to another pawn in the same sector (0.069917ms)
+✔ local correct locate enters reveal and wrong pending papers incur no final penalties (0.050208ms)
+✔ final reveal rejects sparse boards without changing state (0.110375ms)
+✔ final reveal cannot reverse confirmed peer reviews or resurrect rejected papers (0.166ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10.077542
+✔ penalty-triggered theory events stay behind previously queued events in FIFO order (2.949291ms)
+✔ one wrong review batches matching inner theories and repeated reviews do not penalize again (0.66ms)
+✔ reversing matching review requests preserves the original pawn order (0.353833ms)
+✔ a wrong review leaves matching outer theories private, pending and unpenalized (1.501042ms)
+✔ peer review rejects a higher sector until every lower ready sector is settled (0.41425ms)
+✔ only the lowest ready sector is public until it settles and exposes the next sector (0.846958ms)
+✔ empty queued phases have distinct absolute event identities exposed by researchView (0.522417ms)
+✔ research-declare rejects a missing phaseId without changing the current phase (0.247625ms)
+✔ research-declare rejects a stale phaseId without changing the current phase (0.187209ms)
+✔ research-submit rejects a missing phaseId without changing the current phase (0.231666ms)
+✔ research-submit rejects a stale phaseId without changing the current phase (0.148084ms)
+✔ legacy theory actions stay rejected with missing, stale or current phase ids (0.398959ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11.609292
+✔ a room starts in the lobby with a host and a joinable code (0.844958ms)
+✔ in the lobby nothing can be recorded and only the host may start (0.287042ms)
+✔ a lone host cannot start: the table needs two players (0.866667ms)
+✔ setup collects initial clues and the six subject names (0.96925ms)
+✔ setup validates the initial clues (0.2295ms)
+✔ setup only accepts ordinary-object exclusions on both board sizes (0.278375ms)
+✔ somebody joining during setup still gets a setup card (0.089375ms)
+✔ recording is refused until the setup cards are in (0.095791ms)
+✔ only the player whose turn it is may act, and acting passes the turn on (0.272625ms)
+✔ free actions (conference, review, nudge) move nobody’s pawn (0.39375ms)
+✔ the host can skip a turn, which costs the current player a month (0.196167ms)
+✔ undoing winds the pawn back and hands the turn over again (0.309416ms)
+✔ everybody has a private clock, but the log and the board are shared (0.670416ms)
+✔ per-player limits: scan markers and research subjects (1.335958ms)
+✔ official action costs charge only the acting pawn (0.766834ms)
+✔ research restrictions survive another player and free records until an own turn intervenes (0.317666ms)
+✔ the shared window opens a research phase when it passes a research sector (0.492416ms)
+✔ publishing runs from the player furthest behind, and the claimed object stays private (0.613792ms)
+✔ an expert table hands out two papers per phase, a standard one hands out one (0.253458ms)
+✔ expert declaration capacity counts distinct available sectors, not remaining object types (12.832542ms)
+✔ a peer review that says correct reveals the whole sector and locks it (1.861ms)
+✔ only the author (or the host) may report a peer review (1.094541ms)
+✔ a wrong peer review costs the author a month (0.757292ms)
+✔ ordered reviews expose one sector at a time and batch wrong matching papers in player order (1.380958ms)
+✔ the same sector: the earlier arrival acts first and publishes first (0.18975ms)
+✔ window arithmetic: which sectors the shared dial passed over (0.065084ms)
+✔ a wrong peer review moves the loser, and that month can move the window (0.583292ms)
+✔ a penalty that leaves the window where it was triggers nothing (0.565ms)
+✔ one research phase puts every paper of that round on the same track space (0.44275ms)
+✔ duplicate and same-phase conflicting claims do not consume a publication slot (0.596083ms)
+✔ zero-submission phases advance papers and queued phases wait for every pending review (0.880625ms)
+✔ correct papers published in one phase share the leader bonus despite different entry ids (0.684625ms)
+✔ crossing a conference sector asks the table to look at the app (0.594833ms)
+✔ a pre-filled conference note is offered when the crossing happens (0.203458ms)
+✔ conferences are public, and only on the marked sectors (0.11125ms)
+✔ the A–F subject names are the table’s, and only the host writes them (0.204667ms)
+✔ an expert table asks for two conference notes, a standard one for a single note (0.0775ms)
+✔ a setup card can be filled in again while the table is still waiting (0.101ms)
+✔ the room plays the board the host picked (0.143958ms)
+✔ the sky window can be nudged by anyone and is shared (0.058167ms)
+✔ a correct locate waits for final choices and host reveal before ending the table (0.696917ms)
+✔ a player list carries each pawn and each player’s public progress (0.110208ms)
+✔ the view survives a JSON round trip intact (it travels over HTTP) (0.4565ms)
+✔ unknown actions, strangers and bad phases are rejected (0.0515ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 38.659791
+✔ builtin HTTP creation validates mode and keeps generator files outside the static root (110.049334ms)
+✔ HTTP and SSE views share monotonic revisions for joins and non-log actions (14.070333ms)
+✔ builtin HTTP responses and SSE keep truth, initial cards and unearned research private (10.605125ms)
+✔ builtin HTTP solo locate ignores forged verdict and automatically reveals a valid generated board (6.065625ms)
+✔ builtin HTTP multiplayer resolves final theories without manual reveal or penalty time (8.815208ms)
+✔ static files are still served (1.170333ms)
+✔ a room can be created, joined and played over HTTP (10.109125ms)
+✔ HTTP rejects missing and replayed declarations when a zero-submission phase opens the next queued event (15.294833ms)
+✔ HTTP rejects stale and missing submission ids without spending the current publication quota (11.5225ms)
+✔ the host picks the board when the room is created (1.679334ms)
+✔ the SSE stream pushes the shared state to every player (3.505125ms)
+✔ two SSE clients keep all locate fields private through final choices and frozen-clock reveal (36.617542ms)
+✔ standard: HTTP final theory batches and host-only object reveal validate atomically (25.96275ms)
+✔ expert: HTTP final theory batches and host-only object reveal validate atomically (23.399833ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 281.848333
+✔ builtin transport creates solo puzzle mode and restores earned private clues without the answer (112.698ms)
+✔ builtin transport rejects expert mode instead of silently making a record room (1.50375ms)
+✔ the client can list modes, create a room and reconnect to it (3.113584ms)
+✔ the lobby gates the start on two players and the host’s command (3.322917ms)
+✔ the setup phase collects a private initial clue, shared subjects and the conference notes (8.689584ms)
+✔ two clients share the log and the board, but each one has their own clock (25.12125ms)
+✔ the client can undo an own unsettled turn but not another player’s action (4.490959ms)
+✔ client research stays restricted across another player and free conference records (9.076583ms)
+✔ two clients finish a correct final locate privately before the host reveals (9.735083ms)
+✔ two clients finish a wrong final locate privately before the host reveals (6.414458ms)
+✔ the client transmits final theory batches atomically without moving either pawn (5.488167ms)
+✔ only the host can skip the current final opportunity and the skip costs no time (4.294625ms)
+✔ the room identity is per tab, so two tabs are two different players (0.162292ms)
+✔ the stream helper reports when EventSource is unavailable (0.078916ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 197.510167
+✔ mode selection offers builtin puzzles before starting and keeps expert record boards explicit (9.705583ms)
+✔ builtin action cards ask for queries, not self-reported results (1.554083ms)
+✔ builtin research explains single-fact spatial clues in a persistent collapsed reference (0.751041ms)
+✔ builtin setup and tools expose no manual secret editing and locate requests no verdict (0.8475ms)
+✔ builtin displays 空域 consistently, identifies system verdicts, and shows cumulative time (1.832167ms)
+✔ builtin app creates a solo room, uses actual query answers, and preserves the offline save (18.978042ms)
+✔ builtin creation detects an old server before creating any room or replacing the local game (2.55825ms)
+✔ temporary restore failures preserve builtin identities and allow a later reload (101.9415ms)
+✔ restore clears expired or invalid identities but ignores failures from an abandoned restore (2.000042ms)
+✔ changing rooms isolates pending actions and ignores old responses and failures (14.079917ms)
+✔ newer room pushes cannot be overwritten by delayed HTTP responses or stale SSE frames (7.321208ms)
+✔ record shared-info edits remain sequential when remote actions have a pending guard (4.464625ms)
+✔ app renders the record console (0.539625ms)
+✔ the record console renders the action launcher and the time-track markers (1.161792ms)
+✔ the record console walks an action: launch → pick on the map → fill in → confirm (21.507167ms)
+✔ clicking a map icon offers the three marking choices (3.482125ms)
+✔ the map is the one place a mark lives, and the side cards read the same store (0.769667ms)
+✔ clicking outside dismisses the marking bubble and any dialog (5.046625ms)
+✔ the workspace separates the playfield, reference rail and contextual actions (0.667709ms)
+✔ Earth stays at the middle angle of the visible half on both boards, including wrapped windows (11.601083ms)
+✔ Earth follows the shared visible window rather than the viewer’s personal clock (0.5565ms)
+✔ Earth completes one orbit per board lap and returns correctly after time corrections (2.602792ms)
+✔ Earth’s orbit stays clear of the Sun and sector controls, with a readable non-action label (0.366584ms)
+✔ the longer lap label has a bounded width inside the Earth orbit on both boards (1.882375ms)
+✔ research topic titles allow long object pairs to wrap within their buttons (0.9745ms)
+✔ stylesheets are structurally sane (0.634916ms)
+✔ map geometry keeps every icon inside the ring without overlapping (1.321542ms)
+✔ the console survives a save and reload (2.323083ms)
+✔ official local phases survive reload and explicitly finish even without papers (9.288708ms)
+✔ official local locate uses string answers and reaches reveal before final scoring (7.939416ms)
+✔ official upgrade preserves historical recorded costs (0.453958ms)
+✔ typing a room code enables 「加入房间」 — even across a re-render (11.417625ms)
+✔ the lobby renders and the client speaks the room protocol (17.402417ms)
+✔ the pre-game flow walks lobby → setup → first turn (16.526375ms)
+✔ the solo console can be started on the 18 sector board (5.193041ms)
+✔ the online research phase renders declare → publish → review (15.913416ms)
+✔ the peer review prompt pays for a wrong answer (5.579167ms)
+✔ the setup card can be filled in again, and an expert table asks for two conferences (14.649166ms)
+✔ pawns in one sector line up around the ring with the earliest arrival leftmost (1.415458ms)
+✔ a conference crossing is announced and asks for the app’s rule (30.004333ms)
+✔ the record is a chronological player table and the score panel adds up (2.9585ms)
+✔ the locate dialog records what the app decided (4.986875ms)
+✔ the theory card only offers the four claimable objects (1.626958ms)
+✔ the layout keeps exactly three columns: knowledge, map and actions (1.178542ms)
+✔ new sessions reset reused history result ids without clearing panel preferences (1.753291ms)
+✔ reference panels are folded and disclosure state survives app redraws (1.188375ms)
+✔ knowledge shows private clues before collapsed base rules (0.354584ms)
+✔ conference entry is contextual and locating does not compete with an active action (0.648208ms)
+✔ every recordable action goes through the api and lands in the log (9.249375ms)
+✔ map clicks set the survey range and are clamped to the window (0.681166ms)
+✔ the map draws every mark and the side cards render without the grid (0.483166ms)
+✔ modal variants render: help, locate, conference, result, start (1.575792ms)
+ℹ tests 52
+ℹ suites 0
+ℹ pass 52
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 389.167542
+✔ one chronological row per actual action, including consecutive actions by one player (1.304792ms)
+✔ stable player columns, own-column highlighting and no separate result column (0.179167ms)
+✔ offline history has just the sequence and one player column (0.151125ms)
+✔ private fields from another actor never reach text or attributes, even in an unredacted fixture (0.436416ms)
+✔ own private results and publicly reviewed theories are available as expandable details (0.219041ms)
+✔ another player’s locate remains private until the real endgame reveal makes it public (0.668667ms)
+✔ conferences and review penalties are separate public-event rows spanning the players (0.192458ms)
+✔ actual recorded cost is retained and only the newest row is highlighted (0.131125ms)
+✔ history displays stored costs and clocks using each board’s time units and lap length (0.544ms)
+✔ board clocks and pawn durations use the displayed board’s lap length (5.630083ms)
+✔ displayed personal clocks leave Earth on the shared visible window’s orbital midpoint (6.990958ms)
+✔ theory review tooltip describes the unchanged one-unit penalty (0.307042ms)
+✔ historical actors absent from the current roster retain their own column (0.108917ms)
+✔ history uses a caption, row headers and a keyboard-scrollable region (0.117834ms)
+✔ expanding the history survives the next render without an action or rerender side effect (0.12725ms)
+✔ disclosure close and interleaved result toggles preserve preferences and ignore detached events (0.171625ms)
+✔ an empty history has a useful state and no fabricated action row (0.042541ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21.382791
+✔ unrelated phases return null and online phase takes precedence over solo status (0.68725ms)
+✔ non-acting players only wait, even when they are the host or match the cursor (0.386666ms)
+✔ final opportunity explains the quota, unchanged pawns and private locate answer (0.844958ms)
+✔ theory count offers zero through quota and zero theories submit atomically (0.298125ms)
+✔ zero quota still permits locate, zero theories and pass without theory fields (0.172208ms)
+✔ new theory fields start blank and incomplete theories cannot submit (0.41825ms)
+✔ two theories retain independent drafts and submit exactly one zero-based payload (0.931667ms)
+✔ theory drafts update through setUi without mutating the supplied UI or game (0.344417ms)
+✔ theory sector choices cover the full 12-sector or 18-sector board (0.23925ms)
+✔ solo final status renders the same final controls (0.119958ms)
+✔ authorized reveal has exactly 12 or 18 blank fields offering all six labeled objects (1.277292ms)
+✔ nonhosts and viewers without reveal permission only see waiting, never drafts (0.098ms)
+✔ solo reveal uses status and still requires canReveal (0.130875ms)
+✔ missing, sparse and unknown reveal entries stay blank instead of becoming empty sectors (0.5015ms)
+✔ fully filled reveal requires exactly one Planet X, not zero or two (0.392041ms)
+✔ choosing every sector sends one exact reveal-objects payload for either board size (5.386917ms)
+✔ reveal edits only replace the UI draft and preserve explicitly selected empty sectors (0.318541ms)
+✔ online and solo finished aliases show final scores and every tied winner without controls (0.350334ms)
+✔ finished objects use the public board and LABEL rather than a private reveal draft (0.125ms)
+✔ finished winner selection follows scoreWinners for a single winner and zero scores (0.103208ms)
+✔ finished views without scores or revealed objects show a compact result (0.122042ms)
+✔ phase and permission transitions replace controls without mutating or submitting UI drafts (0.2505ms)
+✔ invalid theory count changes cannot exceed quota or silently clear the draft (0.4425ms)
+✔ invalid or over-quota theory drafts never submit, including non-theory object types (0.426833ms)
+✔ waiting views do not reveal private locate answers or a board before finished (0.114875ms)
+✔ all sidecar classes already exist in the shared stylesheet (0.777833ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18.803667
+
+──────── summary ────────
+✔  rules.test.js
+✖  launcher.test.js
+✔  research.test.js
+✔  puzzles.test.js
+✔  builtin-room.test.js
+✔  console.test.js
+✔  official-rules.test.js
+✔  review-order.test.js
+✔  room.test.js
+✔  server.test.js
+✔  client.test.js
+✔  ui.smoke.test.js
+✔  history-ui.test.js
+✔  endgame-ui.test.js
+1 of 14 test files failed

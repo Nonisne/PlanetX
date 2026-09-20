@@ -1,0 +1,110 @@
+- banner:
+  - generic: ◍
+  - heading "X行星之谜" [level=1]
+  - paragraph: 记录模式 · 致敬 The Search for Planet X
+  - generic: 单机记录台
+  - button "联机"
+  - button "规则"
+  - button "新对局"
+- generic "我的棋子在第 1 号扇区（已记录 18 条）":
+  - generic: 我的时间
+  - text: 第 2 圈／第 1 格
+  - generic: 累计耗时 18 个时间单位
+- generic "按我的时间：箭头在 1 号扇区":
+  - generic: 当前天窗
+  - generic: 1–9
+- generic "剩余可用的扫描标记":
+  - generic: 扫描剩余
+  - generic: 2 / 2
+- generic "会议 7、16 · 学术研究 3、6、9、12、15、18":
+  - generic: 阶段
+  - generic: 自由推理
+- generic "校准与记录说明 ›" [active]:
+  - generic: 校准与记录说明
+  - text: ›
+- main:
+  - complementary "推理线索与参考":
+    - generic "推理线索 ›":
+      - heading "推理线索" [level=2]
+      - text: ›
+    - heading "研究线索（0/6）" [level=3]
+    - paragraph: 还没有研究任何主题。
+    - heading "X行星会议线索" [level=3]
+    - paragraph: 尚未记录会议线索。会议位于 7、16 号扇区。
+    - generic "基础规律 ›":
+      - heading "基础规律" [level=3]
+      - text: ›
+    - generic "研究课题 0/6 ›":
+      - heading "研究课题" [level=2]
+      - generic: 0/6
+      - text: ›
+    - generic "学术研究 0 篇 ›":
+      - heading "学术研究" [level=2]
+      - generic: 0 篇
+      - text: ›
+  - heading "星图" [level=2]
+  - generic: 我的标注 · 仅自己可见
+  - generic: 点行动按钮开始记录；点天体图标标注存在/不存在
+  - button "X行星 ·" [disabled]:
+    - generic: X行星
+    - generic: ·
+  - button "小行星 ·" [disabled]:
+    - generic: 小行星
+    - generic: ·
+  - button "彗星 ·" [disabled]:
+    - generic: 彗星
+    - generic: ·
+  - button "气体云 ·" [disabled]:
+    - generic: 气体云
+    - generic: ·
+  - button "矮行星 ·" [disabled]:
+    - generic: 矮行星
+    - generic: ·
+  - button "空域 ·" [disabled]:
+    - generic: 空域
+    - generic: ·
+  - text: 可能存在
+  - text: 确定存在
+  - text: 不存在
+  - text: 会议扇区
+  - text: 学术研究阶段
+  - generic: 手写标注 0 处（点图标即可标注）
+  - button "清空标注" [disabled]
+  - generic "时间轨位置 ›":
+    - generic: 时间轨位置
+    - text: ›
+  - complementary "当前行动":
+    - heading "行动" [level=2]
+    - heading "选择行动 选行动 → 选扇区 → 填写结果" [level=3]:
+      - text: 选择行动
+      - generic: 选行动 → 选扇区 → 填写结果
+    - button "勘测 范围数量 · 4/3/2 个时间单位":
+      - generic: 勘测
+      - generic: 范围数量 · 4/3/2 个时间单位
+    - button "扫描 单个扇区 · 4 个时间单位 · 剩 2 次":
+      - generic: 扫描
+      - generic: 单个扇区 · 4 个时间单位 · 剩 2 次
+    - button "研究 A–F 课题线索 · 1 个时间单位":
+      - generic: 研究
+      - generic: A–F 课题线索 · 1 个时间单位
+    - button "提交学术研究 学术研究阶段开放 · 不耗时" [disabled]:
+      - generic: 提交学术研究
+      - generic: 学术研究阶段开放 · 不耗时
+    - generic "X行星会议 7 号 ›":
+      - heading "X行星会议" [level=3]
+      - generic: 7 号
+      - text: ›
+    - heading "定位 X行星 记下你在实体版提交的答案" [level=3]:
+      - text: 定位 X行星
+      - generic: 记下你在实体版提交的答案
+    - button "记录定位结果"
+- region "行动历史与积分":
+  - generic "行动历史 18 条 最新：我 · 等待 1 个时间单位 ›":
+    - heading "行动历史" [level=2]
+    - generic: 18 条
+    - generic: 最新：我 · 等待 1 个时间单位
+    - text: ›
+  - generic "积分详情 实时统计 ›":
+    - heading "积分详情" [level=2]
+    - generic: 实时统计
+    - text: ›

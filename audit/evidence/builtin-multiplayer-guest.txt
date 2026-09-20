@@ -1,0 +1,163 @@
+- banner:
+  - generic: ◍
+  - heading "X行星之谜" [level=1]
+  - paragraph: 内置谜题 · 独立推理，无需外部 app
+  - text: 房间 QGLRRD
+  - generic: 已连接
+  - button "房间"
+  - button "规则"
+  - button "新对局"
+- generic "我的棋子在第 3 号扇区（已记录 4 条）":
+  - generic: 我的时间
+  - text: 第 1 圈／第 3 格
+  - generic: 累计耗时 2 个时间单位
+- generic "跟着最靠后的 测试乙：箭头在 3 号扇区":
+  - generic: 当前天窗
+  - generic: 3–8
+- generic "剩余可用的扫描标记":
+  - generic: 扫描剩余
+  - generic: 2 / 2
+- generic "会议 10 · 学术研究 3、6、9、12":
+  - generic: 阶段
+  - generic: 自由推理
+- generic: 现在轮到
+- generic: 测试乙
+- generic: （我的回合）
+- generic "时间轨与模式说明 ›":
+  - generic: 时间轨与模式说明
+  - text: ›
+- text: 测试甲
+- generic: · 房主
+- generic: 第 1 圈／第 6 格 · 6 号
+- text: 测试乙
+- generic: 第 1 圈／第 3 格 · 3 号
+- generic: · 行动中
+- main:
+  - complementary "推理线索与参考":
+    - generic "推理线索 ›":
+      - heading "推理线索" [level=2]
+      - text: ›
+    - heading "初始线索（4）" [level=3]
+    - list:
+      - listitem: 2 号没有彗星
+      - listitem: 1 号没有气体云
+      - listitem: 1 号没有矮行星
+      - listitem: 10 号没有彗星
+    - heading "研究线索（0/6）" [level=3]
+    - paragraph: 还没有研究任何主题。
+    - heading "X行星会议线索" [level=3]
+    - paragraph: 会议尚未召开，线索届时自动公布。会议位于 10 号扇区。
+    - generic "基础规律 ›":
+      - heading "基础规律" [level=3]
+      - text: ›
+    - generic "研究课题 0/6 ›":
+      - heading "研究课题" [level=2]
+      - generic: 0/6
+      - text: ›
+    - generic "学术研究 0 篇 ›":
+      - heading "学术研究" [level=2]
+      - generic: 0 篇
+      - text: ›
+  - heading "星图" [level=2]
+  - generic: 我的标注 · 仅自己可见
+  - generic: 选择行动获取线索；点天体图标记录自己的推理
+  - button "X行星 ·" [disabled]:
+    - generic: X行星
+    - generic: ·
+  - button "小行星 ·" [disabled]:
+    - generic: 小行星
+    - generic: ·
+  - button "彗星 ·" [disabled]:
+    - generic: 彗星
+    - generic: ·
+  - button "气体云 ·" [disabled]:
+    - generic: 气体云
+    - generic: ·
+  - button "矮行星 ·" [disabled]:
+    - generic: 矮行星
+    - generic: ·
+  - button "空域 ·" [disabled]:
+    - generic: 空域
+    - generic: ·
+  - text: 可能存在
+  - text: 确定存在
+  - text: 不存在
+  - text: 会议扇区
+  - text: 学术研究阶段
+  - generic: 手写标注 4 处（点图标即可标注）
+  - button "清空标注"
+  - generic "时间轨位置 ›":
+    - generic: 时间轨位置
+    - text: ›
+  - complementary "当前行动":
+    - heading "行动" [level=2]
+    - heading "选择行动 选行动 → 提交查询 → 获取线索" [level=3]:
+      - text: 选择行动
+      - generic: 选行动 → 提交查询 → 获取线索
+    - button "勘测 范围数量 · 4/3/2 个时间单位":
+      - generic: 勘测
+      - generic: 范围数量 · 4/3/2 个时间单位
+    - button "扫描 单个扇区 · 4 个时间单位 · 剩 2 次":
+      - generic: 扫描
+      - generic: 单个扇区 · 4 个时间单位 · 剩 2 次
+    - button "研究 A–F 课题线索 · 1 个时间单位":
+      - generic: 研究
+      - generic: A–F 课题线索 · 1 个时间单位
+    - button "提交学术研究 学术研究阶段开放 · 不耗时" [disabled]:
+      - generic: 提交学术研究
+      - generic: 学术研究阶段开放 · 不耗时
+    - button "等待 1 个时间单位"
+    - heading "定位 X行星 提交位置与左右邻居，系统判定" [level=3]:
+      - text: 定位 X行星
+      - generic: 提交位置与左右邻居，系统判定
+    - button "尝试定位 X行星"
+- region "行动历史与积分":
+  - generic "行动历史 4 条 最新：测试乙 · 等待 1 个时间单位 ›" [active]:
+    - heading "行动历史" [level=2]
+    - generic: 4 条
+    - generic: 最新：测试乙 · 等待 1 个时间单位
+    - text: ›
+  - paragraph: 每行一次记录，按实际发生顺序排列；他人的私有结果不展示。
+  - button "查看最新"
+  - region "行动历史表，可横向滚动查看所有玩家":
+    - table "行动历史：一列一名玩家，一行一次行动；公共事件跨玩家展示。":
+      - caption: 行动历史：一列一名玩家，一行一次行动；公共事件跨玩家展示。
+      - rowgroup:
+        - row "顺序 测试甲 测试乙（我）":
+          - columnheader "顺序"
+          - columnheader "测试甲"
+          - columnheader "测试乙（我）"
+      - rowgroup:
+        - row "01 研究课题 E 耗时 1 个时间单位 结果未公开 此次未行动":
+          - rowheader "01"
+          - cell "研究课题 E 耗时 1 个时间单位 结果未公开":
+            - generic: 研究课题 E
+            - generic: 耗时 1 个时间单位
+            - generic: 结果未公开
+          - cell "此次未行动": —
+        - row "02 此次未行动 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "02"
+          - cell "此次未行动": —
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+        - row "03 扫描 2 号 耗时 4 个时间单位 结果未公开 此次未行动":
+          - rowheader "03"
+          - cell "扫描 2 号 耗时 4 个时间单位 结果未公开":
+            - generic: 扫描 2 号
+            - generic: 耗时 4 个时间单位
+            - generic: 结果未公开
+          - cell "此次未行动": —
+        - row "04 最新 此次未行动 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "04 最新":
+            - text: "04"
+            - generic: 最新
+          - cell "此次未行动": —
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+  - generic "积分详情 实时统计 ›":
+    - heading "积分详情" [level=2]
+    - generic: 实时统计
+    - text: ›
+- generic: 已选：这个阶段不提交

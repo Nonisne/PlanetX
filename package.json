@@ -1,0 +1,14 @@
+{
+  "name": "planet-x-web",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Fan-made Planet X deduction workspace with original built-in puzzles and shared record tables. Zero runtime dependencies.",
+  "scripts": {
+    "start": "node start.mjs",
+    "serve": "node start.mjs",
+    "serve:local": "node start.mjs local",
+    "stop": "node stop.mjs",
+    "test": "node tests/all.test.js"
+  }
+}

@@ -1,0 +1,273 @@
+- banner:
+  - generic: ◍
+  - heading "X行星之谜" [level=1]
+  - paragraph: 内置谜题 · 独立推理，无需外部 app
+  - text: 房间 JYCXKW
+  - generic: 已连接
+  - button "房间"
+  - button "规则"
+  - button "新对局"
+- generic "我的棋子在第 11 号扇区（已记录 16 条）":
+  - generic: 我的时间
+  - generic: 第 2 圈／第 11 格
+- generic "终局天窗已冻结：箭头在 6 号扇区":
+  - generic: 当前天窗
+  - generic: 6–11
+- generic "剩余可用的扫描标记":
+  - generic: 扫描剩余
+  - generic: 2 / 2
+- generic "会议 10 · 学术研究 3、6、9、12":
+  - generic: 阶段
+  - generic: 终局
+- generic: 全盘已揭示，本局已结束
+- generic "时间轨与模式说明 ›":
+  - generic: 时间轨与模式说明
+  - text: ›
+- text: 我
+- generic: · 房主
+- generic: 第 2 圈／第 11 格 · 11 号
+- main:
+  - complementary "推理线索与参考":
+    - generic "推理线索 ›":
+      - heading "推理线索" [level=2]
+      - text: ›
+    - heading "初始线索（4）" [level=3]
+    - list:
+      - listitem: 9 号没有空域
+      - listitem: 2 号没有气体云
+      - listitem: 11 号没有空域
+      - listitem: 9 号没有矮行星
+    - heading "研究线索（6/6）" [level=3]
+    - list:
+      - generic: A
+      - text: 从第 1 扇区起顺时针连续 6 个扇区中，气体云恰有 0 个。
+      - generic: B
+      - text: 从第 6 扇区起顺时针连续 5 个扇区中，矮行星恰有 1 个。
+      - generic: C
+      - text: 从第 4 扇区起顺时针连续 2 个扇区中，彗星恰有 1 个。
+      - generic: D
+      - text: 从第 7 扇区起顺时针连续 3 个扇区中，真正空无一物的扇区恰有 0 个。
+      - generic: E
+      - text: 从第 11 扇区起顺时针连续 4 个扇区中，真正空无一物的扇区恰有 0 个。
+      - generic: F
+      - text: 从第 8 扇区起顺时针连续 4 个扇区中，小行星恰有 1 个。
+    - heading "X行星会议线索" [level=3]
+    - list:
+      - generic: 扇区 10
+      - text: X行星位于第 3 或第 6 扇区。
+    - generic "基础规律 ›":
+      - heading "基础规律" [level=3]
+      - text: ›
+    - generic "研究课题 6/6 ›":
+      - heading "研究课题" [level=2]
+      - generic: 6/6
+      - text: ›
+    - generic "学术研究 1 篇 ›":
+      - heading "学术研究" [level=2]
+      - generic: 1 篇
+      - text: ›
+  - heading "星图" [level=2]
+  - generic: 我的标注 · 仅自己可见
+  - generic: 选择行动获取线索；点天体图标记录自己的推理
+  - button "X行星 ·" [disabled]:
+    - generic: X行星
+    - generic: ·
+  - button "小行星 ·" [disabled]:
+    - generic: 小行星
+    - generic: ·
+  - button "彗星 ·" [disabled]:
+    - generic: 彗星
+    - generic: ·
+  - button "气体云 ·" [disabled]:
+    - generic: 气体云
+    - generic: ·
+  - button "矮行星 ·" [disabled]:
+    - generic: 矮行星
+    - generic: ·
+  - button "空域 ·" [disabled]:
+    - generic: 空域
+    - generic: ·
+  - text: 可能存在
+  - text: 确定存在
+  - text: 不存在
+  - text: 会议扇区
+  - text: 学术研究阶段
+  - generic: 手写标注 4 处（点图标即可标注）
+  - button "清空标注"
+  - generic "时间轨位置 ›":
+    - generic: 时间轨位置
+    - text: ›
+  - complementary "当前行动":
+    - heading "本局已结束" [level=2]
+    - heading "最终积分" [level=3]
+    - paragraph: 获胜：我
+    - list:
+      - listitem: 我 · 10 分
+    - heading "公开棋盘" [level=3]
+    - generic: 1 号 · 小行星
+    - generic: 2 号 · 彗星
+    - generic: 3 号 · X行星
+    - generic: 4 号 · 空域
+    - generic: 5 号 · 彗星
+    - generic: 6 号 · 矮行星
+    - generic: 7 号 · 小行星
+    - generic: 8 号 · 小行星
+    - generic: 9 号 · 气体云
+    - generic: 10 号 · 空域
+    - generic: 11 号 · 气体云
+    - generic: 12 号 · 小行星
+- region "行动历史与积分":
+  - generic "行动历史 16 条 最新：我 · 定位 X行星 3 号 ›" [active]:
+    - heading "行动历史" [level=2]
+    - generic: 16 条
+    - generic: 最新：我 · 定位 X行星 3 号
+    - text: ›
+  - paragraph: 每行一次记录，按实际发生顺序排列；他人的私有结果不展示。
+  - button "查看最新"
+  - region "行动历史表，可横向滚动查看所有玩家":
+    - table "行动历史：一列一名玩家，一行一次行动；公共事件跨玩家展示。":
+      - caption: 行动历史：一列一名玩家，一行一次行动；公共事件跨玩家展示。
+      - rowgroup:
+        - row "顺序 我（我）":
+          - columnheader "顺序"
+          - columnheader "我（我）"
+      - rowgroup:
+        - row "01 研究课题 A 耗时 1 个时间单位":
+          - rowheader "01"
+          - cell "研究课题 A 耗时 1 个时间单位":
+            - generic: 研究课题 A
+            - generic: 耗时 1 个时间单位
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "02 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "02"
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+        - row "03 提交理论 1 号 不耗时 已公开 · 评审错误":
+          - rowheader "03"
+          - cell "提交理论 1 号 不耗时 已公开 · 评审错误":
+            - generic: 提交理论 1 号
+            - generic: 不耗时
+            - generic: 已公开 · 评审错误
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "04 研究课题 B 耗时 1 个时间单位":
+          - rowheader "04"
+          - cell "研究课题 B 耗时 1 个时间单位":
+            - generic: 研究课题 B
+            - generic: 耗时 1 个时间单位
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "05 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "05"
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+        - row "06 研究课题 C 耗时 1 个时间单位":
+          - rowheader "06"
+          - cell "研究课题 C 耗时 1 个时间单位":
+            - generic: 研究课题 C
+            - generic: 耗时 1 个时间单位
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "07 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "07"
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+        - row "08 研究课题 D 耗时 1 个时间单位":
+          - rowheader "08"
+          - cell "研究课题 D 耗时 1 个时间单位":
+            - generic: 研究课题 D
+            - generic: 耗时 1 个时间单位
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "09 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "09"
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+        - row "10 同行评审 · 1 号 · 罚时 公共事件 · 我 耗时 1 个时间单位":
+          - rowheader "10"
+          - cell "同行评审 · 1 号 · 罚时 公共事件 · 我 耗时 1 个时间单位":
+            - generic: 同行评审 · 1 号 · 罚时
+            - generic: 公共事件 · 我
+            - generic: 耗时 1 个时间单位
+        - row "11 X行星会议 · 10 号 公共事件 · 我 不耗时":
+          - rowheader "11"
+          - cell "X行星会议 · 10 号 公共事件 · 我 不耗时":
+            - generic: X行星会议 · 10 号
+            - generic: 公共事件 · 我
+            - generic: 不耗时
+            - generic "查看事件详情 ›":
+              - generic: 查看事件详情
+              - text: ›
+        - row "12 研究课题 E 耗时 1 个时间单位":
+          - rowheader "12"
+          - cell "研究课题 E 耗时 1 个时间单位":
+            - generic: 研究课题 E
+            - generic: 耗时 1 个时间单位
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "13 等待 1 个时间单位 耗时 1 个时间单位":
+          - rowheader "13"
+          - cell "等待 1 个时间单位 耗时 1 个时间单位":
+            - generic: 等待 1 个时间单位
+            - generic: 耗时 1 个时间单位
+        - row "14 研究课题 F 耗时 1 个时间单位":
+          - rowheader "14"
+          - cell "研究课题 F 耗时 1 个时间单位":
+            - generic: 研究课题 F
+            - generic: 耗时 1 个时间单位
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "15 定位 X行星 1 号 耗时 5 个时间单位 app 判定：错误":
+          - rowheader "15"
+          - cell "定位 X行星 1 号 耗时 5 个时间单位 app 判定：错误":
+            - generic: 定位 X行星 1 号
+            - generic: 耗时 5 个时间单位
+            - generic: app 判定：错误
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+        - row "16 最新 定位 X行星 3 号 耗时 5 个时间单位 app 判定：正确":
+          - rowheader "16 最新":
+            - text: "16"
+            - generic: 最新
+          - cell "定位 X行星 3 号 耗时 5 个时间单位 app 判定：正确":
+            - generic: 定位 X行星 3 号
+            - generic: 耗时 5 个时间单位
+            - generic: app 判定：正确
+            - generic "查看结果 ›":
+              - generic: 查看结果
+              - text: ›
+  - generic "积分详情 本局已结束 ›":
+    - heading "积分详情" [level=2]
+    - generic: 本局已结束
+    - text: ›
+  - table:
+    - rowgroup:
+      - row "玩家 正确 理论 首对 定位 合计":
+        - columnheader "玩家"
+        - columnheader "正确"
+        - columnheader "理论"
+        - columnheader "首对"
+        - columnheader "定位"
+        - columnheader "合计"
+    - rowgroup:
+      - row "我 0 0 — 10（首个） 10":
+        - rowheader "我": 我
+        - cell "0"
+        - cell "0"
+        - cell "—"
+        - cell "10（首个）"
+        - cell "10"
+  - paragraph: 理论分：小行星 2 · 彗星 3 · 气体云 4 · 矮行星 4；每个最早阶段提交正确理论的扇区 +1（同阶段共享）；第一个正确定位 X行星 +10，最后机会定位正确按冻结时落后格数每格 +2。同分依次比较定位分、首对奖励，仍同分则并列。

@@ -1,0 +1,946 @@
+// App shell for the record console: one session, one view, one set of handlers.
+//
+// The console never generates or judges anything — it mirrors the physical game:
+// the calendar, the rotating sky window, the star map, the record sheet and the
+// time-track events (X planet conferences and theory phases).
+import { h, mount } from './dom.js';
+import { Obj, CODE, LABEL, SURVEY_TYPES } from '../src/types.js';
+import { arcSectors, mod, visibleSectorsAt } from '../src/rules.js';
+import {
+  completeTheoryPhase,
+  consoleSummary,
+  consoleView,
+  createConsole,
+  markTheoryReview,
+  nudgeWindow,
+  recordConference,
+  recordLocate,
+  recordResearch,
+  recordSurvey,
+  recordTarget,
+  recordTheory,
+  recordWait,
+  revealObjects,
+  undoLast,
+} from '../src/console.js';
+import { renderBoard } from './board.js';
+import { renderTheoriesPanel, renderTopicsPanel } from './notesheet.js';
+import { clearRoom, createRoom, fetchView, joinRoom, loadRoom, openStream, saveRoom, sendAction } from '../src/online.js';
+import {
+  renderActionPanel,
+  renderHeader,
+  renderKnowledgePanel,
+  renderLogPanel,
+  renderScorePanel,
+  renderMapPanel,
+  renderModal,
+  renderStatus,
+  renderToast,
+} from './panels.js';
+
+const SAVE_KEY = 'planetx.save.v3';
+const LEGACY_KEYS = ['planetx.save.v2', 'planetx.save.v1'];
+const NOTES_KEY = 'planetx.notes.v1';
+
+/** Timings tests can dial down without patching global timers. */
+export const appTiming = { toastMs: 3200 };
+
+function notesKey(remote) {
+  return remote ? `planetx.notes.${remote.roomId}.${remote.playerId}` : NOTES_KEY;
+}
+
+function loadSave() {
+  try {
+    const raw = [SAVE_KEY, ...LEGACY_KEYS].map((k) => localStorage.getItem(k)).find(Boolean);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadNotes(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function createApp(root) {
+  const save = loadSave();
+  const session = createConsole({ modeId: (save && save.modeId) || 'standard' });
+  if (save) {
+    session.entries = Array.isArray(save.entries) ? save.entries : [];
+    session.locate = save.locate || null;
+    session.status = save.status || 'open';
+    session.windowOffset = save.windowOffset || 0;
+    session.topics = { ...session.topics, ...(save.topics || {}) };
+    session.seq = save.seq || session.entries.length + 1;
+    session.theoryPhases = Array.isArray(save.theoryPhases) ? save.theoryPhases : [];
+    session.completedTheoryPhases = Array.isArray(save.completedTheoryPhases) ? save.completedTheoryPhases : [];
+    session.undoBarrier = Number.isInteger(save.undoBarrier) ? save.undoBarrier : 0;
+    session.revealedObjects = Array.isArray(save.revealedObjects) ? save.revealedObjects : null;
+    session.windowTime = Number.isFinite(save.windowTime) ? save.windowTime : null;
+  }
+
+  const state = {
+    session,
+    notes: loadNotes(NOTES_KEY),
+    game: null,
+    // online room: when set, the shared state comes from the server and every action
+    // is sent there; `view` is the current per-player snapshot
+    remote: null,
+    stream: null,
+    netStatus: 'offline',
+    ui: {
+      selectedSector: null,
+      surveyType: Obj.ASTEROID,
+      surveyCount: 0,
+      targetResult: null,
+      researchTopic: null,
+      topicName: '',
+      clueText: '',
+      conferenceText: '',
+      // action flow: idle | survey | scan | research | theory
+      action: 'idle',
+      pick: [],
+      theorySector: 0,
+      theoryType: Obj.COMET,
+      modal: null,
+      locate: null,
+      finalTheories: [],
+      revealObjects: [],
+      mark: null,
+      toast: null,
+      setup: null,
+      // the host's room-dialog draft of the table-wide setup information
+      tableInfo: null,
+      panels: {},
+      lobby: { name: '', code: '', busy: false, error: null },
+      // which board (12 or 18 sectors) the next session / room uses
+      modeId: null,
+      playMode: 'record',
+      actionBusy: false,
+    },
+  };
+
+  /**
+   * Views travel as JSON, and `researched` is a Set locally: a Set serialises to `{}`,
+   * so put a real Set back. Anything that is not an array is treated as empty rather
+   * than being fed to `new Set()` (which throws on a plain object).
+   */
+  function adoptRemote(view) {
+    if (!view) return view;
+    const researched = view.researched;
+    if (!(researched instanceof Set)) view.researched = new Set(Array.isArray(researched) ? researched : []);
+    return view;
+  }
+
+  function view() {
+    state.game = state.remote ? adoptRemote(state.remote.view) : consoleView(session);
+    return state.game;
+  }
+
+  function render() {
+    const previousHistory = root.querySelector?.('[data-history-scroll]');
+    const historyScroll = previousHistory ? { top: previousHistory.scrollTop, left: previousHistory.scrollLeft } : null;
+    view();
+    const boardEl = renderBoard({ game: state.game, ui: state.ui, notes: state.notes, onSector, onMark: openMark });
+    mount(
+      root,
+      renderHeader({ state, api }),
+      renderStatus({ state, api }),
+      h(
+        'main',
+        { class: 'layout' },
+        h(
+          'aside',
+          { class: 'col-info', 'aria-label': '推理线索与参考' },
+          renderKnowledgePanel({ state, api }),
+          renderTopicsPanel({
+            state,
+            api,
+            game: state.game,
+            draftNames: state.ui.setup && state.ui.setup.topicNames,
+            onReview: recordTheoryReview,
+          }),
+          renderTheoriesPanel({ state, api, game: state.game, onReview: recordTheoryReview }),
+        ),
+        h('div', { class: 'col-map' }, renderMapPanel({ state, api, boardEl, onClearNotes: clearNotes })),
+        h('aside', { class: 'col-actions', 'aria-label': '当前行动' }, renderActionPanel({ state, api })),
+      ),
+      h('section', { class: 'workspace-secondary', 'aria-label': '行动历史与积分' }, renderLogPanel({ state, api }), renderScorePanel({ state, api })),
+      renderToast({ state }),
+      renderModal({ state, api }),
+    );
+    const nextHistory = root.querySelector?.('[data-history-scroll]');
+    if (nextHistory && historyScroll) {
+      nextHistory.scrollTop = historyScroll.top;
+      nextHistory.scrollLeft = historyScroll.left;
+    }
+  }
+
+  function persist() {
+    if (state.remote) {
+      try {
+        localStorage.setItem(notesKey(state.remote), JSON.stringify(state.notes));
+      } catch {
+        /* storage unavailable */
+      }
+      return;
+    }
+    try {
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify({
+          kind: 'console',
+          modeId: session.mode.id,
+          entries: session.entries,
+          locate: session.locate,
+          status: session.status,
+          windowOffset: session.windowOffset || 0,
+          topics: session.topics,
+          seq: session.seq,
+          theoryPhases: session.theoryPhases,
+          completedTheoryPhases: session.completedTheoryPhases,
+          undoBarrier: session.undoBarrier,
+          revealedObjects: session.revealedObjects,
+          windowTime: session.windowTime,
+        }),
+      );
+      localStorage.setItem(NOTES_KEY, JSON.stringify(state.notes));
+    } catch {
+      /* storage unavailable: keep playing without persistence */
+    }
+  }
+
+  // ---- online rooms ---------------------------------------------------------
+
+  function applyRemoteView(next) {
+    const current = state.remote.view;
+    if (Number.isInteger(current?.revision) && Number.isInteger(next?.revision) && next.revision < current.revision) return false;
+    state.remote.view = adoptRemote(next);
+    return true;
+  }
+
+  function applyServerResult(res, action) {
+    if (res.view) {
+      applyRemoteView(res.view);
+      if (res.ok) {
+        const kind = action && action.kind;
+        if (['locate', 'final-theories', 'final-pass', 'reveal-objects'].includes(kind)) {
+          state.ui.modal = null;
+          state.ui.action = 'idle';
+          state.ui.pick = [];
+          state.ui.finalTheories = [];
+        }
+        const resultEntry = res.view.log?.find((entry) => entry.id === res.entry?.id);
+        if (res.warning) toast(res.warning, 'bad');
+        else if (res.view.playMode === 'builtin' && resultEntry && ['survey', 'target', 'research', 'located'].includes(resultEntry.type)) {
+          if (resultEntry.type === 'survey') toast(`勘测结果：${LABEL[resultEntry.surveyType]} ${resultEntry.count} 个，已写入私有记录`, 'clue');
+          if (resultEntry.type === 'target') toast(`扫描结果：${LABEL[resultEntry.apparent]}${resultEntry.apparent === Obj.EMPTY ? '（仍可能是 X行星）' : ''}`, 'clue');
+          if (resultEntry.type === 'research') toast(`已获得课题 ${resultEntry.topic} 的线索，请查看研究线索面板`, 'clue');
+          if (resultEntry.type === 'located') toast(resultEntry.correct ? '定位正确！最后机会结束后自动揭晓并结算' : '定位不正确：位置或邻居不符，请继续推理', resultEntry.correct ? 'ok' : 'bad');
+        }
+        else if (kind === 'research-declare') {
+          toast(action.count ? `已选：这个阶段提交 ${action.count} 篇（不能改）` : '已选：这个阶段不提交', 'clue');
+        } else if (kind === 'research-submit') {
+          const waiting = (res.view.knowledge.theories || []).filter((t) => t.review === 'pending' && t.slot <= 1).length;
+          toast(res.view.playMode === 'builtin' ? '已提交学术研究；到期后系统自动评审' : waiting ? '已提交；有理论推进到评审格，去 app 触发同行评审' : '已提交学术研究', waiting ? 'clue' : 'ok');
+        } else if (kind === 'review') {
+          if (action.review === 'correct') toast('评审正确：该扇区的内容对全桌公开，之后不能再研究它', 'ok');
+          else if (action.review === 'wrong') toast('评审错误：你的棋子被罚前进 1 个时间单位', 'bad');
+          else toast('已记录', 'ok');
+        } else if (kind === 'setup') {
+          if (res.view.phase === 'play') toast('所有人都准备好了，第一轮开始！', 'clue');
+          else if (res.view.playMode === 'builtin') toast('已准备，等待其他玩家确认私有线索', 'clue');
+          else if (res.view.amHost) toast('已提交（含 A–F 课题名与会议线索），等其他人填写', 'clue');
+          else toast('已提交，等其他人填写', 'clue');
+        } else if (kind === 'setup-reopen') {
+          toast('可以重新填写了（其他人在等你）', 'clue');
+        } else if (kind === 'set-topic-names' || kind === 'set-conference-rules') {
+          toast('全桌共享的开局信息已更新', 'ok');
+        } else if (kind === 'start-game') {
+          toast(res.view.playMode === 'builtin' ? '谜题已准备：查看你的初始线索并确认准备' : '开局准备：每人先填初始线索与 A–F 课题名称', 'clue');
+        } else if (kind === 'skip-turn') {
+          toast(`已跳到 ${res.view.turnPlayerName || '下一位'}`, 'ok');
+        } else toast('已记录', 'ok');
+      } else if (res.error) {
+        toast(res.error, 'bad');
+      }
+    }
+    persist();
+    render();
+    return res;
+  }
+
+  async function remoteAction(action) {
+    const remote = state.remote;
+    if (!remote || remote.actionPending) return { ok: false, error: '请等待当前行动完成' };
+    remote.actionPending = true;
+    state.ui.actionBusy = true;
+    render();
+    try {
+      const result = await sendAction(remote, action);
+      if (state.remote !== remote) return { ok: false, error: '已离开原房间' };
+      return applyServerResult(result, action);
+    } catch {
+      if (state.remote !== remote) return { ok: false, error: '已离开原房间' };
+      const result = { ok: false, error: '暂时无法连接服务，请保持服务运行并重连，先核对行动历史再重试。' };
+      toast(result.error, 'bad');
+      return result;
+    } finally {
+      remote.actionPending = false;
+      if (state.remote === remote) {
+        state.ui.actionBusy = false;
+        render();
+      }
+    }
+  }
+
+  /** Actions that only make sense on your own turn — an open form is dropped when it ends. */
+  const TURN_FORMS = new Set(['survey', 'scan', 'research']);
+
+  /**
+   * People need to know when the table moves on: the banner always shows whose turn it
+   * is, and a turn change also says so. A stale form for an action I can no longer take
+   * is closed rather than left sitting there looking usable.
+   */
+  function followTurn(prev, next) {
+    if (prev && next && (prev.phase !== next.phase || prev.endgame?.cursorId !== next.endgame?.cursorId)) {
+      state.ui.action = 'idle';
+      state.ui.pick = [];
+      state.ui.modal = null;
+      state.ui.locate = null;
+      state.ui.finalTheories = [];
+      state.ui.revealObjects = [];
+    }
+    if (!prev || !next || prev.turnPlayerId === next.turnPlayerId) return;
+    if (next.phase !== 'play' || !next.turnPlayerId) return;
+    if (!next.isMyTurn && TURN_FORMS.has(state.ui.action)) state.ui.action = 'idle';
+    if (next.isMyTurn) toast('轮到你行动了', 'ok');
+    else if (!state.ui.toast) toast(`轮到 ${next.turnPlayerName} 行动`, 'info');
+  }
+
+  function attachStream() {
+    if (state.stream) state.stream.close();
+    const remote = state.remote;
+    state.stream = openStream(remote, {
+      onStatus: (status) => {
+        if (state.remote !== remote) return;
+        state.netStatus = status;
+        render();
+      },
+      onView: (view, notice) => {
+        if (state.remote !== remote) return;
+        const prev = state.remote.view;
+        if (!applyRemoteView(view)) return;
+        if (notice && notice.kind === 'player-joined') toast(`${notice.name} 加入了房间`, 'clue');
+        if (notice && notice.kind === 'action' && notice.by && notice.byId !== state.remote.playerId) toast(`${notice.by} 记录了${ACTION_NAMES[notice.action] || '一步'}`, 'info');
+        followTurn(prev, state.remote.view);
+        render();
+      },
+    });
+  }
+
+  async function enterRoom(room, viewFromServer) {
+    clearHistoryResults();
+    state.remote = {
+      roomId: room.roomId,
+      playerId: room.playerId,
+      token: room.token,
+      view: adoptRemote(viewFromServer || room.view),
+    };
+    state.notes = loadNotes(notesKey(state.remote));
+    saveRoom({ roomId: room.roomId, playerId: room.playerId, token: room.token });
+    state.ui.modal = null;
+    state.ui.lobby = { ...state.ui.lobby, busy: false, error: null };
+    state.ui.finalTheories = [];
+    state.ui.revealObjects = [];
+    state.ui.locate = null;
+    state.ui.setup = null;
+    state.ui.action = 'idle';
+    state.ui.actionBusy = false;
+    state.ui.pick = [];
+    state.ui.playMode = state.remote.view.playMode || 'record';
+    attachStream();
+    render();
+  }
+
+  async function doCreateRoom() {
+    const lobby = state.ui.lobby;
+    state.ui.lobby = { ...lobby, busy: true, error: null };
+    render();
+    try {
+      const room = await createRoom({ name: lobby.name, modeId: state.ui.modeId || 'standard', playMode: state.ui.playMode || 'record' });
+      await enterRoom(room);
+      toast(`房间 ${room.roomId} 已创建，把房间码发给同桌的人`, 'clue');
+    } catch (err) {
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: err.message };
+      render();
+    }
+  }
+
+  async function startBuiltin() {
+    if (state.ui.lobby.busy) return { ok: false };
+    state.ui.lobby = { ...state.ui.lobby, busy: true, error: null };
+    render();
+    try {
+      const room = await createRoom({ name: state.ui.lobby.name || '我', modeId: 'standard', playMode: 'builtin' });
+      await enterRoom(room);
+      return await startGame();
+    } catch (error) {
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: error.message || '无法创建谜题，请检查本地服务' };
+      render();
+      return { ok: false, error: state.ui.lobby.error };
+    }
+  }
+
+  async function doJoinRoom() {
+    const lobby = state.ui.lobby;
+    state.ui.lobby = { ...lobby, busy: true, error: null };
+    render();
+    try {
+      const room = await joinRoom(lobby.code, lobby.name);
+      await enterRoom(room);
+      toast(`已加入房间 ${room.roomId}`, 'clue');
+    } catch (err) {
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: err.message };
+      render();
+    }
+  }
+
+  async function leaveRoom() {
+    clearHistoryResults();
+    if (state.stream) state.stream.close();
+    state.stream = null;
+    state.remote = null;
+    state.ui.actionBusy = false;
+    state.netStatus = 'offline';
+    clearRoom();
+    state.notes = loadNotes(NOTES_KEY);
+    state.ui.modal = null;
+    state.ui.setup = null;
+    state.ui.finalTheories = [];
+    state.ui.revealObjects = [];
+    state.ui.locate = null;
+    render();
+  }
+
+  /** Host starts the game: lobby -> setup. */
+  function startGame() {
+    return remoteAction({ kind: 'start-game' });
+  }
+
+  /** Submit my initial clues — plus, for the host, the table-wide subjects and notes. */
+  function submitSetup() {
+    const ui = state.ui;
+    const mine = state.game.mySetup || {};
+    const draft = (state.game.playMode !== 'builtin' && ui.setup) || {
+      clues: (mine.clues || []).map((c) => ({ ...c })),
+      noClues: Boolean(mine.noClues),
+      topicNames: { ...(state.game.topicNames || {}) },
+      conferences: { ...(state.game.conferenceRules || {}) },
+    };
+    // the initial clues are private facts, so they also go into my own record sheet
+    if (!draft.noClues) {
+      for (const clue of draft.clues || []) {
+        if (Number.isInteger(clue.sector) && CODE[clue.type]) state.notes[`${clue.sector}:${CODE[clue.type]}`] = 'no';
+      }
+    }
+    const action = state.game.playMode === 'builtin' ? { kind: 'setup' } : { kind: 'setup', clues: draft.clues, noClues: draft.noClues };
+    if (state.game.amHost && state.game.playMode !== 'builtin') {
+      action.topics = draft.topicNames || {};
+      action.conferences = draft.conferences || {};
+    }
+    const res = remoteAction(action);
+    state.ui.setup = null;
+    return res;
+  }
+
+  /** Fill my setup card in again — the other players just keep waiting. */
+  function reopenSetup() {
+    state.ui.setup = null;
+    return remoteAction({ kind: 'setup-reopen' });
+  }
+
+  /** The host corrects the table-wide information from the room dialog. */
+  async function saveTableInfo() {
+    const info = state.ui.tableInfo;
+    if (!info) return { ok: false, error: '没有要保存的内容' };
+    // a draft that only touched one of the two fields must not wipe the other
+    const names = info.topicNames || state.game.topicNames || {};
+    const rules = info.conferences || state.game.conferenceRules || {};
+    const named = await remoteAction({ kind: 'set-topic-names', names });
+    if (!named.ok) return named;
+    const recorded = await remoteAction({ kind: 'set-conference-rules', rules });
+    if (!recorded.ok) return recorded;
+    state.ui.tableInfo = null;
+    render();
+    return { ok: true };
+  }
+
+  /** The empty lobby form, used to seed `ui.lobby` if it is ever missing. */
+  function emptyLobby() {
+    return { name: '', code: '', busy: false, error: null };
+  }
+
+  /** The setup card's draft, seeded from the server view the first time it is touched. */
+  function setupDraft() {
+    const g = state.game || {};
+    const mine = g.mySetup || {};
+    return {
+      clues: (mine.clues || []).map((c) => ({ ...c })),
+      noClues: Boolean(mine.noClues),
+      topicNames: { ...(g.topicNames || {}) },
+      conferences: { ...(g.conferenceRules || {}) },
+    };
+  }
+
+  /** The room dialog's draft of the same table-wide information. */
+  function tableDraft() {
+    const g = state.game || {};
+    return { topicNames: { ...(g.topicNames || {}) }, conferences: { ...(g.conferenceRules || {}) } };
+  }
+
+  /**
+   * Merge a patch into `ui.setup` (or `ui.tableInfo`) as it is *now*.
+   * Text fields must not merge into a stale render-time copy, otherwise typing into a
+   * second field would drop the first one.
+   */
+  function patchUiState(key, fnOrPatch, quiet, seed) {
+    const current = state.ui[key] || (seed ? seed() : {});
+    const patch = typeof fnOrPatch === 'function' ? fnOrPatch(current) : fnOrPatch;
+    const next = { ...current, ...(patch || {}) };
+    if (quiet) setUiQuiet({ [key]: next });
+    else setUi({ [key]: next });
+    return next;
+  }
+
+  function skipTurn() {
+    return remoteAction({ kind: 'skip-turn' });
+  }
+
+  /** Rejoin the room saved in this browser, if the server still knows it. */
+  async function restoreRoom() {
+    const saved = loadRoom();
+    if (!saved) return false;
+    const isCurrentRestore = () => {
+      const current = loadRoom();
+      return !state.remote && current?.roomId === saved.roomId && current?.token === saved.token;
+    };
+    try {
+      const view = await fetchView(saved);
+      if (!isCurrentRestore()) return false;
+      await enterRoom(saved, view);
+      return true;
+    } catch (error) {
+      if (isCurrentRestore()) {
+        if ([401, 403, 404, 410].includes(error.status)) clearRoom();
+        else toast('暂时无法恢复房间，身份已保留。请确认服务运行后刷新重试。', 'bad');
+      }
+      return false;
+    }
+  }
+
+  function setUi(patch) {
+    Object.assign(state.ui, patch);
+    render();
+  }
+
+  /** Update state without re-rendering — used by text inputs so typing keeps focus. */
+  function setUiQuiet(patch) {
+    Object.assign(state.ui, patch);
+  }
+
+  function clearHistoryResults() {
+    state.ui.panels = Object.fromEntries(Object.entries(state.ui.panels || {}).filter(([id]) => !id.startsWith('history-result-')));
+  }
+
+  function toast(text, kind = 'info') {
+    state.ui.toast = { text, kind };
+    render();
+    setTimeout(() => {
+      if (state.ui.toast && state.ui.toast.text === text) {
+        state.ui.toast = null;
+        render();
+      }
+    }, appTiming.toastMs);
+  }
+
+  function visibleOf(g) {
+    return Array.isArray(g.visible) ? g.visible : visibleSectorsAt(g.time, g.mode);
+  }
+
+  // ---- recording ------------------------------------------------------------
+
+  function consoleAction(action) {
+    if (state.remote) return remoteAction(action);
+    const res =
+      action.kind === 'survey'
+        ? recordSurvey(session, action)
+        : action.kind === 'target'
+          ? recordTarget(session, action)
+          : action.kind === 'research'
+            ? recordResearch(session, action)
+            : action.kind === 'theory'
+              ? recordTheory(session, action)
+              : action.kind === 'conference'
+                ? recordConference(session, action)
+                : action.kind === 'wait'
+                  ? recordWait(session, action.units ?? action.months)
+                  : action.kind === 'locate'
+                    ? recordLocate(session, action)
+                    : action.kind === 'theory-complete'
+                      ? completeTheoryPhase(session)
+                      : action.kind === 'reveal-objects'
+                        ? revealObjects(session, action.objects)
+                        : action.kind === 'undo'
+                          ? undoLast(session)
+                          : { ok: false, error: `不支持该操作：${action.kind}` };
+
+    if (!res.ok) {
+      toast(res.error, 'bad');
+      return res;
+    }
+    if (['locate', 'theory-complete', 'reveal-objects'].includes(action.kind)) {
+      state.ui.modal = null;
+      state.ui.action = 'idle';
+      state.ui.pick = [];
+    }
+    if (res.warning) {
+      toast(res.warning, 'bad');
+    } else if (action.kind === 'undo') {
+      toast('已撤销最后一条记录', 'ok');
+    } else if (action.kind === 'theory-complete') {
+      const waiting = session.entries.filter((e) => e.type === 'theory' && e.review === 'pending' && e.slot <= 1).length;
+      toast(
+        waiting
+          ? `本阶段已完成；${waiting} 条理论到达评审格，请填写 app 评审结果`
+          : '本阶段已完成，所有未评审理论各推进一格',
+        waiting ? 'clue' : 'ok',
+      );
+    } else if (action.kind === 'theory') toast('已提交理论；完成本阶段后统一推进', 'ok');
+    else if (action.kind === 'locate') toast(action.correct === false ? '定位错误：耗时 5 个时间单位，继续游戏' : '定位正确：天窗已冻结，请按官方 app 揭示棋盘', action.correct === false ? 'bad' : 'clue');
+    else if (action.kind === 'reveal-objects') toast('棋盘已揭示，最终积分已结算', 'ok');
+    else if (action.kind === 'survey') toast('已记录勘测结果', 'ok');
+    else if (action.kind === 'target') toast('已记录扫描结果', 'ok');
+    else if (action.kind === 'research') toast('已记录研究线索', 'ok');
+    else if (action.kind === 'conference') toast('已记录会议线索', 'ok');
+
+    persist();
+    render();
+    return res;
+  }
+
+  /** Range implied by the two sectors picked on the map (clockwise, shortest way). */
+  function pickedRange() {
+    const [a, b] = state.ui.pick || [];
+    if (!Number.isInteger(a) || !Number.isInteger(b)) return null;
+    const n = view().mode.sectors;
+    const forward = mod(b - a, n) + 1;
+    const backward = mod(a - b, n) + 1;
+    if (forward <= 9 || forward <= backward) return { start: a, size: forward, sectors: arcSectors(a, forward, n) };
+    return { start: b, size: backward, sectors: arcSectors(b, backward, n) };
+  }
+
+  function startAction(kind) {
+    state.ui.action = kind;
+    state.ui.pick = [];
+    state.ui.selectedSector = null;
+    if (kind === 'theory') {
+      const v = view();
+      const locked = new Set(v.theoryLockedSectors || []);
+      const free = v.theorySectors.find((sector) => !locked.has(sector) && !v.knowledge.theories.some((t) => t.sector === sector));
+      state.ui.theorySector = free !== undefined ? free : v.arrowSector - 1;
+    }
+    render();
+  }
+
+  function cancelAction() {
+    state.ui.action = 'idle';
+    state.ui.pick = [];
+    render();
+  }
+
+  /** Shared tail of every confirm: auto-fill the facts, clear the card, re-render. */
+  function finishConfirm(kind, payload, res) {
+    if (!res || !res.ok) return res;
+    if (state.game.playMode === 'builtin') {
+      const entry = res.view?.log?.find((record) => record.id === res.entry?.id);
+      if (entry?.type === 'target') payload = { ...payload, apparent: entry.apparent };
+      if (entry?.type === 'survey') payload = { ...payload, count: entry.count };
+    }
+    // what the app told you is a fact: write it straight into the record sheet
+    if (kind === 'scan') {
+      if (state.game.playMode === 'builtin' && payload.apparent === Obj.EMPTY) {
+        for (const objectType of SURVEY_TYPES.filter((type) => type !== Obj.EMPTY)) state.notes[`${payload.sector}:${CODE[objectType]}`] = 'no';
+      } else if (CODE[payload.apparent]) state.notes[`${payload.sector}:${CODE[payload.apparent]}`] = 'yes';
+    } else if (kind === 'survey' && payload.size === 1) {
+      if (!(state.game.playMode === 'builtin' && payload.type === Obj.EMPTY && payload.count === 1)) {
+        state.notes[`${payload.start}:${CODE[payload.type]}`] = payload.count === 1 ? 'yes' : 'no';
+      }
+    }
+    state.ui.action = 'idle';
+    state.ui.pick = [];
+    state.ui.surveyCount = 0;
+    state.ui.topicName = '';
+    state.ui.clueText = '';
+    state.ui.targetResult = null;
+    state.ui.researchTopic = null;
+    persist();
+    render();
+    return res;
+  }
+
+  /** Confirm the active action card and auto-fill whatever is a plain fact. */
+  function confirmAction() {
+    const ui = state.ui;
+    const kind = ui.action;
+    let payload = null;
+    if (kind === 'survey') {
+      const range = pickedRange();
+      if (!range) {
+        toast('请先在星图上点起点和终点', 'bad');
+        return { ok: false };
+      }
+      if (range.size > 9) {
+        toast('勘测范围最多 9 个扇区', 'bad');
+        return { ok: false };
+      }
+      payload = { kind: 'survey', type: ui.surveyType, start: range.start, size: range.size, ...(state.game.playMode === 'builtin' ? {} : { count: Number(ui.surveyCount) }) };
+    } else if (kind === 'scan') {
+      const sector = (ui.pick || [])[0];
+      if (!Number.isInteger(sector)) {
+        toast('请先在星图上点一个扇区', 'bad');
+        return { ok: false };
+      }
+      if (!ui.targetResult && state.game.playMode !== 'builtin') {
+        toast('请选择 app 给出的扫描结果', 'bad');
+        return { ok: false };
+      }
+      payload = { kind: 'target', sector, ...(state.game.playMode === 'builtin' ? {} : { apparent: ui.targetResult }) };
+    } else if (kind === 'research') {
+      if (!ui.researchTopic) {
+        toast('请先选择一个课题（A–F）', 'bad');
+        return { ok: false };
+      }
+      payload = { kind: 'research', topic: ui.researchTopic, ...(state.game.playMode === 'builtin' ? {} : { name: ui.topicName, text: ui.clueText }) };
+    } else if (kind === 'theory') {
+      if (!Number.isInteger(ui.theorySector)) {
+        toast('请选择要发表理论的扇区', 'bad');
+        return { ok: false };
+      }
+      payload = { kind: 'theory', sector: ui.theorySector, type: ui.theoryType };
+    } else {
+      return { ok: false };
+    }
+
+    const res = consoleAction(payload);
+    // the online path answers asynchronously; the offline one is immediate
+    if (res && typeof res.then === 'function') return res.then((settled) => finishConfirm(kind, payload, settled));
+    return finishConfirm(kind, payload, res);
+  }
+
+  function recordTheoryReview(id, review) {
+    if (state.remote) {
+      return remoteAction({ kind: 'review', id, review });
+    }
+    const res = markTheoryReview(session, id, review);
+    if (res.ok && review === 'wrong') toast('评审错误：你的棋子前进 1 个时间单位', 'bad');
+    else if (res.ok && review === 'correct') toast('评审正确：该扇区的内容对全桌公开', 'ok');
+    persist();
+    render();
+    return res;
+  }
+
+  // ---- map + record sheet ---------------------------------------------------
+
+  function onSector(sector) {
+    view();
+    state.ui.mark = null; // clicking the map itself dismisses the marking popover
+    const visible = visibleOf(state.game);
+
+    // You may only survey or scan inside the visible sky, so a hidden sector is refused
+    // here and again by the engine (which is what actually validates the record).
+    if ((state.ui.action === 'survey' || state.ui.action === 'scan') && !visible.includes(sector)) {
+      toast(`只能选天窗内的扇区：当前可见 ${visible.map((s) => s + 1).join('、')} 号`, 'bad');
+      return;
+    }
+
+    if (state.ui.action === 'survey' || state.ui.action === 'scan') {
+      state.ui.selectedSector = sector;
+      const picks = state.ui.pick || [];
+      if (state.ui.action === 'survey') {
+        state.ui.pick = picks.length >= 2 ? [sector] : [...picks, sector];
+      } else {
+        state.ui.pick = [sector];
+      }
+      render();
+      return;
+    }
+
+    state.ui.selectedSector = sector;
+    render();
+  }
+
+  function toggleNote(sector, code) {
+    const key = `${sector}:${code}`;
+    const cur = state.notes[key];
+    if (!cur) state.notes[key] = 'yes';
+    else if (cur === 'yes') state.notes[key] = 'no';
+    else delete state.notes[key];
+    persist();
+    render();
+  }
+
+  /** Open the three-way marking choice for one object in one sector. */
+  function openMark(sector, code) {
+    state.ui.mark = { sector, code };
+    state.ui.selectedSector = sector;
+    render();
+  }
+
+  /** state: 'yes' (确定存在) | 'no' (不存在) | 'maybe' (可能存在, clears the mark). */
+  function setMark(sector, code, markState) {
+    const key = `${sector}:${code}`;
+    if (markState === 'yes' || markState === 'no') state.notes[key] = markState;
+    else delete state.notes[key];
+    persist();
+    render();
+  }
+
+  function clearNotes() {
+    state.notes = {};
+    persist();
+    render();
+  }
+
+  function newSession(modeId) {
+    if (state.remote) leaveRoom();
+    clearHistoryResults();
+    Object.assign(session, createConsole({ modeId: modeId || session.mode.id }), { seq: 1 });
+    state.notes = {};
+    state.ui.modal = null;
+    state.ui.selectedSector = null;
+    state.ui.researchTopic = null;
+    state.ui.targetResult = null;
+    state.ui.mark = null;
+    state.ui.action = 'idle';
+    state.ui.pick = [];
+    state.ui.topicName = '';
+    state.ui.clueText = '';
+    state.ui.conferenceText = '';
+    state.ui.locate = null;
+    state.ui.finalTheories = [];
+    state.ui.revealObjects = [];
+    state.ui.playMode = 'record';
+    persist();
+    render();
+  }
+
+  function openLocate() {
+    state.ui.locate = state.ui.locate || { sector: 0, left: 'asteroid', right: 'asteroid' };
+    state.ui.modal = { kind: 'locate' };
+    render();
+  }
+
+  const api = {
+    setUi,
+    setUiQuiet,
+    doAction: consoleAction,
+    consoleAction,
+    newSession,
+    startBuiltin,
+    openLocate,
+    openMark,
+    setMark,
+    toggleNote,
+    clearNotes,
+    startAction,
+    cancelAction,
+    confirmAction,
+    recordTheoryReview,
+    pickedRange,
+    createRoom: doCreateRoom,
+    joinRoom: doJoinRoom,
+    leaveRoom,
+    startGame,
+    submitSetup,
+    reopenSetup,
+    saveTableInfo,
+    setupDraft,
+    tableDraft,
+    patchSetup: (fnOrPatch, quiet = false) => patchUiState('setup', fnOrPatch, quiet, setupDraft),
+    patchTableInfo: (fnOrPatch, quiet = false) => patchUiState('tableInfo', fnOrPatch, quiet, tableDraft),
+    // the lobby form always types quietly (no re-render), so its fields are merged into
+    // the live state and the caller gets the merged object back to sync dependent UI
+    patchLobby: (fnOrPatch) => patchUiState('lobby', fnOrPatch, true, emptyLobby),
+    skipTurn,
+    isOnline: () => Boolean(state.remote),
+    consoleSummary: () => state.game.summary || consoleSummary(session),
+    nudgeWindow: (delta) => {
+      if (state.remote) return remoteAction({ kind: 'nudge', delta });
+      const result = nudgeWindow(session, delta);
+      if (!result.ok) return result;
+      persist();
+      render();
+      return result;
+    },
+  };
+
+  // Clicking anywhere outside a popup dismisses it; Escape closes it too.
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener(
+      'click',
+      (event) => {
+        const target = event && event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        let changed = false;
+        if (state.ui.mark && !target.closest('.mark-pop') && !target.closest('.poss-icon') && !target.closest('.mark-chip')) {
+          state.ui.mark = null;
+          changed = true;
+        }
+        if (state.ui.modal && !target.closest('.modal') && !target.closest('[data-modal-trigger]')) {
+          state.ui.modal = null;
+          changed = true;
+        }
+        if (changed) render();
+      },
+      true,
+    );
+    document.addEventListener('keydown', (event) => {
+      if (!event || event.key !== 'Escape') return;
+      if (!state.ui.mark && !state.ui.modal) return;
+      state.ui.mark = null;
+      state.ui.modal = null;
+      render();
+    });
+  }
+
+  render();
+  restoreRoom();
+  return { state, render, api, persist, session, room: () => state.remote };
+}
+
+/** Human names for the log/notice lines. */
+const ACTION_NAMES = {
+  survey: '一次勘测',
+  target: '一次扫描',
+  research: '一条研究线索',
+  theory: '一条学术研究',
+  conference: '会议线索',
+  wait: '1 个时间单位的等待',
+  locate: '定位结果',
+  review: '评审结果',
+  nudge: '天窗位置',
+};
+
+export function start() {
+  const root = document.getElementById('app');
+  if (!root) return null;
+  return createApp(root);
+}

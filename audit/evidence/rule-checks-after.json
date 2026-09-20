@@ -1,0 +1,342 @@
+{
+  "summary": {
+    "checks": 23,
+    "passed": 23,
+    "mismatches": 0,
+    "harnessErrors": 0
+  },
+  "results": [
+    {
+      "id": "P01",
+      "title": "棋盘和可见天区规模",
+      "pages": "4, 5",
+      "status": "pass",
+      "expected": [
+        [
+          12,
+          6
+        ],
+        [
+          18,
+          9
+        ]
+      ],
+      "actual": [
+        [
+          12,
+          6
+        ],
+        [
+          18,
+          9
+        ]
+      ]
+    },
+    {
+      "id": "P02",
+      "title": "扫描受天窗和两枚标记限制",
+      "pages": "9",
+      "status": "pass",
+      "expected": [
+        false,
+        true,
+        true,
+        false
+      ],
+      "actual": [
+        false,
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "id": "P03",
+      "title": "他人看不到勘测数量",
+      "pages": "9",
+      "status": "pass",
+      "expected": {
+        "publicRange": 1,
+        "privateCountPresent": false
+      },
+      "actual": {
+        "publicRange": 1,
+        "privateCountPresent": false
+      }
+    },
+    {
+      "id": "P04",
+      "title": "正确论文的天体分值",
+      "pages": "17",
+      "status": "pass",
+      "expected": [
+        [
+          2,
+          3,
+          4,
+          4
+        ],
+        [
+          2,
+          3,
+          4,
+          2
+        ]
+      ],
+      "actual": [
+        [
+          2,
+          3,
+          4,
+          4
+        ],
+        [
+          2,
+          3,
+          4,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "P05",
+      "title": "最靠后行动且同格先到优先",
+      "pages": "8, 12",
+      "status": "pass",
+      "expected": [
+        true,
+        true,
+        true
+      ],
+      "actual": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "P06",
+      "title": "标准与专家阶段篇数上限",
+      "pages": "14",
+      "status": "pass",
+      "expected": [
+        1,
+        2
+      ],
+      "actual": [
+        1,
+        2
+      ]
+    },
+    {
+      "id": "P07",
+      "title": "按官方五格定位成本构造的最后定位计分",
+      "pages": "16, 17",
+      "status": "pass",
+      "expected": [
+        2,
+        4,
+        6,
+        8,
+        10
+      ],
+      "actual": [
+        2,
+        4,
+        6,
+        8,
+        10
+      ]
+    },
+    {
+      "id": "R01",
+      "title": "行动耗时与官方表不一致",
+      "pages": "9, 10, 12",
+      "status": "pass",
+      "expected": {
+        "survey": [
+          4,
+          3,
+          2
+        ],
+        "target": 4,
+        "research": 1,
+        "locate": 5
+      },
+      "actual": {
+        "survey": [
+          4,
+          3,
+          2
+        ],
+        "target": 4,
+        "research": 1,
+        "locate": 5
+      }
+    },
+    {
+      "id": "R02",
+      "title": "专家彗星提示遗漏13和17",
+      "pages": "4",
+      "status": "pass",
+      "expected": [
+        true,
+        true
+      ],
+      "actual": [
+        true,
+        true
+      ]
+    },
+    {
+      "id": "R03",
+      "title": "彗星勘测接受不合法端点",
+      "pages": "9",
+      "status": "pass",
+      "expected": false,
+      "actual": false
+    },
+    {
+      "id": "R04",
+      "title": "其他玩家行动绕过本人连续研究限制",
+      "pages": "10",
+      "status": "pass",
+      "expected": false,
+      "actual": false
+    },
+    {
+      "id": "R05",
+      "title": "定位错误却结束联机房间",
+      "pages": "10, 16",
+      "status": "pass",
+      "expected": {
+        "phase": "play",
+        "status": "open"
+      },
+      "actual": {
+        "phase": "play",
+        "status": "open"
+      }
+    },
+    {
+      "id": "R06",
+      "title": "定位的扇区与邻居泄露给其他玩家",
+      "pages": "10, 16",
+      "status": "pass",
+      "expected": [],
+      "actual": []
+    },
+    {
+      "id": "R07",
+      "title": "首次正确定位后缺少其他玩家最终机会",
+      "pages": "16",
+      "status": "pass",
+      "expected": {
+        "accepted": true,
+        "pawnUnchanged": true
+      },
+      "actual": {
+        "accepted": true,
+        "pawnUnchanged": true
+      }
+    },
+    {
+      "id": "R08",
+      "title": "全员零篇时旧论文不推进",
+      "pages": "14",
+      "status": "pass",
+      "expected": 2,
+      "actual": 2
+    },
+    {
+      "id": "R09",
+      "title": "错误论文评审后仍隐藏天体",
+      "pages": "15",
+      "status": "pass",
+      "expected": "comet",
+      "actual": "comet"
+    },
+    {
+      "id": "R10",
+      "title": "正确论文揭出其他错误论文却不罚时",
+      "pages": "15",
+      "status": "pass",
+      "expected": {
+        "review": "wrong",
+        "penalty": 1
+      },
+      "actual": {
+        "review": "wrong",
+        "penalty": 1
+      }
+    },
+    {
+      "id": "R11",
+      "title": "同一玩家可重复提交同区同天体论文",
+      "pages": "14",
+      "status": "pass",
+      "expected": false,
+      "actual": false
+    },
+    {
+      "id": "R12",
+      "title": "专家阶段可同时提交同区两种天体",
+      "pages": "14",
+      "status": "pass",
+      "expected": false,
+      "actual": false
+    },
+    {
+      "id": "R13",
+      "title": "同阶段并列最早论文只奖励一人",
+      "pages": "14, 17",
+      "status": "pass",
+      "expected": [
+        1,
+        1
+      ],
+      "actual": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "R14",
+      "title": "平分时缺少定位分和首发分裁决",
+      "pages": "17",
+      "status": "pass",
+      "expected": [
+        [
+          "second"
+        ],
+        [
+          "second"
+        ]
+      ],
+      "actual": [
+        [
+          "second"
+        ],
+        [
+          "second"
+        ]
+      ]
+    },
+    {
+      "id": "R15",
+      "title": "单机越过论文事件后无法提交",
+      "pages": "13, 14",
+      "status": "pass",
+      "expected": true,
+      "actual": true
+    },
+    {
+      "id": "R16",
+      "title": "重复提交同一次错误评审会重复罚时",
+      "pages": "15; robustness",
+      "status": "pass",
+      "expected": 1,
+      "actual": 1
+    }
+  ]
+}
