@@ -2115,6 +2115,66 @@ select:focus {
   line-height: 1.65;
 }
 
+.theory-token-meter {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(18, 28, 48, 0.55);
+}
+
+.theory-token-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theory-token {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12.5px;
+}
+
+.theory-token.exhausted {
+  opacity: 0.55;
+}
+
+.theory-token-count {
+  font-variant-numeric: tabular-nums;
+  color: #e8eefc;
+}
+
+.dwarf-belt-helper {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.dwarf-belt-helper h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #d7e3ff;
+}
+
+.dwarf-belt-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: #cbd8f0;
+  line-height: 1.55;
+}
+
+.starmap .wedge.dwarf-band:not(.selected):not(.in-range) {
+  stroke: rgba(120, 196, 255, 0.55);
+  stroke-width: 1.4;
+  fill: rgba(88, 160, 220, 0.12);
+}
+
 .topic-tag {
   display: inline-block;
   min-width: 20px;

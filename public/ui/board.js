@@ -3,6 +3,7 @@
 import { s } from './dom.js';
 import { CODE, CODE_TO_TYPE, LABEL } from '../src/types.js';
 import { durationLabel, isCometSector, mod, timeShort, visibleSectorsAt, visibleStartAt } from '../src/rules.js';
+import { dwarfBandCoverage } from '../src/dwarf-belt.js';
 import { iconAt } from './icons.js';
 import { TYPE_COLOR } from './theme.js';
 import { tutorialExpected, tutorialFocusProps } from './tutorial.js';
@@ -171,6 +172,10 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
   const picked = Array.isArray(ui.pick) ? ui.pick : [];
   for (const sector of picked) rangeSectors.add(sector);
 
+  // Record-mode expert helper: soft-highlight sectors that still fit a legal dwarf band.
+  const showDwarfBands = mode.id === 'expert' && game.playMode !== 'builtin' && !game.tutorial;
+  const dwarfCoverage = showDwarfBands ? dwarfBandCoverage(notes || {}, n) : null;
+
   const root = s('svg', { viewBox: `0 0 ${CX * 2} ${CY * 2}`, class: 'starmap', role: game.tutorial ? 'group' : 'img', 'aria-label': '星图与公共时间轨', ...tutorialFocusProps(game, game.tutorial?.focus === 'timeline' ? 'timeline' : 'map') });
 
   // rotating visible sky window
@@ -198,17 +203,18 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
 
   for (let i = 0; i < n; i++) {
     const [a0, a1] = sectorAngles(i, n);
-    const g = s('g', { class: `sector${isVisibleSector(i) ? ' visible' : ''}`, 'data-sector': i });
+    const dwarfBand = dwarfCoverage?.has(i);
+    const g = s('g', { class: `sector${isVisibleSector(i) ? ' visible' : ''}${dwarfBand ? ' dwarf-band' : ''}`, 'data-sector': i });
 
     const revealedCode = CODE[targeted.get(i)] || targeted.get(i);
     const revealed = revealedCode === CODE.comet && !isCometSector(mode, i) ? null : revealedCode;
     const canPick = !['survey', 'scan'].includes(ui.action) || (isVisibleSector(i) && (ui.action !== 'survey' || ui.surveyType !== 'comet' || isCometSector(mode, i)));
     const fill = revealed ? TYPE_COLOR[revealed] : null;
     const tutorialTarget = tutorialSectors.has(i);
-    const sectorLabel = `${i + 1} 号扇区${isVisibleSector(i) ? '（可见）' : '（当前不可见）'}${tutorialTarget ? ' · 教学目标' : ''}`;
+    const sectorLabel = `${i + 1} 号扇区${isVisibleSector(i) ? '（可见）' : '（当前不可见）'}${dwarfBand ? ' · 可能的矮行星带' : ''}${tutorialTarget ? ' · 教学目标' : ''}`;
     const path = s('path', {
       d: wedgePath(R_INNER, R_OUTER, a0, a1),
-      class: ['wedge', isVisibleSector(i) ? 'visible' : 'hidden', ui.selectedSector === i ? 'selected' : '', rangeSectors.has(i) ? 'in-range' : '', canPick ? '' : 'unavailable', tutorialTarget ? 'tutorial-target' : '']
+      class: ['wedge', isVisibleSector(i) ? 'visible' : 'hidden', ui.selectedSector === i ? 'selected' : '', rangeSectors.has(i) ? 'in-range' : '', dwarfBand ? 'dwarf-band' : '', canPick ? '' : 'unavailable', tutorialTarget ? 'tutorial-target' : '']
         .filter(Boolean)
         .join(' '),
       fill: fill || undefined,
@@ -216,7 +222,7 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
       'aria-disabled': canPick ? null : 'true',
       'data-tutorial-target': tutorialTarget ? 'sector' : null,
       'aria-describedby': tutorialTarget ? 'tutorial-instruction' : null,
-      'aria-label': tutorialTarget ? sectorLabel : null,
+      'aria-label': tutorialTarget || dwarfBand ? sectorLabel : null,
       role: tutorialTarget ? 'button' : null,
       tabindex: tutorialTarget && canPick ? 0 : null,
       onkeydown: tutorialTarget && canPick ? event => {

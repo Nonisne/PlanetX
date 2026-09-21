@@ -513,7 +513,7 @@ test('a correct review reveals the sector and settles every paper about it', () 
 
   const right = publish(2, Obj.COMET, 'P1');
   const wrong = publish(2, Obj.DWARF_PLANET, 'P2');
-  const elsewhere = publish(7, Obj.DWARF_PLANET, 'P2');
+  const elsewhere = publish(7, Obj.ASTEROID, 'P2');
   assert.equal(as('P2', () => consoleView(state)).theoryLockedSectors.length, 0);
 
   // a paper still travelling may not be settled: the app is only asked at slot 1

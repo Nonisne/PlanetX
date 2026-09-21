@@ -1,6 +1,6 @@
 // Panels: header, status, map, actions, knowledge, log and modals for the record console.
 import { h } from './dom.js';
-import { CODE, CODE_TO_TYPE, LABEL, Obj, SURVEY_TYPES, labelOf } from '../src/types.js';
+import { CODE, CODE_TO_TYPE, LABEL, Obj, SURVEY_TYPES, THEORY_TYPES, labelOf } from '../src/types.js';
 import {
   BUILTIN_MAX_PLAYERS,
   COST,
@@ -23,6 +23,7 @@ import {
   visibleSectorsAt,
   visibleStartAt,
 } from '../src/rules.js';
+import { DWARF_BELT_HINT_TEXT, possibleDwarfBands } from '../src/dwarf-belt.js';
 import { iconEl, iconLabel } from './icons.js';
 import { pendingUiEvents, sectorAnchor } from './board.js';
 import { CLUE_TYPES } from '../src/room.js';
@@ -41,6 +42,59 @@ function stripCodes(mode, sector) {
 }
 
 const pct = (a, b) => (b && b !== Infinity ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
+
+/** Remaining physical theory tokens for the current player. */
+function theoryTokenMeter(game) {
+  const inventory = game.theoryTokenInventory;
+  const remaining = game.theoryTokensRemaining;
+  if (!inventory || !remaining) return null;
+  return h(
+    'div',
+    { class: 'theory-token-meter', 'aria-label': '理论标记库存' },
+    h('p', { class: 'muted small' }, '实体理论标记：用完某类就不能再提交该天体；错误论文移出棋盘，正确论文留在轨道上，都不会退回库存。'),
+    h(
+      'ul',
+      { class: 'theory-token-list' },
+      THEORY_TYPES.map((type) => {
+        const total = inventory[type] || 0;
+        const left = remaining[type] ?? 0;
+        const spent = Math.max(0, total - left);
+        return h(
+          'li',
+          { class: `theory-token${left === 0 ? ' exhausted' : ''}`, 'data-object-type': type },
+          h('span', { class: 'theory-token-label' }, iconLabel(CODE[type], LABEL[type], { size: 14 })),
+          h('span', { class: 'theory-token-count' }, `${left}/${total}`),
+          h('span', { class: 'muted small' }, spent ? `已用 ${spent}` : '未使用'),
+        );
+      }),
+    ),
+  );
+}
+
+/** Record-mode expert helper: list remaining dwarf bands implied by handwritten marks. */
+function dwarfBeltHelper({ game, notes }) {
+  if (game.mode?.id !== 'expert' || game.tutorial) return null;
+  const bands = possibleDwarfBands(notes || {}, game.mode.sectors);
+  const recordOnly = game.playMode !== 'builtin';
+  return h(
+    'div',
+    { class: 'dwarf-belt-helper', 'data-play-mode': game.playMode || 'record' },
+    h('h4', {}, '矮行星带辅助'),
+    DWARF_BELT_HINT_TEXT.map((line) => h('p', { class: 'muted small' }, line)),
+    recordOnly
+      ? h('p', { class: 'muted small' }, '星图上会淡淡标出仍可能落在某条带内的扇区；只根据你的矮行星标注计算。')
+      : null,
+    bands.length === 0
+      ? h('p', { class: 'lobby-error' }, '当前标注已经排除全部合法矮行星带，请检查「确定存在／不存在」标记。')
+      : bands.length <= 8
+        ? h('ul', { class: 'dwarf-belt-list' }, bands.map((band) => h('li', { 'data-band-start': band.start }, formatBandLabel(band))))
+        : h('p', { class: 'muted small' }, `仍有 ${bands.length} 条可能的带；继续标注矮行星端点或排除带外扇区后会进一步收缩。`),
+  );
+}
+
+function formatBandLabel(band) {
+  return `${band.sectors.map((sector) => sector + 1).join(' → ')}（端点 ${band.endpoints[0] + 1}／${band.endpoints[1] + 1}）`;
+}
 
 /** Three way manual marking bubble: 可能存在 / 确定存在 / 不存在. */
 function renderMarkPopover({ state, api }) {
@@ -1132,6 +1186,7 @@ function theoryCard({ game, ui, api }) {
         ),
       ),
       choices.chips,
+      theoryTokenMeter(game),
       h(
         'p',
         { class: 'muted small' },
@@ -1165,7 +1220,8 @@ function researchCard({ game, research, ui, api }) {
         { class: 'muted small' },
         `${game.mode.name}：这个阶段每人最多提交 ${research.quota} 篇。所有人选完后按累计耗时从少到多依次提交；同格先到者在后，先行动、先提交。选定篇数后不能更改。`,
       ),
-      maxDeclare < research.quota && h('p', { class: 'muted small' }, `按尚可提交的不同扇区计算，你本阶段最多可提交 ${maxDeclare} 篇；选择 0 篇仍会推进评审轨道。`),
+      maxDeclare < research.quota && h('p', { class: 'muted small' }, `按尚可提交的不同扇区与剩余理论标记计算，你本阶段最多可提交 ${maxDeclare} 篇；选择 0 篇仍会推进评审轨道。`),
+      theoryTokenMeter(game),
       h(
         'div',
         { class: 'action-buttons' },
@@ -1238,6 +1294,7 @@ function researchCard({ game, research, ui, api }) {
       ),
     ),
     choices.chips,
+    theoryTokenMeter(game),
     h('p', { class: 'muted small' }, '你提交的天体只有自己看得到；别人只会看到你在哪个扇区提交了研究。'),
     h(
       'div',
@@ -1361,7 +1418,9 @@ export function renderKnowledgePanel({ state, api }) {
     renderDisclosure(
       { state, api, id: 'rules', title: '基础规律', heading: 'h3', className: 'rule-reference' },
       h('ul', { class: 'rule-list' }, rules.map(rule => h('li', {}, rule))),
+      dwarfBeltHelper({ game, notes: state.notes }),
     ),
+    theoryTokenMeter(game),
   );
 }
 
@@ -1537,7 +1596,7 @@ export function renderModal({ state, api }) {
       h(
         'p',
         {},
-        `天窗起点离开论文事件标记时触发阶段：${theorySectors(game.mode).map((sector) => `${sector}→${mod(sector, game.mode.sectors) + 1} 号（首圈时间 ${sector}）`).join('、')}。可以在尚未公开正确答案的扇区发表理论；不能重复自己的同一主张，也不能在同一阶段向同一扇区提交不同天体，之后的阶段可以在未揭晓扇区尝试不同天体。每个论文阶段结束时所有未评审论文推进一格：${THEORY_TRACK.join(' → ')}，零提交也照常推进。到达 1 时按扇区顺序评审：内置谜题自动判定，记录模式填写官方 app 结果。错误主张也公开，每篇错误论文只处罚 1 个时间单位。`,
+        `天窗起点离开论文事件标记时触发阶段：${theorySectors(game.mode).map((sector) => `${sector}→${mod(sector, game.mode.sectors) + 1} 号（首圈时间 ${sector}）`).join('、')}。可以在尚未公开正确答案的扇区发表理论；不能重复自己的同一主张，也不能在同一阶段向同一扇区提交不同天体，之后的阶段可以在未揭晓扇区尝试不同天体。每个论文阶段结束时所有未评审论文推进一格：${THEORY_TRACK.join(' → ')}，零提交也照常推进。到达 1 时按扇区顺序评审：内置谜题自动判定，记录模式填写官方 app 结果。错误主张也公开，每篇错误论文只处罚 1 个时间单位。每人有固定数量的实体理论标记（标准盘矮行星 1 枚，专家盘 4 枚；小行星 4、彗星 2、气体云 2）；某类用完就不能再提交该天体，对错都不退回。`,
       ),
       h('h3', {}, '最后机会与揭示'),
       h('p', {}, '首次正确定位后冻结天窗。落后 1–3 格的玩家可提交最多 1 篇理论，落后 4–5 格可提交最多 2 篇；也可改为定位或放弃，均不移动棋子。全部完成后，内置谜题自动揭晓棋盘；记录模式由房主填写官方 app 答案。剩余理论统一结算，不再罚时。内置单人是独立解谜，不含官方单人机器人。'),

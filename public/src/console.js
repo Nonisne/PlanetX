@@ -20,6 +20,7 @@ import {
   modeById,
   surveyCost,
   theorySectors,
+  theoryTokenInventory,
   timeLabel,
   timeParts,
   timeShort,
@@ -185,6 +186,8 @@ export function consoleView(state) {
     theoryUsedThisPhase: theoriesThisPhase(state).length,
     theoryLockedSectors: [...locked],
     theoryOptions: theoryOptionsFor(state),
+    theoryTokenInventory: theoryTokenInventory(state.mode),
+    theoryTokensRemaining: theoryTokensRemaining(state),
     myPendingReviews: awaiting.filter((t) => mine(state, t)).map((t) => t.id),
     awaitingReview: awaiting.map((t) => t.id),
     // the log as a table of rounds, and the running score
@@ -215,6 +218,25 @@ export function theoriesThisPhase(state) {
   return phase ? state.entries.filter((entry) => entry.type === 'theory' && mine(state, entry) && entry.publicationPhase === phase.id) : [];
 }
 
+/** How many of my physical theory tokens of each type have already been placed. */
+export function theoryTokensUsed(state) {
+  const used = { asteroid: 0, comet: 0, gasCloud: 0, dwarfPlanet: 0 };
+  for (const entry of state.entries) {
+    if (entry.type !== 'theory' || !mine(state, entry) || !THEORY_TYPES.includes(entry.objectType)) continue;
+    used[entry.objectType] += 1;
+  }
+  return used;
+}
+
+/** Remaining physical theory tokens for the current actor. */
+export function theoryTokensRemaining(state) {
+  const inventory = theoryTokenInventory(state.mode);
+  const used = theoryTokensUsed(state);
+  const remaining = {};
+  for (const type of THEORY_TYPES) remaining[type] = Math.max(0, (inventory[type] || 0) - (used[type] || 0));
+  return remaining;
+}
+
 /** Sectors whose contents are public: a paper there was peer reviewed as correct. */
 export function theoryLockedSectors(state) {
   const out = new Set();
@@ -226,6 +248,7 @@ export function theoryLockedSectors(state) {
 
 export function theoryOptionsFor(state, { phaseId = state.theoryPhases?.[0]?.id || null } = {}) {
   const locked = theoryLockedSectors(state);
+  const remaining = theoryTokensRemaining(state);
   const ownTheories = state.entries.filter((entry) => entry.type === 'theory' && mine(state, entry));
   const options = [];
   for (let sector = 0; sector < state.mode.sectors; sector++) {
@@ -233,7 +256,9 @@ export function theoryOptionsFor(state, { phaseId = state.theoryPhases?.[0]?.id 
     const previous = ownTheories.filter((entry) => entry.sector === sector);
     if (phaseId && previous.some((entry) => entry.publicationPhase === phaseId)) continue;
     const types = THEORY_TYPES.filter((type) =>
-      (type !== Obj.COMET || isCometSector(state.mode, sector)) && !previous.some((entry) => entry.objectType === type),
+      remaining[type] > 0
+      && (type !== Obj.COMET || isCometSector(state.mode, sector))
+      && !previous.some((entry) => entry.objectType === type),
     );
     if (types.length) options.push({ sector, types });
   }
@@ -334,6 +359,9 @@ export function recordTheory(state, { sector, type }, { enforceSchedule = true, 
   }
   if (type === Obj.COMET && !isCometSector(state.mode, sector)) {
     return fail('彗星只能在质数编号的扇区提交理论');
+  }
+  if (theoryTokensRemaining(state)[type] <= 0) {
+    return fail(`你的${LABEL[type]}理论标记已用完，不能再提交该天体`);
   }
 
   // a sector whose contents are known can never be researched again

@@ -22,6 +22,8 @@ const files = [
   'tutorial-server.test.js',
   'record-parity.test.js',
   'console.test.js',
+  'theory-inventory.test.js',
+  'dwarf-belt.test.js',
   'official-rules.test.js',
   'review-order.test.js',
   'room.test.js',
