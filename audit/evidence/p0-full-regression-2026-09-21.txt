@@ -1,0 +1,2588 @@
+TAP version 13
+# Subtest: phase markers trigger when the window leaves them, including lap boundaries
+ok 1 - phase markers trigger when the window leaves them, including lap boundaries
+  ---
+  duration_ms: 1.319169
+  ...
+# Subtest: crossing multiple markers preserves departure order across laps
+ok 2 - crossing multiple markers preserves departure order across laps
+  ---
+  duration_ms: 0.177331
+  ...
+# Subtest: the base rules state the correct dwarf count for each board
+ok 3 - the base rules state the correct dwarf count for each board
+  ---
+  duration_ms: 0.155467
+  ...
+# Subtest: the visible sky window slides one sector per time unit
+ok 4 - the visible sky window slides one sector per time unit
+  ---
+  duration_ms: 0.153646
+  ...
+# Subtest: the time-track step follows the arrow for either board size
+ok 5 - the time-track step follows the arrow for either board size
+  ---
+  duration_ms: 0.281434
+  ...
+# Subtest: time parts wrap after 12 standard or 18 expert time units
+ok 6 - time parts wrap after 12 standard or 18 expert time units
+  ---
+  duration_ms: 0.157865
+  ...
+# Subtest: time helpers default to the standard board and clamp negative display clocks
+ok 7 - time helpers default to the standard board and clamp negative display clocks
+  ---
+  duration_ms: 0.115005
+  ...
+# Subtest: full and short clock labels consistently show board laps and steps
+ok 8 - full and short clock labels consistently show board laps and steps
+  ---
+  duration_ms: 0.091686
+  ...
+# Subtest: durations and the legacy display alias retain the exact number of time units
+ok 9 - durations and the legacy display alias retain the exact number of time units
+  ---
+  duration_ms: 0.208081
+  ...
+# Subtest: events sit on the time track and scale with the board size
+ok 10 - events sit on the time track and scale with the board size
+  ---
+  duration_ms: 0.415442
+  ...
+# Subtest: costs are measured in time units
+ok 11 - costs are measured in time units
+  ---
+  duration_ms: 0.133588
+  ...
+# Subtest: geometry helpers
+ok 12 - geometry helpers
+  ---
+  duration_ms: 0.711869
+  ...
+# Subtest: object types are the six the board uses
+ok 13 - object types are the six the board uses
+  ---
+  duration_ms: 0.111283
+  ...
+# Subtest: the base rules text matches the mode
+ok 14 - the base rules text matches the mode
+  ---
+  duration_ms: 0.073447
+  ...
+# Subtest: a mode id is never handed out unresolved
+ok 15 - a mode id is never handed out unresolved
+  ---
+  duration_ms: 0.057683
+  ...
+# Subtest: the scoring tables and the locate formula
+ok 16 - the scoring tables and the locate formula
+  ---
+  duration_ms: 0.075354
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 12.573672
+TAP version 13
+# Subtest: macOS and Windows provide executable one-click entrypoints without broad process killing
+ok 1 - macOS and Windows provide executable one-click entrypoints without broad process killing
+  ---
+  duration_ms: 1.60137
+  ...
+# Subtest: concurrent start clicks leave exactly one service and do not discard its identity
+ok 2 - concurrent start clicks leave exactly one service and do not discard its identity
+  ---
+  duration_ms: 224.994481
+  ...
+# Subtest: invalid PORT values fail clearly without creating a service record
+ok 3 - invalid PORT values fail clearly without creating a service record
+  ---
+  duration_ms: 243.746402
+  ...
+# Subtest: macOS entrypoints resolve Node with Finder PATH, open only a ready page, and stop from another directory
+ok 4 - macOS entrypoints resolve Node with Finder PATH, open only a ready page, and stop from another directory # SKIP
+  ---
+  duration_ms: 0.107709
+  ...
+# Subtest: repeat startup reuses the same project server and preserves a live room
+ok 5 - repeat startup reuses the same project server and preserves a live room
+  ---
+  duration_ms: 465.194163
+  ...
+# Subtest: stop finds custom-port services without needing the original PORT environment
+ok 6 - stop finds custom-port services without needing the original PORT environment
+  ---
+  duration_ms: 240.6963
+  ...
+# Subtest: local shutdown requires the private token and never exposes control files through the game
+ok 7 - local shutdown requires the private token and never exposes control files through the game
+  ---
+  duration_ms: 156.903916
+  ...
+# Subtest: an occupied game port is reported without opening or shutting down the unrelated service
+ok 8 - an occupied game port is reported without opening or shutting down the unrelated service
+  ---
+  duration_ms: 1135.397747
+  ...
+# Subtest: stale records are harmless and malformed identities never trigger shutdown requests
+ok 9 - stale records are harmless and malformed identities never trigger shutdown requests
+  ---
+  duration_ms: 181.339974
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 2655.07148
+TAP version 13
+# Subtest: research generates only ordinary-object bands and distinct-type relations
+ok 1 - research generates only ordinary-object bands and distinct-type relations
+  ---
+  duration_ms: 1.927934
+  ...
+# Subtest: conferences enumerate all 144 allowed X-to-ordinary relations in both directions
+ok 2 - conferences enumerate all 144 allowed X-to-ordinary relations in both directions
+  ---
+  duration_ms: 1.099016
+  ...
+# Subtest: conference feature construction is deterministic and does not contaminate ordinary research
+ok 3 - conference feature construction is deterministic and does not contaminate ordinary research
+  ---
+  duration_ms: 1.712008
+  ...
+# Subtest: conference titles expose only X and the ordinary subject in both modes and directions
+ok 4 - conference titles expose only X and the ordinary subject in both modes and directions
+  ---
+  duration_ms: 0.903324
+  ...
+# Subtest: all 216 expert conference predicates match an independent eighteen-sector array oracle
+ok 5 - all 216 expert conference predicates match an independent eighteen-sector array oracle
+  ---
+  duration_ms: 43.886441
+  ...
+# Subtest: all conference predicates agree with the independent array oracle on varied inventories
+ok 6 - all conference predicates agree with the independent array oracle on varied inventories
+  ---
+  duration_ms: 7.127811
+  ...
+# Subtest: all remains directional when the conference subject or neighbor is the singleton X
+ok 7 - all remains directional when the conference subject or neighbor is the singleton X
+  ---
+  duration_ms: 0.507795
+  ...
+# Subtest: band limits run inclusively from inventory size to board size minus one
+ok 8 - band limits run inclusively from inventory size to board size minus one
+  ---
+  duration_ms: 0.695528
+  ...
+# Subtest: singleton inventories never produce bands, including for X and empty
+ok 9 - singleton inventories never produce bands, including for X and empty
+  ---
+  duration_ms: 0.430025
+  ...
+# Subtest: each ordered pair has every relation and quantifier under one canonical topic
+ok 10 - each ordered pair has every relation and quantifier under one canonical topic
+  ---
+  duration_ms: 0.65887
+  ...
+# Subtest: within limits are exactly two through half a circle minus one for each board size
+ok 11 - within limits are exactly two through half a circle minus one for each board size
+  ---
+  duration_ms: 0.453347
+  ...
+# Subtest: feature sets are deterministic, unique and independently extensible with engine caches
+ok 12 - feature sets are deterministic, unique and independently extensible with engine caches
+  ---
+  duration_ms: 1.253103
+  ...
+# Subtest: bands accept every unknown start, including a four-sector arc across 12/1
+ok 13 - bands accept every unknown start, including a four-sector arc across 12/1
+  ---
+  duration_ms: 0.352782
+  ...
+# Subtest: band length includes both endpoints and intervening unoccupied sectors
+ok 14 - band length includes both endpoints and intervening unoccupied sectors
+  ---
+  duration_ms: 0.099222
+  ...
+# Subtest: bands handle spread-out objects and the maximum board-size-minus-one limit
+ok 15 - bands handle spread-out objects and the maximum board-size-minus-one limit
+  ---
+  duration_ms: 0.089102
+  ...
+# Subtest: adjacent wraps across 12/1 but excludes a two-step neighbor
+ok 16 - adjacent wraps across 12/1 but excludes a two-step neighbor
+  ---
+  duration_ms: 0.087696
+  ...
+# Subtest: opposite means exactly half a circle on both 12- and 18-sector boards
+ok 17 - opposite means exactly half a circle on both 12- and 18-sector boards
+  ---
+  duration_ms: 0.212244
+  ...
+# Subtest: within uses inclusive shortest distance in either direction and never includes the half-circle distance
+ok 18 - within uses inclusive shortest distance in either direction and never includes the half-circle distance
+  ---
+  duration_ms: 3.906276
+  ...
+# Subtest: some includes all subjects, and multiple subjects may share the same neighbor
+ok 19 - some includes all subjects, and multiple subjects may share the same neighbor
+  ---
+  duration_ms: 0.155013
+  ...
+# Subtest: some can match one subject while all is false
+ok 20 - some can match one subject while all is false
+  ---
+  duration_ms: 0.094697
+  ...
+# Subtest: none holds only when every possible subject-neighbor pair fails the relation
+ok 21 - none holds only when every possible subject-neighbor pair fails the relation
+  ---
+  duration_ms: 0.082777
+  ...
+# Subtest: all quantifies only the subject population, not every neighbor
+ok 22 - all quantifies only the subject population, not every neighbor
+  ---
+  duration_ms: 0.099317
+  ...
+# Subtest: empty populations keep existential and universal meanings and return numeric values
+ok 23 - empty populations keep existential and universal meanings and return numeric values
+  ---
+  duration_ms: 0.230998
+  ...
+# Subtest: research cannot distinguish swapping X and truly empty sectors
+ok 24 - research cannot distinguish swapping X and truly empty sectors
+  ---
+  duration_ms: 1.676522
+  ...
+# Subtest: predicate evaluation leaves frozen inputs and engine-added caches unchanged
+ok 25 - predicate evaluation leaves frozen inputs and engine-added caches unchanged
+  ---
+  duration_ms: 0.216108
+  ...
+# Subtest: every feature agrees with the array oracle on all 729 two-type six-sector boards
+ok 26 - every feature agrees with the array oracle on all 729 two-type six-sector boards
+  ---
+  duration_ms: 73.925438
+  ...
+# Subtest: every 12-sector feature agrees with the independent oracle on varied complete inventories
+ok 27 - every 12-sector feature agrees with the independent oracle on varied complete inventories
+  ---
+  duration_ms: 6.632079
+  ...
+# Subtest: every 18-sector feature agrees with the independent oracle on varied complete inventories
+ok 28 - every 18-sector feature agrees with the independent oracle on varied complete inventories
+  ---
+  duration_ms: 12.000869
+  ...
+# Subtest: every feature is invariant under all rotations and reflections on both board sizes
+ok 29 - every feature is invariant under all rotations and reflections on both board sizes
+  ---
+  duration_ms: 23.82748
+  ...
+# Subtest: single-object topics contain only the corresponding Chinese label
+ok 30 - single-object topics contain only the corresponding Chinese label
+  ---
+  duration_ms: 0.180559
+  ...
+# Subtest: all relations and both directions share the canonical Chinese topic name
+ok 31 - all relations and both directions share the canonical Chinese topic name
+  ---
+  duration_ms: 0.361512
+  ...
+# Subtest: band clues follow the exact single-sentence Chinese template
+ok 32 - band clues follow the exact single-sentence Chinese template
+  ---
+  duration_ms: 0.126857
+  ...
+# Subtest: adjacent/none conference wording treats X as a singleton in either direction
+ok 33 - adjacent/none conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.217246
+  ...
+# Subtest: adjacent/some conference wording treats X as a singleton in either direction
+ok 34 - adjacent/some conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.038548
+  ...
+# Subtest: adjacent/all conference wording treats X as a singleton in either direction
+ok 35 - adjacent/all conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.050176
+  ...
+# Subtest: opposite/none conference wording treats X as a singleton in either direction
+ok 36 - opposite/none conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.033895
+  ...
+# Subtest: opposite/some conference wording treats X as a singleton in either direction
+ok 37 - opposite/some conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.028279
+  ...
+# Subtest: opposite/all conference wording treats X as a singleton in either direction
+ok 38 - opposite/all conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.028546
+  ...
+# Subtest: within/none conference wording treats X as a singleton in either direction
+ok 39 - within/none conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.040027
+  ...
+# Subtest: within/some conference wording treats X as a singleton in either direction
+ok 40 - within/some conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.031003
+  ...
+# Subtest: within/all conference wording treats X as a singleton in either direction
+ok 41 - within/all conference wording treats X as a singleton in either direction
+  ---
+  duration_ms: 0.034978
+  ...
+# Subtest: adjacent/none clue preserves its subject and follows the literal Chinese template
+ok 42 - adjacent/none clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.072044
+  ...
+# Subtest: adjacent/some clue preserves its subject and follows the literal Chinese template
+ok 43 - adjacent/some clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.026479
+  ...
+# Subtest: adjacent/all clue preserves its subject and follows the literal Chinese template
+ok 44 - adjacent/all clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.026623
+  ...
+# Subtest: opposite/none clue preserves its subject and follows the literal Chinese template
+ok 45 - opposite/none clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.024099
+  ...
+# Subtest: opposite/some clue preserves its subject and follows the literal Chinese template
+ok 46 - opposite/some clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.023421
+  ...
+# Subtest: opposite/all clue preserves its subject and follows the literal Chinese template
+ok 47 - opposite/all clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.055691
+  ...
+# Subtest: within/none clue preserves its subject and follows the literal Chinese template
+ok 48 - within/none clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.028898
+  ...
+# Subtest: within/some clue preserves its subject and follows the literal Chinese template
+ok 49 - within/some clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.024013
+  ...
+# Subtest: within/all clue preserves its subject and follows the literal Chinese template
+ok 50 - within/all clue preserves its subject and follows the literal Chinese template
+  ---
+  duration_ms: 0.025982
+  ...
+# Subtest: every generated clue is a single sentence without extra facts or excluded objects
+ok 51 - every generated clue is a single sentence without extra facts or excluded objects
+  ---
+  duration_ms: 0.726207
+  ...
+# Subtest: topic and clue rendering are pure and accept engine-added cache properties
+ok 52 - topic and clue rendering are pure and accept engine-added cache properties
+  ---
+  duration_ms: 2.292306
+  ...
+1..52
+# tests 52
+# suites 0
+# pass 52
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 211.545074
+TAP version 13
+# Subtest: standard board validation accepts the declared inventory and circular neighbors
+ok 1 - standard board validation accepts the declared inventory and circular neighbors
+  ---
+  duration_ms: 0.789889
+  ...
+# Subtest: standard board validation rejects each forbidden placement, including wraparound
+ok 2 - standard board validation rejects each forbidden placement, including wraparound
+  ---
+  duration_ms: 0.240825
+  ...
+# Subtest: standard board validation rejects malformed boards and incorrect inventory
+ok 3 - standard board validation rejects malformed boards and incorrect inventory
+  ---
+  duration_ms: 0.119002
+  ...
+# Subtest: board validation agrees with an independent exhaustive backtracking oracle
+ok 4 - board validation agrees with an independent exhaustive backtracking oracle
+  ---
+  duration_ms: 35.027852
+  ...
+# 4446 independent valid boards; enumeration 35ms
+# Subtest: research topics name one or two ordinary objects and contain exactly one fact
+ok 5 - research topics name one or two ordinary objects and contain exactly one fact
+  ---
+  duration_ms: 173.567317
+  ...
+# Subtest: relative research preserves legal mirror candidates until observations distinguish them
+ok 6 - relative research preserves legal mirror candidates until observations distinguish them
+  ---
+  duration_ms: 2.050703
+  ...
+# Subtest: X conferences state exactly one relative fact about X and one ordinary type
+ok 7 - X conferences state exactly one relative fact about X and one ordinary type
+  ---
+  duration_ms: 23.994235
+  ...
+# Subtest: the independent relation oracle finds 114 informative predicates and 4428 eligible boards
+ok 8 - the independent relation oracle finds 114 informative predicates and 4428 eligible boards
+  ---
+  duration_ms: 255.051614
+  ...
+# Subtest: ambiguous boards stay legal solver possibilities rather than becoming hidden player knowledge
+ok 9 - ambiguous boards stay legal solver possibilities rather than becoming hidden player knowledge
+  ---
+  duration_ms: 14.815591
+  ...
+# Subtest: generation exposes the standard server contract without serializing private constraints
+ok 10 - generation exposes the standard server contract without serializing private constraints
+  ---
+  duration_ms: 160.398894
+  ...
+# cold enumeration, feature cache, and first puzzle 154ms
+# Subtest: unknown modes are explicitly rejected instead of falling back
+ok 11 - unknown modes are explicitly rejected instead of falling back
+  ---
+  duration_ms: 0.480938
+  ...
+# Subtest: generation rejects invalid random sources and out-of-range draws
+ok 12 - generation rejects invalid random sources and out-of-range draws
+  ---
+  duration_ms: 0.243999
+  ...
+# Subtest: equal random streams reproduce puzzles and constant streams stay observation-solvable
+ok 13 - equal random streams reproduce puzzles and constant streams stay observation-solvable
+  ---
+  duration_ms: 3.637408
+  ...
+# Subtest: the candidate counter covers the complete independent valid-board space
+ok 14 - the candidate counter covers the complete independent valid-board space
+  ---
+  duration_ms: 2.92076
+  ...
+# Subtest: displayed facts independently match candidates and become unique with complete observations
+ok 15 - displayed facts independently match candidates and become unique with complete observations
+  ---
+  duration_ms: 980.888075
+  ...
+# 32 independently solved puzzles; clue kinds within, opposite, band, adjacent; maximum 7 statements
+# Subtest: candidate filtering uses deduction constraints, not the stored answer
+ok 16 - candidate filtering uses deduction constraints, not the stored answer
+  ---
+  duration_ms: 1.821912
+  ...
+# Subtest: uniform board sampling uses equal-sized bins without rejection or rotation bias
+ok 17 - uniform board sampling uses equal-sized bins without rejection or rotation bias
+  ---
+  duration_ms: 7.786828
+  ...
+# Subtest: generation produces varied complete puzzles within a bounded warm runtime
+ok 18 - generation produces varied complete puzzles within a bounded warm runtime
+  ---
+  duration_ms: 186.205559
+  ...
+# 256 puzzles: 250 boards, 256 research sets, 186ms; X histogram 18,25,11,39,5,45,6,35,4,27,16,25
+# Subtest: four seats receive twelve fresh ordinary-object exclusions while the helper defaults to four
+ok 19 - four seats receive twelve fresh ordinary-object exclusions while the helper defaults to four
+  ---
+  duration_ms: 2.481144
+  ...
+# Subtest: initial clue sampling handles the entire finite exclusion pool without retry loops
+ok 20 - initial clue sampling handles the entire finite exclusion pool without retry loops
+  ---
+  duration_ms: 1.00376
+  ...
+# Subtest: all 4446 base-legal boards have exactly 32 true nontrivial initial exclusions
+ok 21 - all 4446 base-legal boards have exactly 32 true nontrivial initial exclusions
+  ---
+  duration_ms: 101.180155
+  ...
+# Subtest: initial clue issuance rejects invalid counts, boards, and random sources
+ok 22 - initial clue issuance rejects invalid counts, boards, and random sources
+  ---
+  duration_ms: 0.874048
+  ...
+# Subtest: ordinary-object initial exclusions do not distinguish X from true empty sectors
+ok 23 - ordinary-object initial exclusions do not distinguish X from true empty sectors
+  ---
+  duration_ms: 13.637916
+  ...
+# Subtest: solver rejects malformed selections instead of silently ignoring them
+ok 24 - solver rejects malformed selections instead of silently ignoring them
+  ---
+  duration_ms: 2.189711
+  ...
+# Subtest: puzzles and their clue strings do not share mutable state through the server cache
+ok 25 - puzzles and their clue strings do not share mutable state through the server cache
+  ---
+  duration_ms: 0.627362
+  ...
+# Subtest: all 4428 eligible boards have a conference distinguishing every original observation peer (PUZZLE_EXHAUSTIVE=1)
+ok 26 - all 4428 eligible boards have a conference distinguishing every original observation peer (PUZZLE_EXHAUSTIVE=1)
+  ---
+  duration_ms: 3689.632042
+  ...
+# 4428 eligible boards certified against 4446 original boards in 3687ms; max generation 2.06ms; max 7 statements; 17712 private hands
+1..26
+# tests 26
+# suites 0
+# pass 26
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5670.160011
+TAP version 13
+# Subtest: expert validation infers eighteen sectors and requires an exact six-sector dwarf band with endpoints
+ok 1 - expert validation infers eighteen sectors and requires an exact six-sector dwarf band with endpoints
+  ---
+  duration_ms: 1.122363
+  ...
+# Subtest: cold expert generation exposes only the public subjects and hidden clue strings within a bounded budget
+ok 2 - cold expert generation exposes only the public subjects and hidden clue strings within a bounded budget
+  ---
+  duration_ms: 10.618446
+  ...
+# cold expert generation 9.80ms
+# Subtest: expert generation certifies every complete-observation peer with two independently interpreted predicates
+ok 3 - expert generation certifies every complete-observation peer with two independently interpreted predicates
+  ---
+  duration_ms: 792.145695
+  ...
+# 4096 experts: 4068 boards, 791.69ms including oracles; max generation 1.44ms; peer sizes 1,2,3,4,5,6; 1668 need both conferences
+# Subtest: unresolvable expert boards remain legal solver candidates, including peers never generated
+ok 4 - unresolvable expert boards remain legal solver candidates, including peers never generated
+  ---
+  duration_ms: 1.392148
+  ...
+# Subtest: expert solution counting matches independent restricted array enumeration rather than a sample
+ok 5 - expert solution counting matches independent restricted array enumeration rather than a sample
+  ---
+  duration_ms: 43.579315
+  ...
+# Subtest: expert counting covers the full independent array-enumerated universe without a generated-board catalogue
+ok 6 - expert counting covers the full independent array-enumerated universe without a generated-board catalogue
+  ---
+  duration_ms: 438.088868
+  ...
+# 1138272 independent legal expert boards enumerated in 314.44ms
+# Subtest: expert initial exclusions support zero, twelve and all 49 true nontrivial exclusions
+ok 7 - expert initial exclusions support zero, twelve and all 49 true nontrivial exclusions
+  ---
+  duration_ms: 9.39274
+  ...
+# Subtest: expert generation validates randomness and terminates for constant streams and bounded attempts
+ok 8 - expert generation validates randomness and terminates for constant streams and bounded attempts
+  ---
+  duration_ms: 12.050353
+  ...
+# Subtest: expert debug counting rejects exhausted budgets instead of reporting a partial count
+ok 9 - expert debug counting rejects exhausted budgets instead of reporting a partial count
+  ---
+  duration_ms: 0.927182
+  ...
+# Subtest: expert solver state is independent of mutable puzzle fields and rejects boards of the other mode
+ok 10 - expert solver state is independent of mutable puzzle fields and rejects boards of the other mode
+  ---
+  duration_ms: 1.182397
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1321.475591
+TAP version 13
+# Subtest: builtin initial clues are private, uniformly dealt on start, and cannot be rerolled
+ok 1 - builtin initial clues are private, uniformly dealt on start, and cannot be rerolled
+  ---
+  duration_ms: 11.574359
+  ...
+# Subtest: claiming builtin clues cannot mutate record setup or silently truncate an unavailable pool
+ok 2 - claiming builtin clues cannot mutate record setup or silently truncate an unavailable pool
+  ---
+  duration_ms: 0.289546
+  ...
+# Subtest: reopening builtin readiness preserves the claimed count and never permits a new hand
+ok 3 - reopening builtin readiness preserves the claimed count and never permits a new hand
+  ---
+  duration_ms: 0.342479
+  ...
+# Subtest: builtin exhausted legal claims reject a positive declaration without trapping the game
+ok 4 - builtin exhausted legal claims reject a positive declaration without trapping the game
+  ---
+  duration_ms: 10.409272
+  ...
+# Subtest: builtin declaration capacity uses each author history rather than hidden puzzle truth
+ok 5 - builtin declaration capacity uses each author history rather than hidden puzzle truth
+  ---
+  duration_ms: 11.493807
+  ...
+# Subtest: declaration buttons enforce personal capacity and preserve old expert views
+ok 6 - declaration buttons enforce personal capacity and preserve old expert views
+  ---
+  duration_ms: 1.848326
+  ...
+# Subtest: legacy rooms stay record mode, builtin accepts solo and rejects mismatched puzzles
+ok 7 - legacy rooms stay record mode, builtin accepts solo and rejects mismatched puzzles
+  ---
+  duration_ms: 0.728302
+  ...
+# Subtest: builtin setup issues private initial clues and ignores forged setup data
+ok 8 - builtin setup issues private initial clues and ignores forged setup data
+  ---
+  duration_ms: 0.498564
+  ...
+# Subtest: hidden puzzle and unearned research/conference information never enter views or summaries
+ok 9 - hidden puzzle and unearned research/conference information never enter views or summaries
+  ---
+  duration_ms: 0.599764
+  ...
+# Subtest: survey/target results are server-authoritative and X looks empty only to its querying player
+ok 10 - survey/target results are server-authoritative and X looks empty only to its querying player
+  ---
+  duration_ms: 0.908172
+  ...
+# Subtest: builtin research returns only the chosen private clue and keeps turn/cost rules
+ok 11 - builtin research returns only the chosen private clue and keeps turn/cost rules
+  ---
+  duration_ms: 0.565681
+  ...
+# Subtest: builtin rejects manual truth, early conference, undo, calibration and host bypass actions
+ok 12 - builtin rejects manual truth, early conference, undo, calibration and host bypass actions
+  ---
+  duration_ms: 0.21634
+  ...
+# Subtest: builtin retains range validation and rejects malformed queries without spending time
+ok 13 - builtin retains range validation and rejects malformed queries without spending time
+  ---
+  duration_ms: 0.165254
+  ...
+# Subtest: conference publishes automatically only after the shared window leaves its event
+ok 14 - conference publishes automatically only after the shared window leaves its event
+  ---
+  duration_ms: 2.078923
+  ...
+# Subtest: builtin mixed crossings withhold conference clues until all earlier theory and review work completes
+ok 15 - builtin mixed crossings withhold conference clues until all earlier theory and review work completes
+  ---
+  duration_ms: 1.500219
+  ...
+# Subtest: builtin advances theory track, automatically reviews and charges wrong theory once
+ok 16 - builtin advances theory track, automatically reviews and charges wrong theory once
+  ---
+  duration_ms: 0.454456
+  ...
+# Subtest: builtin reviews multiple due sectors by sector number rather than publication order
+ok 17 - builtin reviews multiple due sectors by sector number rather than publication order
+  ---
+  duration_ms: 0.642644
+  ...
+# Subtest: locate checks X and both neighbors, then solo auto-reveals and scores
+ok 18 - locate checks X and both neighbors, then solo auto-reveals and scores
+  ---
+  duration_ms: 0.439131
+  ...
+# Subtest: multiplayer final opportunity keeps truth hidden, freezes clocks, and auto-reveals afterward
+ok 19 - multiplayer final opportunity keeps truth hidden, freezes clocks, and auto-reveals afterward
+  ---
+  duration_ms: 0.732366
+  ...
+# Subtest: builtin supports one through four players and refuses a fifth without changing the room
+ok 20 - builtin supports one through four players and refuses a fifth without changing the room
+  ---
+  duration_ms: 0.608905
+  ...
+# Subtest: the builtin player cap does not change record room capacity
+ok 21 - the builtin player cap does not change record room capacity
+  ---
+  duration_ms: 0.119313
+  ...
+1..21
+# tests 21
+# suites 0
+# pass 21
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 55.247361
+TAP version 13
+# Subtest: room-wide initial clue count defaults to four and rejects non-enumerated values
+ok 1 - room-wide initial clue count defaults to four and rejects non-enumerated values
+  ---
+  duration_ms: 1.980183
+  ...
+# Subtest: record clue count is host-only, public, and locked after start
+ok 2 - record clue count is host-only, public, and locked after start
+  ---
+  duration_ms: 2.686105
+  ...
+# Subtest: builtin clue count is host-only, public, and locked after start
+ok 3 - builtin clue count is host-only, public, and locked after start
+  ---
+  duration_ms: 1.014503
+  ...
+# Subtest: built-in start automatically deals exactly 0 private clues to every seat
+ok 4 - built-in start automatically deals exactly 0 private clues to every seat
+  ---
+  duration_ms: 2.126768
+  ...
+# Subtest: built-in start automatically deals exactly 4 private clues to every seat
+ok 5 - built-in start automatically deals exactly 4 private clues to every seat
+  ---
+  duration_ms: 1.026565
+  ...
+# Subtest: built-in start automatically deals exactly 8 private clues to every seat
+ok 6 - built-in start automatically deals exactly 8 private clues to every seat
+  ---
+  duration_ms: 1.157251
+  ...
+# Subtest: built-in start automatically deals exactly 12 private clues to every seat
+ok 7 - built-in start automatically deals exactly 12 private clues to every seat
+  ---
+  duration_ms: 1.150396
+  ...
+# Subtest: unavailable initial clue pools reject start without changing any card or phase
+ok 8 - unavailable initial clue pools reject start without changing any card or phase
+  ---
+  duration_ms: 0.453851
+  ...
+# Subtest: standard record setup enforces host count and rejects rule-only comet exclusions atomically
+ok 9 - standard record setup enforces host count and rejects rule-only comet exclusions atomically
+  ---
+  duration_ms: 0.944793
+  ...
+# Subtest: expert record setup enforces host count and rejects rule-only comet exclusions atomically
+ok 10 - expert record setup enforces host count and rejects rule-only comet exclusions atomically
+  ---
+  duration_ms: 0.754197
+  ...
+# Subtest: public conference titles do not expose unearned built-in clues
+ok 11 - public conference titles do not expose unearned built-in clues
+  ---
+  duration_ms: 0.499295
+  ...
+# Subtest: record conference headings are independently editable and invalid metadata leaves setup untouched
+ok 12 - record conference headings are independently editable and invalid metadata leaves setup untouched
+  ---
+  duration_ms: 0.490816
+  ...
+# Subtest: duplicate raw entries do not count toward the twelve-clue setup limit
+ok 13 - duplicate raw entries do not count toward the twelve-clue setup limit
+  ---
+  duration_ms: 0.313491
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 22.026752
+TAP version 13
+# Subtest: tutorial uses a legal fixed puzzle with six truthful topics and meaningful initial exclusions
+ok 1 - tutorial uses a legal fixed puzzle with six truthful topics and meaningful initial exclusions
+  ---
+  duration_ms: 1.998709
+  ...
+# Subtest: tutorial starts a real two-player builtin game and hides future answers and bot credentials
+ok 2 - tutorial starts a real two-player builtin game and hides future answers and bot credentials
+  ---
+  duration_ms: 2.628076
+  ...
+# Subtest: full tutorial uses legal actions, departure events, later-arrival order, review penalty and real scoring
+ok 3 - full tutorial uses legal actions, departure events, later-arrival order, review penalty and real scoring
+  ---
+  duration_ms: 18.473729
+  ...
+# Subtest: each tutorial step rejects wrong actor, wrong input and replays without changing game state
+ok 4 - each tutorial step rejects wrong actor, wrong input and replays without changing game state
+  ---
+  duration_ms: 33.475606
+  ...
+# Subtest: bot private discoveries stay hidden and tutorial rooms do not share mutable game state
+ok 5 - bot private discoveries stay hidden and tutorial rooms do not share mutable game state
+  ---
+  duration_ms: 13.965072
+  ...
+# Subtest: current tutorial guidance does not disclose a Bot verdict before its official review
+ok 6 - current tutorial guidance does not disclose a Bot verdict before its official review
+  ---
+  duration_ms: 9.323228
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 92.077472
+TAP version 13
+# Subtest: capabilities expose both builtin boards, tutorial and strict room clue counts
+ok 1 - capabilities expose both builtin boards, tutorial and strict room clue counts
+  ---
+  duration_ms: 7.437194
+  ...
+# Subtest: HTTP enforces a single host-controlled clue count and automatic private distribution
+ok 2 - HTTP enforces a single host-controlled clue count and automatic private distribution
+  ---
+  duration_ms: 171.849215
+  ...
+# Subtest: HTTP creates expert builtin puzzles with two public conference titles but no unearned text
+ok 3 - HTTP creates expert builtin puzzles with two public conference titles but no unearned text
+  ---
+  duration_ms: 9.02483
+  ...
+# Subtest: tutorial creation is fixed, unjoinable, server-only and denies Bot credentials on every route
+ok 4 - tutorial creation is fixed, unjoinable, server-only and denies Bot credentials on every route
+  ---
+  duration_ms: 3.668538
+  ...
+# Subtest: HTTP and SSE persist every tutorial step, reject duplicates, and finish a complete private lesson
+ok 5 - HTTP and SSE persist every tutorial step, reject duplicates, and finish a complete private lesson
+  ---
+  duration_ms: 95.037254
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 291.984726
+TAP version 13
+# Subtest: standard record room matches builtin departure, arrival, paper, conference and endgame rules
+ok 1 - standard record room matches builtin departure, arrival, paper, conference and endgame rules
+  ---
+  duration_ms: 196.454824
+  ...
+# Subtest: standard offline record phases trigger on departure and forbid nonprime comet claims and endpoints
+ok 2 - standard offline record phases trigger on departure and forbid nonprime comet claims and endpoints
+  ---
+  duration_ms: 0.645295
+  ...
+# Subtest: expert record room matches builtin departure, arrival, paper, conference and endgame rules
+ok 3 - expert record room matches builtin departure, arrival, paper, conference and endgame rules
+  ---
+  duration_ms: 35.969409
+  ...
+# Subtest: expert offline record phases trigger on departure and forbid nonprime comet claims and endpoints
+ok 4 - expert offline record phases trigger on departure and forbid nonprime comet claims and endpoints
+  ---
+  duration_ms: 0.352499
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 244.875042
+TAP version 13
+# Subtest: theory submission rejects comets outside prime-numbered sectors in both modes
+ok 1 - theory submission rejects comets outside prime-numbered sectors in both modes
+  ---
+  duration_ms: 1.017226
+  ...
+# Subtest: theory option projection filters base rules, own history, same phase and public locks
+ok 2 - theory option projection filters base rules, own history, same phase and public locks
+  ---
+  duration_ms: 1.79522
+  ...
+# Subtest: a fresh console knows nothing about the puzzle
+ok 3 - a fresh console knows nothing about the puzzle
+  ---
+  duration_ms: 0.190071
+  ...
+# Subtest: recording a survey costs the same time as making one
+ok 4 - recording a survey costs the same time as making one
+  ---
+  duration_ms: 0.401104
+  ...
+# Subtest: each board completes a lap without changing wait costs or stored entry clocks
+ok 5 - each board completes a lap without changing wait costs or stored entry clocks
+  ---
+  duration_ms: 1.527677
+  ...
+# Subtest: summaries present saved clocks in time units without rewriting old records or the shared window
+ok 6 - summaries present saved clocks in time units without rewriting old records or the shared window
+  ---
+  duration_ms: 0.696248
+  ...
+# Subtest: wait duration validation retains its numeric behavior
+ok 7 - wait duration validation retains its numeric behavior
+  ---
+  duration_ms: 0.186
+  ...
+# Subtest: surveys and scans are limited to the visible sky
+ok 8 - surveys and scans are limited to the visible sky
+  ---
+  duration_ms: 0.408765
+  ...
+# Subtest: the modelled sky window can be nudged to match the real board
+ok 9 - the modelled sky window can be nudged to match the real board
+  ---
+  duration_ms: 0.335299
+  ...
+# Subtest: the recorded result has to be a plausible number
+ok 10 - the recorded result has to be a plausible number
+  ---
+  duration_ms: 0.378928
+  ...
+# Subtest: targets are limited and only accept the five apparent results
+ok 11 - targets are limited and only accept the five apparent results
+  ---
+  duration_ms: 0.260627
+  ...
+# Subtest: research obeys the topic and back-to-back rules and keeps the player-typed name
+ok 12 - research obeys the topic and back-to-back rules and keeps the player-typed name
+  ---
+  duration_ms: 0.235675
+  ...
+# Subtest: conferences are tied to the sectors the rulebook puts them on
+ok 13 - conferences are tied to the sectors the rulebook puts them on
+  ---
+  duration_ms: 0.172153
+  ...
+# Subtest: an expert console runs on 18 sectors with its own event sectors
+ok 14 - an expert console runs on 18 sectors with its own event sectors
+  ---
+  duration_ms: 0.192938
+  ...
+# Subtest: conference schedules use time units on either board
+ok 15 - conference schedules use time units on either board
+  ---
+  duration_ms: 0.098375
+  ...
+# Subtest: a theory may only be published during a research phase, once per phase
+ok 16 - a theory may only be published during a research phase, once per phase
+  ---
+  duration_ms: 0.28977
+  ...
+# Subtest: a round’s papers share a track space, and the phase end moves the whole track
+ok 17 - a round’s papers share a track space, and the phase end moves the whole track
+  ---
+  duration_ms: 1.485239
+  ...
+# Subtest: the record is a table of rounds with an operation and its result per cell
+ok 18 - the record is a table of rounds with an operation and its result per cell
+  ---
+  duration_ms: 0.30372
+  ...
+# Subtest: round-table waits and penalties use time units and the expert entry clock
+ok 19 - round-table waits and penalties use time units and the expert entry clock
+  ---
+  duration_ms: 0.110143
+  ...
+# Subtest: the score table counts confirmed theories, leader bonuses and a correct locate
+ok 20 - the score table counts confirmed theories, leader bonuses and a correct locate
+  ---
+  duration_ms: 0.489616
+  ...
+# Subtest: a correct review reveals the sector and settles every paper about it
+ok 21 - a correct review reveals the sector and settles every paper about it
+  ---
+  duration_ms: 0.279957
+  ...
+# Subtest: time is per player: only your own entries move your clock
+ok 22 - time is per player: only your own entries move your clock
+  ---
+  duration_ms: 0.125393
+  ...
+# Subtest: undo rewinds time and derived state
+ok 23 - undo rewinds time and derived state
+  ---
+  duration_ms: 0.662588
+  ...
+# Subtest: recording a correct locate requires reveal before the final summary
+ok 24 - recording a correct locate requires reveal before the final summary
+  ---
+  duration_ms: 0.372466
+  ...
+# Subtest: the console view is shaped so the shared panels can render it
+ok 25 - the console view is shaped so the shared panels can render it
+  ---
+  duration_ms: 0.109995
+  ...
+1..25
+# tests 25
+# suites 0
+# pass 25
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 22.916234
+TAP version 13
+# Subtest: official action costs advance by 4/3/2, 4, 1 and 5 sectors
+ok 1 - official action costs advance by 4/3/2, 4, 1 and 5 sectors
+  ---
+  duration_ms: 0.990126
+  ...
+# Subtest: expert comet rules include 13 and 17 and surveys require comet endpoints
+ok 2 - expert comet rules include 13 and 17 and surveys require comet endpoints
+  ---
+  duration_ms: 0.663934
+  ...
+# Subtest: research checks the same player last action despite another player acting
+ok 3 - research checks the same player last action despite another player acting
+  ---
+  duration_ms: 2.552523
+  ...
+# Subtest: a free conference record does not reset the research restriction
+ok 4 - a free conference record does not reset the research restriction
+  ---
+  duration_ms: 0.215052
+  ...
+# Subtest: a failed locate stays in play, pays five, and does not disclose its answer
+ok 5 - a failed locate stays in play, pays five, and does not disclose its answer
+  ---
+  duration_ms: 1.103743
+  ...
+# Subtest: every theory phase advances old papers even when everyone submits zero
+ok 6 - every theory phase advances old papers even when everyone submits zero
+  ---
+  duration_ms: 1.655113
+  ...
+# Subtest: one player cannot repeat a claim or publish two objects in one sector in the same phase
+ok 7 - one player cannot repeat a claim or publish two objects in one sector in the same phase
+  ---
+  duration_ms: 0.601281
+  ...
+# Subtest: a rejected theory is public and duplicate reviews do not duplicate penalties
+ok 8 - a rejected theory is public and duplicate reviews do not duplicate penalties
+  ---
+  duration_ms: 0.741621
+  ...
+# Subtest: a correct review applies every inferred penalty in player order exactly once
+ok 9 - a correct review applies every inferred penalty in player order exactly once
+  ---
+  duration_ms: 0.428881
+  ...
+# Subtest: simultaneous correct papers earn all authors the leader bonus
+ok 10 - simultaneous correct papers earn all authors the leader bonus
+  ---
+  duration_ms: 1.048026
+  ...
+# Subtest: tie breaks use locate points, then leader bonuses, then share the victory
+ok 11 - tie breaks use locate points, then leader bonuses, then share the victory
+  ---
+  duration_ms: 0.21476
+  ...
+# Subtest: local crossing keeps the skipped phase open and empty completion advances papers
+ok 12 - local crossing keeps the skipped phase open and empty completion advances papers
+  ---
+  duration_ms: 0.468987
+  ...
+# Subtest: correct location freezes the sky and gives the trailing player one zero-cost final opportunity
+ok 13 - correct location freezes the sky and gives the trailing player one zero-cost final opportunity
+  ---
+  duration_ms: 1.18362
+  ...
+# Subtest: final theory batches validate atomically and outstanding papers score only after host reveal
+ok 14 - final theory batches validate atomically and outstanding papers score only after host reveal
+  ---
+  duration_ms: 0.774236
+  ...
+# Subtest: final locate scores two per frozen sector behind and never changes the final clocks
+ok 15 - final locate scores two per frozen sector behind and never changes the final clocks
+  ---
+  duration_ms: 1.309334
+  ...
+# Subtest: no final opportunity is granted to another pawn in the same sector
+ok 16 - no final opportunity is granted to another pawn in the same sector
+  ---
+  duration_ms: 0.146001
+  ...
+# Subtest: local correct locate enters reveal and wrong pending papers incur no final penalties
+ok 17 - local correct locate enters reveal and wrong pending papers incur no final penalties
+  ---
+  duration_ms: 0.094042
+  ...
+# Subtest: final reveal rejects sparse boards without changing state
+ok 18 - final reveal rejects sparse boards without changing state
+  ---
+  duration_ms: 0.220515
+  ...
+# Subtest: final reveal cannot reverse confirmed peer reviews or resurrect rejected papers
+ok 19 - final reveal cannot reverse confirmed peer reviews or resurrect rejected papers
+  ---
+  duration_ms: 0.481878
+  ...
+1..19
+# tests 19
+# suites 0
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 23.992711
+TAP version 13
+# Subtest: penalty-triggered theory events stay behind previously queued events in FIFO order
+ok 1 - penalty-triggered theory events stay behind previously queued events in FIFO order
+  ---
+  duration_ms: 5.426422
+  ...
+# Subtest: one wrong review batches matching inner theories and repeated reviews do not penalize again
+ok 2 - one wrong review batches matching inner theories and repeated reviews do not penalize again
+  ---
+  duration_ms: 1.849953
+  ...
+# Subtest: reversing matching review requests preserves the original pawn order
+ok 3 - reversing matching review requests preserves the original pawn order
+  ---
+  duration_ms: 1.126396
+  ...
+# Subtest: a wrong review leaves matching outer theories private, pending and unpenalized
+ok 4 - a wrong review leaves matching outer theories private, pending and unpenalized
+  ---
+  duration_ms: 2.727604
+  ...
+# Subtest: peer review rejects a higher sector until every lower ready sector is settled
+ok 5 - peer review rejects a higher sector until every lower ready sector is settled
+  ---
+  duration_ms: 1.209513
+  ...
+# Subtest: only the lowest ready sector is public until it settles and exposes the next sector
+ok 6 - only the lowest ready sector is public until it settles and exposes the next sector
+  ---
+  duration_ms: 1.880171
+  ...
+# Subtest: empty queued phases have distinct absolute event identities exposed by researchView
+ok 7 - empty queued phases have distinct absolute event identities exposed by researchView
+  ---
+  duration_ms: 1.121164
+  ...
+# Subtest: research-declare rejects a missing phaseId without changing the current phase
+ok 8 - research-declare rejects a missing phaseId without changing the current phase
+  ---
+  duration_ms: 0.690004
+  ...
+# Subtest: research-declare rejects a stale phaseId without changing the current phase
+ok 9 - research-declare rejects a stale phaseId without changing the current phase
+  ---
+  duration_ms: 0.547412
+  ...
+# Subtest: research-submit rejects a missing phaseId without changing the current phase
+ok 10 - research-submit rejects a missing phaseId without changing the current phase
+  ---
+  duration_ms: 0.567497
+  ...
+# Subtest: research-submit rejects a stale phaseId without changing the current phase
+ok 11 - research-submit rejects a stale phaseId without changing the current phase
+  ---
+  duration_ms: 0.364841
+  ...
+# Subtest: legacy theory actions stay rejected with missing, stale or current phase ids
+ok 12 - legacy theory actions stay rejected with missing, stale or current phase ids
+  ---
+  duration_ms: 0.579169
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24.850877
+TAP version 13
+# Subtest: a room starts in the lobby with a host and a joinable code
+ok 1 - a room starts in the lobby with a host and a joinable code
+  ---
+  duration_ms: 1.179624
+  ...
+# Subtest: in the lobby nothing can be recorded and only the host may start
+ok 2 - in the lobby nothing can be recorded and only the host may start
+  ---
+  duration_ms: 0.557724
+  ...
+# Subtest: a lone host cannot start: the table needs two players
+ok 3 - a lone host cannot start: the table needs two players
+  ---
+  duration_ms: 1.370829
+  ...
+# Subtest: setup collects initial clues and the six subject names
+ok 4 - setup collects initial clues and the six subject names
+  ---
+  duration_ms: 1.563031
+  ...
+# Subtest: setup validates the initial clues
+ok 5 - setup validates the initial clues
+  ---
+  duration_ms: 0.550876
+  ...
+# Subtest: setup only accepts ordinary-object exclusions on both board sizes
+ok 6 - setup only accepts ordinary-object exclusions on both board sizes
+  ---
+  duration_ms: 1.070132
+  ...
+# Subtest: somebody joining during setup still gets a setup card
+ok 7 - somebody joining during setup still gets a setup card
+  ---
+  duration_ms: 0.242
+  ...
+# Subtest: recording is refused until the setup cards are in
+ok 8 - recording is refused until the setup cards are in
+  ---
+  duration_ms: 0.15464
+  ...
+# Subtest: only the player whose turn it is may act, and acting passes the turn on
+ok 9 - only the player whose turn it is may act, and acting passes the turn on
+  ---
+  duration_ms: 0.812782
+  ...
+# Subtest: free actions (conference, review, nudge) move nobody’s pawn
+ok 10 - free actions (conference, review, nudge) move nobody’s pawn
+  ---
+  duration_ms: 0.882695
+  ...
+# Subtest: the host can skip a turn, which costs the current player a month
+ok 11 - the host can skip a turn, which costs the current player a month
+  ---
+  duration_ms: 0.421388
+  ...
+# Subtest: undoing winds the pawn back and hands the turn over again
+ok 12 - undoing winds the pawn back and hands the turn over again
+  ---
+  duration_ms: 0.420461
+  ...
+# Subtest: everybody has a private clock, but the log and the board are shared
+ok 13 - everybody has a private clock, but the log and the board are shared
+  ---
+  duration_ms: 1.037444
+  ...
+# Subtest: per-player limits: scan markers and research subjects
+ok 14 - per-player limits: scan markers and research subjects
+  ---
+  duration_ms: 3.183229
+  ...
+# Subtest: official action costs charge only the acting pawn
+ok 15 - official action costs charge only the acting pawn
+  ---
+  duration_ms: 2.428363
+  ...
+# Subtest: research restrictions survive another player and free records until an own turn intervenes
+ok 16 - research restrictions survive another player and free records until an own turn intervenes
+  ---
+  duration_ms: 0.678879
+  ...
+# Subtest: the shared window opens a research phase when it passes a research sector
+ok 17 - the shared window opens a research phase when it passes a research sector
+  ---
+  duration_ms: 1.451911
+  ...
+# Subtest: publishing runs from the player furthest behind, and the claimed object stays private
+ok 18 - publishing runs from the player furthest behind, and the claimed object stays private
+  ---
+  duration_ms: 1.535484
+  ...
+# Subtest: an expert table hands out two papers per phase, a standard one hands out one
+ok 19 - an expert table hands out two papers per phase, a standard one hands out one
+  ---
+  duration_ms: 1.187166
+  ...
+# Subtest: expert declaration capacity counts distinct available sectors, not remaining object types
+ok 20 - expert declaration capacity counts distinct available sectors, not remaining object types
+  ---
+  duration_ms: 29.453978
+  ...
+# Subtest: a peer review that says correct reveals the whole sector and locks it
+ok 21 - a peer review that says correct reveals the whole sector and locks it
+  ---
+  duration_ms: 4.024149
+  ...
+# Subtest: only the author (or the host) may report a peer review
+ok 22 - only the author (or the host) may report a peer review
+  ---
+  duration_ms: 6.277595
+  ...
+# Subtest: a wrong peer review costs the author a month
+ok 23 - a wrong peer review costs the author a month
+  ---
+  duration_ms: 3.68994
+  ...
+# Subtest: ordered reviews expose one sector at a time and batch wrong matching papers in player order
+ok 24 - ordered reviews expose one sector at a time and batch wrong matching papers in player order
+  ---
+  duration_ms: 3.636806
+  ...
+# Subtest: the same sector: the earlier arrival acts first and publishes first
+ok 25 - the same sector: the earlier arrival acts first and publishes first
+  ---
+  duration_ms: 0.75688
+  ...
+# Subtest: arrival priority beats join order when moving onto an occupied sector
+ok 26 - arrival priority beats join order when moving onto an occupied sector
+  ---
+  duration_ms: 0.520201
+  ...
+# Subtest: window arithmetic: which sectors the shared dial passed over
+ok 27 - window arithmetic: which sectors the shared dial passed over
+  ---
+  duration_ms: 0.149799
+  ...
+# Subtest: a wrong peer review moves the loser, and that month can move the window
+ok 28 - a wrong peer review moves the loser, and that month can move the window
+  ---
+  duration_ms: 1.295081
+  ...
+# Subtest: a penalty that leaves the window where it was triggers nothing
+ok 29 - a penalty that leaves the window where it was triggers nothing
+  ---
+  duration_ms: 2.341717
+  ...
+# Subtest: one research phase puts every paper of that round on the same track space
+ok 30 - one research phase puts every paper of that round on the same track space
+  ---
+  duration_ms: 1.059865
+  ...
+# Subtest: duplicate and same-phase conflicting claims do not consume a publication slot
+ok 31 - duplicate and same-phase conflicting claims do not consume a publication slot
+  ---
+  duration_ms: 1.450329
+  ...
+# Subtest: zero-submission phases advance papers and queued phases wait for every pending review
+ok 32 - zero-submission phases advance papers and queued phases wait for every pending review
+  ---
+  duration_ms: 2.060253
+  ...
+# Subtest: correct papers published in one phase share the leader bonus despite different entry ids
+ok 33 - correct papers published in one phase share the leader bonus despite different entry ids
+  ---
+  duration_ms: 2.045343
+  ...
+# Subtest: crossing a conference sector asks the table to look at the app
+ok 34 - crossing a conference sector asks the table to look at the app
+  ---
+  duration_ms: 1.587544
+  ...
+# Subtest: a pre-filled conference note is offered when the crossing happens
+ok 35 - a pre-filled conference note is offered when the crossing happens
+  ---
+  duration_ms: 0.58092
+  ...
+# Subtest: conferences are public, and only on the marked sectors
+ok 36 - conferences are public, and only on the marked sectors
+  ---
+  duration_ms: 0.409812
+  ...
+# Subtest: the A–F subject names are the table’s, and only the host writes them
+ok 37 - the A–F subject names are the table’s, and only the host writes them
+  ---
+  duration_ms: 0.506597
+  ...
+# Subtest: an expert table asks for two conference notes, a standard one for a single note
+ok 38 - an expert table asks for two conference notes, a standard one for a single note
+  ---
+  duration_ms: 0.254668
+  ...
+# Subtest: a setup card can be filled in again while the table is still waiting
+ok 39 - a setup card can be filled in again while the table is still waiting
+  ---
+  duration_ms: 0.301434
+  ...
+# Subtest: the room plays the board the host picked
+ok 40 - the room plays the board the host picked
+  ---
+  duration_ms: 0.754609
+  ...
+# Subtest: the sky window can be nudged by anyone and is shared
+ok 41 - the sky window can be nudged by anyone and is shared
+  ---
+  duration_ms: 0.232434
+  ...
+# Subtest: a correct locate waits for final choices and host reveal before ending the table
+ok 42 - a correct locate waits for final choices and host reveal before ending the table
+  ---
+  duration_ms: 1.285101
+  ...
+# Subtest: a player list carries each pawn and each player’s public progress
+ok 43 - a player list carries each pawn and each player’s public progress
+  ---
+  duration_ms: 0.283785
+  ...
+# Subtest: the view survives a JSON round trip intact (it travels over HTTP)
+ok 44 - the view survives a JSON round trip intact (it travels over HTTP)
+  ---
+  duration_ms: 1.706585
+  ...
+# Subtest: unknown actions, strangers and bad phases are rejected
+ok 45 - unknown actions, strangers and bad phases are rejected
+  ---
+  duration_ms: 0.139644
+  ...
+1..45
+# tests 45
+# suites 0
+# pass 45
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 106.582776
+TAP version 13
+# Subtest: builtin HTTP creation validates mode and keeps generator files outside the static root
+ok 1 - builtin HTTP creation validates mode and keeps generator files outside the static root
+  ---
+  duration_ms: 203.838081
+  ...
+# Subtest: builtin HTTP caps rooms at four players and distributes the host-selected initial clue count
+ok 2 - builtin HTTP caps rooms at four players and distributes the host-selected initial clue count
+  ---
+  duration_ms: 29.488298
+  ...
+# Subtest: HTTP and SSE views share monotonic revisions for joins and non-log actions
+ok 3 - HTTP and SSE views share monotonic revisions for joins and non-log actions
+  ---
+  duration_ms: 17.85313
+  ...
+# Subtest: builtin HTTP responses and SSE keep truth, initial cards and unearned research private
+ok 4 - builtin HTTP responses and SSE keep truth, initial cards and unearned research private
+  ---
+  duration_ms: 16.214112
+  ...
+# Subtest: builtin HTTP and SSE delay a crossed conference until the preceding research phase is finished
+ok 5 - builtin HTTP and SSE delay a crossed conference until the preceding research phase is finished
+  ---
+  duration_ms: 14.605455
+  ...
+# Subtest: builtin HTTP solo locate ignores forged verdict and automatically reveals a valid generated board
+ok 6 - builtin HTTP solo locate ignores forged verdict and automatically reveals a valid generated board
+  ---
+  duration_ms: 7.255603
+  ...
+# Subtest: builtin HTTP multiplayer resolves final theories without manual reveal or penalty time
+ok 7 - builtin HTTP multiplayer resolves final theories without manual reveal or penalty time
+  ---
+  duration_ms: 14.254648
+  ...
+# Subtest: static files are still served
+ok 8 - static files are still served
+  ---
+  duration_ms: 1.906874
+  ...
+# Subtest: a room can be created, joined and played over HTTP
+ok 9 - a room can be created, joined and played over HTTP
+  ---
+  duration_ms: 24.163702
+  ...
+# Subtest: HTTP rejects missing and replayed declarations when a zero-submission phase opens the next queued event
+ok 10 - HTTP rejects missing and replayed declarations when a zero-submission phase opens the next queued event
+  ---
+  duration_ms: 38.86658
+  ...
+# Subtest: HTTP rejects stale and missing submission ids without spending the current publication quota
+ok 11 - HTTP rejects stale and missing submission ids without spending the current publication quota
+  ---
+  duration_ms: 33.176698
+  ...
+# Subtest: the host picks the board when the room is created
+ok 12 - the host picks the board when the room is created
+  ---
+  duration_ms: 3.664686
+  ...
+# Subtest: the SSE stream pushes the shared state to every player
+ok 13 - the SSE stream pushes the shared state to every player
+  ---
+  duration_ms: 6.415395
+  ...
+# Subtest: two SSE clients keep all locate fields private through final choices and frozen-clock reveal
+ok 14 - two SSE clients keep all locate fields private through final choices and frozen-clock reveal
+  ---
+  duration_ms: 84.248686
+  ...
+# Subtest: standard: HTTP final theory batches and host-only object reveal validate atomically
+ok 15 - standard: HTTP final theory batches and host-only object reveal validate atomically
+  ---
+  duration_ms: 64.464608
+  ...
+# Subtest: expert: HTTP final theory batches and host-only object reveal validate atomically
+ok 16 - expert: HTTP final theory batches and host-only object reveal validate atomically
+  ---
+  duration_ms: 65.422588
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 630.148726
+TAP version 13
+# Subtest: builtin transport creates solo puzzle mode and restores earned private clues without the answer
+ok 1 - builtin transport creates solo puzzle mode and restores earned private clues without the answer
+  ---
+  duration_ms: 193.441753
+  ...
+# Subtest: builtin transport creates expert puzzles instead of falling back to a record room
+ok 2 - builtin transport creates expert puzzles instead of falling back to a record room
+  ---
+  duration_ms: 13.828088
+  ...
+# Subtest: the client can list modes, create a room and reconnect to it
+ok 3 - the client can list modes, create a room and reconnect to it
+  ---
+  duration_ms: 6.44964
+  ...
+# Subtest: the lobby gates the start on two players and the host’s command
+ok 4 - the lobby gates the start on two players and the host’s command
+  ---
+  duration_ms: 8.143162
+  ...
+# Subtest: the setup phase collects a private initial clue, shared subjects and the conference notes
+ok 5 - the setup phase collects a private initial clue, shared subjects and the conference notes
+  ---
+  duration_ms: 25.518437
+  ...
+# Subtest: two clients share the log and the board, but each one has their own clock
+ok 6 - two clients share the log and the board, but each one has their own clock
+  ---
+  duration_ms: 54.115733
+  ...
+# Subtest: the client can undo an own unsettled turn but not another player’s action
+ok 7 - the client can undo an own unsettled turn but not another player’s action
+  ---
+  duration_ms: 9.403652
+  ...
+# Subtest: client research stays restricted across another player and free conference records
+ok 8 - client research stays restricted across another player and free conference records
+  ---
+  duration_ms: 14.163868
+  ...
+# Subtest: two clients finish a correct final locate privately before the host reveals
+ok 9 - two clients finish a correct final locate privately before the host reveals
+  ---
+  duration_ms: 20.649483
+  ...
+# Subtest: two clients finish a wrong final locate privately before the host reveals
+ok 10 - two clients finish a wrong final locate privately before the host reveals
+  ---
+  duration_ms: 19.207646
+  ...
+# Subtest: the client transmits final theory batches atomically without moving either pawn
+ok 11 - the client transmits final theory batches atomically without moving either pawn
+  ---
+  duration_ms: 11.634866
+  ...
+# Subtest: only the host can skip the current final opportunity and the skip costs no time
+ok 12 - only the host can skip the current final opportunity and the skip costs no time
+  ---
+  duration_ms: 10.324548
+  ...
+# Subtest: the room identity is per tab, so two tabs are two different players
+ok 13 - the room identity is per tab, so two tabs are two different players
+  ---
+  duration_ms: 0.205415
+  ...
+# Subtest: the stream helper reports when EventSource is unavailable
+ok 14 - the stream helper reports when EventSource is unavailable
+  ---
+  duration_ms: 0.150576
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 398.446162
+TAP version 13
+# Subtest: client forwards the room-wide count including zero and supports expert built-in creation
+ok 1 - client forwards the room-wide count including zero and supports expert built-in creation
+  ---
+  duration_ms: 1.416985
+  ...
+# Subtest: tutorial transport fixes standard four-clue setup and refuses an ordinary fallback
+ok 2 - tutorial transport fixes standard four-clue setup and refuses an ordinary fallback
+  ---
+  duration_ms: 1.29339
+  ...
+# Subtest: unsupported builtin board and tutorial are rejected before a room is created
+ok 3 - unsupported builtin board and tutorial are rejected before a room is created
+  ---
+  duration_ms: 0.33947
+  ...
+# Subtest: client detects an older server that does not support shared clue counts
+ok 4 - client detects an older server that does not support shared clue counts
+  ---
+  duration_ms: 0.234382
+  ...
+# Subtest: tutorial return identity is separate from active room and survives repeated tutorial starts
+ok 5 - tutorial return identity is separate from active room and survives repeated tutorial starts
+  ---
+  duration_ms: 0.501896
+  ...
+# Subtest: tutorial return identity distinguishes offline return from a missing backup
+ok 6 - tutorial return identity distinguishes offline return from a missing backup
+  ---
+  duration_ms: 0.188928
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10.637007
+TAP version 13
+# Subtest: rejected record setup keeps the draft and never auto-marks rejected clues
+ok 1 - rejected record setup keeps the draft and never auto-marks rejected clues
+  ---
+  duration_ms: 27.397583
+  ...
+# Subtest: accepted record clues synchronize, survive refresh, and preserve later manual marks
+ok 2 - accepted record clues synchronize, survive refresh, and preserve later manual marks
+  ---
+  duration_ms: 15.076463
+  ...
+# Subtest: record resubmission removes only revoked automatic exclusions, including after reload
+ok 3 - record resubmission removes only revoked automatic exclusions, including after reload
+  ---
+  duration_ms: 22.558666
+  ...
+# Subtest: another player setup view never marks the current player notes
+ok 4 - another player setup view never marks the current player notes
+  ---
+  duration_ms: 3.933214
+  ...
+# Subtest: refresh repairs missing automatic marks but not deliberately cleared manual marks
+ok 5 - refresh repairs missing automatic marks but not deliberately cleared manual marks
+  ---
+  duration_ms: 11.254992
+  ...
+# Subtest: invalid initial-mark metadata does not prevent accepted clues from restoring
+ok 6 - invalid initial-mark metadata does not prevent accepted clues from restoring
+  ---
+  duration_ms: 8.452426
+  ...
+# Subtest: tutorial entry, restart and exit preserve the offline session and private notes
+ok 7 - tutorial entry, restart and exit preserve the offline session and private notes
+  ---
+  duration_ms: 27.140425
+  ...
+# Subtest: tutorial reload restores progress then exits back to the original online identity and notes
+ok 8 - tutorial reload restores progress then exits back to the original online identity and notes
+  ---
+  duration_ms: 25.631808
+  ...
+# Subtest: tutorial real map inspection and marking advance only after accepted input
+ok 9 - tutorial real map inspection and marking advance only after accepted input
+  ---
+  duration_ms: 145.966372
+  ...
+# Subtest: accepted tutorial marks recover from a lost response through reload
+ok 10 - accepted tutorial marks recover from a lost response through reload
+  ---
+  duration_ms: 171.904319
+  ...
+# Subtest: accepted tutorial marks recover from a lost response through view
+ok 11 - accepted tutorial marks recover from a lost response through view
+  ---
+  duration_ms: 142.895289
+  ...
+# Subtest: an undelivered tutorial mark stays unmarked after reload until a real accepted retry
+ok 12 - an undelivered tutorial mark stays unmarked after reload until a real accepted retry
+  ---
+  duration_ms: 120.546294
+  ...
+# Subtest: cancelled tutorial entry releases the lobby without disturbing a newer request (late response)
+ok 13 - cancelled tutorial entry releases the lobby without disturbing a newer request (late response)
+  ---
+  duration_ms: 8.724806
+  ...
+# Subtest: cancelled tutorial entry releases the lobby without disturbing a newer request (lost response)
+ok 14 - cancelled tutorial entry releases the lobby without disturbing a newer request (lost response)
+  ---
+  duration_ms: 9.410763
+  ...
+# Subtest: tutorial entry retains a saved normal identity while reload restoration is pending (after creation)
+ok 15 - tutorial entry retains a saved normal identity while reload restoration is pending (after creation)
+  ---
+  duration_ms: 12.770096
+  ...
+# Subtest: tutorial entry retains a saved normal identity while reload restoration is pending (during creation)
+ok 16 - tutorial entry retains a saved normal identity while reload restoration is pending (during creation)
+  ---
+  duration_ms: 10.429776
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 778.059918
+TAP version 13
+# Subtest: mode selection offers standard and expert builtin puzzles plus fixed tutorial entry
+ok 1 - mode selection offers standard and expert builtin puzzles plus fixed tutorial entry
+  ---
+  duration_ms: 19.600826
+  ...
+# Subtest: builtin lobby states the four-player total includes the host
+ok 2 - builtin lobby states the four-player total includes the host
+  ---
+  duration_ms: 2.979586
+  ...
+# Subtest: builtin waiting-room copy explains automatic delivery of the shared initial count
+ok 3 - builtin waiting-room copy explains automatic delivery of the shared initial count
+  ---
+  duration_ms: 2.270772
+  ...
+# Subtest: builtin action cards ask for queries, not self-reported results
+ok 4 - builtin action cards ask for queries, not self-reported results
+  ---
+  duration_ms: 1.959807
+  ...
+# Subtest: builtin research explains single-fact spatial clues in a persistent collapsed reference
+ok 5 - builtin research explains single-fact spatial clues in a persistent collapsed reference
+  ---
+  duration_ms: 3.357508
+  ...
+# Subtest: builtin setup and tools expose no manual secret editing and locate requests no verdict
+ok 6 - builtin setup and tools expose no manual secret editing and locate requests no verdict
+  ---
+  duration_ms: 1.844016
+  ...
+# Subtest: builtin displays 空域 consistently, identifies system verdicts, and shows cumulative time
+ok 7 - builtin displays 空域 consistently, identifies system verdicts, and shows cumulative time
+  ---
+  duration_ms: 3.260432
+  ...
+# Subtest: builtin app creates a solo room, uses actual query answers, and preserves the offline save
+ok 8 - builtin app creates a solo room, uses actual query answers, and preserves the offline save
+  ---
+  duration_ms: 47.416315
+  ...
+# Subtest: builtin creation detects an old server before creating any room or replacing the local game
+ok 9 - builtin creation detects an old server before creating any room or replacing the local game
+  ---
+  duration_ms: 5.007368
+  ...
+# Subtest: temporary restore failures preserve builtin identities and allow a later reload
+ok 10 - temporary restore failures preserve builtin identities and allow a later reload
+  ---
+  duration_ms: 187.891789
+  ...
+# Subtest: restore clears expired or invalid identities but ignores failures from an abandoned restore
+ok 11 - restore clears expired or invalid identities but ignores failures from an abandoned restore
+  ---
+  duration_ms: 2.871801
+  ...
+# Subtest: changing rooms isolates pending actions and ignores old responses and failures
+ok 12 - changing rooms isolates pending actions and ignores old responses and failures
+  ---
+  duration_ms: 23.589719
+  ...
+# Subtest: newer room pushes cannot be overwritten by delayed HTTP responses or stale SSE frames
+ok 13 - newer room pushes cannot be overwritten by delayed HTTP responses or stale SSE frames
+  ---
+  duration_ms: 10.0156
+  ...
+# Subtest: record shared-info edits remain sequential when remote actions have a pending guard
+ok 14 - record shared-info edits remain sequential when remote actions have a pending guard
+  ---
+  duration_ms: 13.731854
+  ...
+# Subtest: app renders the record console
+ok 15 - app renders the record console
+  ---
+  duration_ms: 0.906365
+  ...
+# Subtest: the record console renders the action launcher and the time-track markers
+ok 16 - the record console renders the action launcher and the time-track markers
+  ---
+  duration_ms: 2.077675
+  ...
+# Subtest: the record console walks an action: launch → pick on the map → fill in → confirm
+ok 17 - the record console walks an action: launch → pick on the map → fill in → confirm
+  ---
+  duration_ms: 47.5554
+  ...
+# Subtest: clicking a map icon offers the three marking choices
+ok 18 - clicking a map icon offers the three marking choices
+  ---
+  duration_ms: 7.440236
+  ...
+# Subtest: the map is the one place a mark lives, and the side cards read the same store
+ok 19 - the map is the one place a mark lives, and the side cards read the same store
+  ---
+  duration_ms: 1.852965
+  ...
+# Subtest: clicking outside dismisses the marking bubble and any dialog
+ok 20 - clicking outside dismisses the marking bubble and any dialog
+  ---
+  duration_ms: 15.701148
+  ...
+# Subtest: the workspace separates the playfield, reference rail and contextual actions
+ok 21 - the workspace separates the playfield, reference rail and contextual actions
+  ---
+  duration_ms: 1.041753
+  ...
+# Subtest: Earth stays at the middle angle of the visible half on both boards, including wrapped windows
+ok 22 - Earth stays at the middle angle of the visible half on both boards, including wrapped windows
+  ---
+  duration_ms: 14.504664
+  ...
+# Subtest: Earth follows the shared visible window rather than the viewer’s personal clock
+ok 23 - Earth follows the shared visible window rather than the viewer’s personal clock
+  ---
+  duration_ms: 0.97308
+  ...
+# Subtest: Earth completes one orbit per board lap and returns correctly after time corrections
+ok 24 - Earth completes one orbit per board lap and returns correctly after time corrections
+  ---
+  duration_ms: 4.662227
+  ...
+# Subtest: Earth’s orbit stays clear of the Sun and sector controls, with a readable non-action label
+ok 25 - Earth’s orbit stays clear of the Sun and sector controls, with a readable non-action label
+  ---
+  duration_ms: 0.567042
+  ...
+# Subtest: the longer lap label has a bounded width inside the Earth orbit on both boards
+ok 26 - the longer lap label has a bounded width inside the Earth orbit on both boards
+  ---
+  duration_ms: 2.095938
+  ...
+# Subtest: research topic titles allow long object pairs to wrap within their buttons
+ok 27 - research topic titles allow long object pairs to wrap within their buttons
+  ---
+  duration_ms: 0.793775
+  ...
+# Subtest: stylesheets are structurally sane
+ok 28 - stylesheets are structurally sane
+  ---
+  duration_ms: 0.696146
+  ...
+# Subtest: map geometry keeps every icon inside the ring without overlapping
+ok 29 - map geometry keeps every icon inside the ring without overlapping
+  ---
+  duration_ms: 2.748892
+  ...
+# Subtest: the console survives a save and reload
+ok 30 - the console survives a save and reload
+  ---
+  duration_ms: 3.862307
+  ...
+# Subtest: official local phases survive reload and explicitly finish even without papers
+ok 31 - official local phases survive reload and explicitly finish even without papers
+  ---
+  duration_ms: 6.288135
+  ...
+# Subtest: official local locate uses string answers and reaches reveal before final scoring
+ok 32 - official local locate uses string answers and reaches reveal before final scoring
+  ---
+  duration_ms: 18.902078
+  ...
+# Subtest: official upgrade preserves historical recorded costs
+ok 33 - official upgrade preserves historical recorded costs
+  ---
+  duration_ms: 0.876945
+  ...
+# Subtest: typing a room code enables 「加入房间」 — even across a re-render
+ok 34 - typing a room code enables 「加入房间」 — even across a re-render
+  ---
+  duration_ms: 20.012257
+  ...
+# Subtest: the lobby renders and the client speaks the room protocol
+ok 35 - the lobby renders and the client speaks the room protocol
+  ---
+  duration_ms: 13.699797
+  ...
+# Subtest: the pre-game flow walks lobby → setup → first turn
+ok 36 - the pre-game flow walks lobby → setup → first turn
+  ---
+  duration_ms: 41.186416
+  ...
+# Subtest: the solo console can be started on the 18 sector board
+ok 37 - the solo console can be started on the 18 sector board
+  ---
+  duration_ms: 10.269284
+  ...
+# Subtest: the online research phase renders declare → publish → review
+ok 38 - the online research phase renders declare → publish → review
+  ---
+  duration_ms: 49.420158
+  ...
+# Subtest: the peer review prompt pays for a wrong answer
+ok 39 - the peer review prompt pays for a wrong answer
+  ---
+  duration_ms: 11.857644
+  ...
+# Subtest: the setup card can be filled in again, and an expert table asks for two conferences
+ok 40 - the setup card can be filled in again, and an expert table asks for two conferences
+  ---
+  duration_ms: 63.787677
+  ...
+# Subtest: pawns preserve clockwise arrival and join order in every quadrant and occupancy without changing turn priority
+ok 41 - pawns preserve clockwise arrival and join order in every quadrant and occupancy without changing turn priority
+  ---
+  duration_ms: 31.885709
+  ...
+# Subtest: a conference crossing is announced and asks for the app’s rule
+ok 42 - a conference crossing is announced and asks for the app’s rule
+  ---
+  duration_ms: 77.874244
+  ...
+# Subtest: the record is a chronological player table and the score panel adds up
+ok 43 - the record is a chronological player table and the score panel adds up
+  ---
+  duration_ms: 12.260313
+  ...
+# Subtest: the locate dialog records what the app decided
+ok 44 - the locate dialog records what the app decided
+  ---
+  duration_ms: 11.020109
+  ...
+# Subtest: the theory card only offers the four claimable objects
+ok 45 - the theory card only offers the four claimable objects
+  ---
+  duration_ms: 6.440942
+  ...
+# Subtest: the layout keeps exactly three columns: knowledge, map and actions
+ok 46 - the layout keeps exactly three columns: knowledge, map and actions
+  ---
+  duration_ms: 1.75518
+  ...
+# Subtest: new sessions reset reused history result ids without clearing panel preferences
+ok 47 - new sessions reset reused history result ids without clearing panel preferences
+  ---
+  duration_ms: 5.654135
+  ...
+# Subtest: reference panels are folded and disclosure state survives app redraws
+ok 48 - reference panels are folded and disclosure state survives app redraws
+  ---
+  duration_ms: 2.379436
+  ...
+# Subtest: knowledge shows private clues before collapsed base rules
+ok 49 - knowledge shows private clues before collapsed base rules
+  ---
+  duration_ms: 0.882947
+  ...
+# Subtest: conference entry is contextual and locating does not compete with an active action
+ok 50 - conference entry is contextual and locating does not compete with an active action
+  ---
+  duration_ms: 10.810708
+  ...
+# Subtest: every recordable action goes through the api and lands in the log
+ok 51 - every recordable action goes through the api and lands in the log
+  ---
+  duration_ms: 21.474887
+  ...
+# Subtest: map clicks set the survey range and are clamped to the window
+ok 52 - map clicks set the survey range and are clamped to the window
+  ---
+  duration_ms: 1.380738
+  ...
+# Subtest: the map draws every mark and the side cards render without the grid
+ok 53 - the map draws every mark and the side cards render without the grid
+  ---
+  duration_ms: 0.850587
+  ...
+# Subtest: modal variants render: help, locate, conference, result, start
+ok 54 - modal variants render: help, locate, conference, result, start
+  ---
+  duration_ms: 4.813322
+  ...
+# Subtest: initial clue app automatically marks its own delivery and keeps same-count retries idempotent
+ok 55 - initial clue app automatically marks its own delivery and keeps same-count retries idempotent
+  ---
+  duration_ms: 8.645207
+  ...
+# Subtest: initial clue app refresh restores delivered clues even when the notes cache only has handwritten marks
+ok 56 - initial clue app refresh restores delivered clues even when the notes cache only has handwritten marks
+  ---
+  duration_ms: 10.204078
+  ...
+# Subtest: initial clue app does not import another player’s delivered setup into this player’s notes
+ok 57 - initial clue app does not import another player’s delivered setup into this player’s notes
+  ---
+  duration_ms: 5.08859
+  ...
+# Subtest: initial clue app failed retry leaves already-delivered clues and readiness unchanged
+ok 58 - initial clue app failed retry leaves already-delivered clues and readiness unchanged
+  ---
+  duration_ms: 5.022558
+  ...
+# Subtest: app refuses forbidden comet endpoints even through previously rendered map callbacks
+ok 59 - app refuses forbidden comet endpoints even through previously rendered map callbacks
+  ---
+  duration_ms: 6.984668
+  ...
+# Subtest: approved initial clue setup displays the locked host count and never offers a personal claim
+ok 60 - approved initial clue setup displays the locked host count and never offers a personal claim
+  ---
+  duration_ms: 4.118892
+  ...
+# Subtest: approved map omits forbidden comet glyphs, click slots, mark chips and stale popovers on both boards
+ok 61 - approved map omits forbidden comet glyphs, click slots, mark chips and stale popovers on both boards
+  ---
+  duration_ms: 3.331101
+  ...
+# Subtest: approved comet surveys offer only visible prime-numbered endpoints in selects and SVG wedges
+ok 62 - approved comet surveys offer only visible prime-numbered endpoints in selects and SVG wedges
+  ---
+  duration_ms: 5.547724
+  ...
+# Subtest: approved regular and triggered research selectors consume per-sector theoryOptions without re-deriving locks
+ok 63 - approved regular and triggered research selectors consume per-sector theoryOptions without re-deriving locks
+  ---
+  duration_ms: 1.887496
+  ...
+# Subtest: event UI follows real console standard theory departure at 3
+ok 64 - event UI follows real console standard theory departure at 3
+  ---
+  duration_ms: 2.278283
+  ...
+# Subtest: event UI follows real console standard conference departure at 10
+ok 65 - event UI follows real console standard conference departure at 10
+  ---
+  duration_ms: 5.358417
+  ...
+# Subtest: event UI follows real console expert conference departure at 7
+ok 66 - event UI follows real console expert conference departure at 7
+  ---
+  duration_ms: 2.310869
+  ...
+# Subtest: event UI follows real console expert conference departure at 16
+ok 67 - event UI follows real console expert conference departure at 16
+  ---
+  duration_ms: 4.806027
+  ...
+# Subtest: event UI defers an overdue offline conference until earlier theory phases finish
+ok 68 - event UI defers an overdue offline conference until earlier theory phases finish
+  ---
+  duration_ms: 3.483412
+  ...
+# Subtest: event UI pauses queued markers and conference reminders during offline peer review
+ok 69 - event UI pauses queued markers and conference reminders during offline peer review
+  ---
+  duration_ms: 4.781445
+  ...
+# Subtest: event SVG follows real shared pending phases, not a leading viewer clock or wrapped marker
+ok 70 - event SVG follows real shared pending phases, not a leading viewer clock or wrapped marker
+  ---
+  duration_ms: 22.957748
+  ...
+# Subtest: event UI follows a real room conference after departure and until its prompt is recorded
+ok 71 - event UI follows a real room conference after departure and until its prompt is recorded
+  ---
+  duration_ms: 7.627542
+  ...
+# Subtest: event UI never highlights conferences or research in real frozen final and revealed views
+ok 72 - event UI never highlights conferences or research in real frozen final and revealed views
+  ---
+  duration_ms: 13.215173
+  ...
+# Subtest: approved normal actions omit waiting and publishing while triggered research retains padded controls
+ok 73 - approved normal actions omit waiting and publishing while triggered research retains padded controls
+  ---
+  duration_ms: 1.779926
+  ...
+# Subtest: approved academic progress groups multiple papers into two columns with authors, slots and per-view privacy
+ok 74 - approved academic progress groups multiple papers into two columns with authors, slots and per-view privacy
+  ---
+  duration_ms: 1.072368
+  ...
+# Subtest: approved public scores use a two-row per-player table with object unit values and actual sums, never an extra first-X bonus
+ok 75 - approved public scores use a two-row per-player table with object unit values and actual sums, never an extra first-X bonus
+  ---
+  duration_ms: 2.547585
+  ...
+# Subtest: app theory defaults omit revealed sectors but keep a different allowed type at a previously attempted sector
+ok 76 - app theory defaults omit revealed sectors but keep a different allowed type at a previously attempted sector
+  ---
+  duration_ms: 5.65528
+  ...
+# Subtest: app switching survey type to comet clears invalid old endpoints while retaining visible prime picks
+ok 77 - app switching survey type to comet clears invalid old endpoints while retaining visible prime picks
+  ---
+  duration_ms: 21.524486
+  ...
+# Subtest: integrated tutorial uses real rendered controls through reveal, restart and isolated exit
+ok 78 - integrated tutorial uses real rendered controls through reveal, restart and isolated exit
+  ---
+  duration_ms: 242.902295
+  ...
+1..78
+# tests 78
+# suites 0
+# pass 78
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1265.232375
+TAP version 13
+# Subtest: expert builtin choices and host count selection are available before creation
+ok 1 - expert builtin choices and host count selection are available before creation
+  ---
+  duration_ms: 4.60532
+  ...
+# Subtest: tutorial creation is fixed to standard and four clues without inviting other players
+ok 2 - tutorial creation is fixed to standard and four clues without inviting other players
+  ---
+  duration_ms: 4.360087
+  ...
+# Subtest: record room creation offers shared counts without adding an unused control to solo record reset
+ok 3 - record room creation offers shared counts without adding an unused control to solo record reset
+  ---
+  duration_ms: 0.50613
+  ...
+# Subtest: room lobby exposes the count API only to the host and shows guests the shared value
+ok 4 - room lobby exposes the count API only to the host and shows guests the shared value
+  ---
+  duration_ms: 2.416511
+  ...
+# Subtest: builtin setup only displays delivered host-count clues and confirms readiness
+ok 5 - builtin setup only displays delivered host-count clues and confirms readiness
+  ---
+  duration_ms: 2.209973
+  ...
+# Subtest: record setup requires exactly the shared count of unique valid exclusions on both boards
+ok 6 - record setup requires exactly the shared count of unique valid exclusions on both boards
+  ---
+  duration_ms: 8.848072
+  ...
+# Subtest: record exclusion selectors omit impossible comets and clear a stale comet when changing sector
+ok 7 - record exclusion selectors omit impossible comets and clear a stale comet when changing sector
+  ---
+  duration_ms: 0.691933
+  ...
+# Subtest: zero-clue record setup needs no personal opt-out or extra rows
+ok 8 - zero-clue record setup needs no personal opt-out or extra rows
+  ---
+  duration_ms: 0.656429
+  ...
+# Subtest: record hosts edit conference titles separately from unrevealed body text
+ok 9 - record hosts edit conference titles separately from unrevealed body text
+  ---
+  duration_ms: 0.73168
+  ...
+# Subtest: conference card keeps every public title visible while only rendering earned text
+ok 10 - conference card keeps every public title visible while only rendering earned text
+  ---
+  duration_ms: 0.708318
+  ...
+# Subtest: standard record conference corrections appear for every player only after publication
+ok 11 - standard record conference corrections appear for every player only after publication
+  ---
+  duration_ms: 2.439365
+  ...
+# Subtest: expert record conference corrections appear for every player only after publication
+ok 12 - expert record conference corrections appear for every player only after publication
+  ---
+  duration_ms: 1.429857
+  ...
+# Subtest: tutorial guide renders accessible progress and only the current human target
+ok 13 - tutorial guide renders accessible progress and only the current human target
+  ---
+  duration_ms: 0.703564
+  ...
+# Subtest: tutorial navigation uses only the three agreed callbacks and never displays bot expectations
+ok 14 - tutorial navigation uses only the three agreed callbacks and never displays bot expectations
+  ---
+  duration_ms: 0.462868
+  ...
+# Subtest: tutorial Next captures its rendered step id and restart stays available midlesson
+ok 15 - tutorial Next captures its rendered step id and restart stays available midlesson
+  ---
+  duration_ms: 0.219142
+  ...
+# Subtest: tutorial inspection, marking, narration and bot turns do not invite ordinary actions
+ok 16 - tutorial inspection, marking, narration and bot turns do not invite ordinary actions
+  ---
+  duration_ms: 0.379269
+  ...
+# Subtest: tutorial human action keeps the real query widgets and highlights the expected control
+ok 17 - tutorial human action keeps the real query widgets and highlights the expected control
+  ---
+  duration_ms: 1.216959
+  ...
+# Subtest: tutorial targets are highlighted on the map and keyboard reachable without exposing bot targets
+ok 18 - tutorial targets are highlighted on the map and keyboard reachable without exposing bot targets
+  ---
+  duration_ms: 3.728588
+  ...
+# Subtest: tutorial marking highlights the current object and state without bypassing real mark controls
+ok 19 - tutorial marking highlights the current object and state without bypassing real mark controls
+  ---
+  duration_ms: 0.825838
+  ...
+# Subtest: started room modal exposes a read-only count even to the host
+ok 20 - started room modal exposes a read-only count even to the host
+  ---
+  duration_ms: 0.710381
+  ...
+# Subtest: real guest views show conference titles independently without leaking prefilled future bodies
+ok 21 - real guest views show conference titles independently without leaking prefilled future bodies
+  ---
+  duration_ms: 1.411567
+  ...
+# Subtest: tutorial research and declaration targets highlight only the expected topic or count
+ok 22 - tutorial research and declaration targets highlight only the expected topic or count
+  ---
+  duration_ms: 0.65105
+  ...
+# Subtest: tutorial paper targets highlight the expected sector and object without submitting on behalf of the player
+ok 23 - tutorial paper targets highlight the expected sector and object without submitting on behalf of the player
+  ---
+  duration_ms: 0.466671
+  ...
+# Subtest: tutorial ignores a stale locate dialog outside a human locate action
+ok 24 - tutorial ignores a stale locate dialog outside a human locate action
+  ---
+  duration_ms: 0.089844
+  ...
+# Subtest: tutorial locate dialog keeps the current expected answers visible and labels each real input
+ok 25 - tutorial locate dialog keeps the current expected answers visible and labels each real input
+  ---
+  duration_ms: 0.324464
+  ...
+# Subtest: completed tutorial keeps the public board reveal and final scores visible
+ok 26 - completed tutorial keeps the public board reveal and final scores visible
+  ---
+  duration_ms: 0.294151
+  ...
+# Subtest: record conference entry does not prefill a future body for a guest
+ok 27 - record conference entry does not prefill a future body for a guest
+  ---
+  duration_ms: 0.543931
+  ...
+# Subtest: tutorial and conference layouts stay in document flow with narrow-screen wrapping
+ok 28 - tutorial and conference layouts stay in document flow with narrow-screen wrapping
+  ---
+  duration_ms: 6.985645
+  ...
+1..28
+# tests 28
+# suites 0
+# pass 28
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 53.075212
+TAP version 13
+# Subtest: one chronological row per actual action, including consecutive actions by one player
+ok 1 - one chronological row per actual action, including consecutive actions by one player
+  ---
+  duration_ms: 2.746395
+  ...
+# Subtest: stable player columns, own-column highlighting and no separate result column
+ok 2 - stable player columns, own-column highlighting and no separate result column
+  ---
+  duration_ms: 0.410482
+  ...
+# Subtest: offline history has just the sequence and one player column
+ok 3 - offline history has just the sequence and one player column
+  ---
+  duration_ms: 0.310188
+  ...
+# Subtest: private fields from another actor never reach text or attributes, even in an unredacted fixture
+ok 4 - private fields from another actor never reach text or attributes, even in an unredacted fixture
+  ---
+  duration_ms: 0.88101
+  ...
+# Subtest: own private results and publicly reviewed theories are available as expandable details
+ok 5 - own private results and publicly reviewed theories are available as expandable details
+  ---
+  duration_ms: 0.50595
+  ...
+# Subtest: another player’s locate remains private until the real endgame reveal makes it public
+ok 6 - another player’s locate remains private until the real endgame reveal makes it public
+  ---
+  duration_ms: 0.766878
+  ...
+# Subtest: conferences and review penalties are separate public-event rows spanning the players
+ok 7 - conferences and review penalties are separate public-event rows spanning the players
+  ---
+  duration_ms: 0.890176
+  ...
+# Subtest: actual recorded cost is retained and only the newest row is highlighted
+ok 8 - actual recorded cost is retained and only the newest row is highlighted
+  ---
+  duration_ms: 0.326157
+  ...
+# Subtest: history displays stored costs and clocks using each board’s time units and lap length
+ok 9 - history displays stored costs and clocks using each board’s time units and lap length
+  ---
+  duration_ms: 1.178219
+  ...
+# Subtest: board clocks and pawn durations use the displayed board’s lap length
+ok 10 - board clocks and pawn durations use the displayed board’s lap length
+  ---
+  duration_ms: 13.394227
+  ...
+# Subtest: displayed personal clocks leave Earth on the shared visible window’s orbital midpoint
+ok 11 - displayed personal clocks leave Earth on the shared visible window’s orbital midpoint
+  ---
+  duration_ms: 12.516466
+  ...
+# Subtest: theory review tooltip describes the unchanged one-unit penalty
+ok 12 - theory review tooltip describes the unchanged one-unit penalty
+  ---
+  duration_ms: 0.603017
+  ...
+# Subtest: historical actors absent from the current roster retain their own column
+ok 13 - historical actors absent from the current roster retain their own column
+  ---
+  duration_ms: 0.219366
+  ...
+# Subtest: history uses a caption, row headers and a keyboard-scrollable region
+ok 14 - history uses a caption, row headers and a keyboard-scrollable region
+  ---
+  duration_ms: 0.258349
+  ...
+# Subtest: expanding the history survives the next render without an action or rerender side effect
+ok 15 - expanding the history survives the next render without an action or rerender side effect
+  ---
+  duration_ms: 0.354622
+  ...
+# Subtest: disclosure close and interleaved result toggles preserve preferences and ignore detached events
+ok 16 - disclosure close and interleaved result toggles preserve preferences and ignore detached events
+  ---
+  duration_ms: 0.38721
+  ...
+# Subtest: an empty history has a useful state and no fabricated action row
+ok 17 - an empty history has a useful state and no fabricated action row
+  ---
+  duration_ms: 0.093517
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 50.682395
+TAP version 13
+# Subtest: unrelated phases return null and online phase takes precedence over solo status
+ok 1 - unrelated phases return null and online phase takes precedence over solo status
+  ---
+  duration_ms: 2.057973
+  ...
+# Subtest: non-acting players only wait, even when they are the host or match the cursor
+ok 2 - non-acting players only wait, even when they are the host or match the cursor
+  ---
+  duration_ms: 0.810359
+  ...
+# Subtest: final opportunity explains the quota, unchanged pawns and private locate answer
+ok 3 - final opportunity explains the quota, unchanged pawns and private locate answer
+  ---
+  duration_ms: 0.587678
+  ...
+# Subtest: theory count offers zero through quota and zero theories submit atomically
+ok 4 - theory count offers zero through quota and zero theories submit atomically
+  ---
+  duration_ms: 0.284887
+  ...
+# Subtest: zero quota still permits locate, zero theories and pass without theory fields
+ok 5 - zero quota still permits locate, zero theories and pass without theory fields
+  ---
+  duration_ms: 0.289572
+  ...
+# Subtest: new theory fields start blank and incomplete theories cannot submit
+ok 6 - new theory fields start blank and incomplete theories cannot submit
+  ---
+  duration_ms: 1.522392
+  ...
+# Subtest: two theories retain independent drafts and submit exactly one zero-based payload
+ok 7 - two theories retain independent drafts and submit exactly one zero-based payload
+  ---
+  duration_ms: 1.408909
+  ...
+# Subtest: theory drafts update through setUi without mutating the supplied UI or game
+ok 8 - theory drafts update through setUi without mutating the supplied UI or game
+  ---
+  duration_ms: 1.105917
+  ...
+# Subtest: theory sector choices cover the full 12-sector or 18-sector board
+ok 9 - theory sector choices cover the full 12-sector or 18-sector board
+  ---
+  duration_ms: 0.595575
+  ...
+# Subtest: final theory choices use only server-provided sectors and each sector’s ordinary object types
+ok 10 - final theory choices use only server-provided sectors and each sector’s ordinary object types
+  ---
+  duration_ms: 1.259745
+  ...
+# Subtest: final theory row count is capped by available distinct sectors, including no remaining sectors
+ok 11 - final theory row count is capped by available distinct sectors, including no remaining sectors
+  ---
+  duration_ms: 0.444616
+  ...
+# Subtest: final theory rows omit sectors used by another draft and reject duplicates or stale server options
+ok 12 - final theory rows omit sectors used by another draft and reject duplicates or stale server options
+  ---
+  duration_ms: 1.06648
+  ...
+# Subtest: solo final status renders the same final controls
+ok 13 - solo final status renders the same final controls
+  ---
+  duration_ms: 0.159452
+  ...
+# Subtest: authorized reveal has exactly 12 or 18 blank fields offering all six labeled objects
+ok 14 - authorized reveal has exactly 12 or 18 blank fields offering all six labeled objects
+  ---
+  duration_ms: 2.252333
+  ...
+# Subtest: nonhosts and viewers without reveal permission only see waiting, never drafts
+ok 15 - nonhosts and viewers without reveal permission only see waiting, never drafts
+  ---
+  duration_ms: 0.248515
+  ...
+# Subtest: solo reveal uses status and still requires canReveal
+ok 16 - solo reveal uses status and still requires canReveal
+  ---
+  duration_ms: 0.77007
+  ...
+# Subtest: missing, sparse and unknown reveal entries stay blank instead of becoming empty sectors
+ok 17 - missing, sparse and unknown reveal entries stay blank instead of becoming empty sectors
+  ---
+  duration_ms: 1.057897
+  ...
+# Subtest: fully filled reveal requires exactly one Planet X, not zero or two
+ok 18 - fully filled reveal requires exactly one Planet X, not zero or two
+  ---
+  duration_ms: 0.926284
+  ...
+# Subtest: choosing every sector sends one exact reveal-objects payload for either board size
+ok 19 - choosing every sector sends one exact reveal-objects payload for either board size
+  ---
+  duration_ms: 13.571538
+  ...
+# Subtest: reveal edits only replace the UI draft and preserve explicitly selected empty sectors
+ok 20 - reveal edits only replace the UI draft and preserve explicitly selected empty sectors
+  ---
+  duration_ms: 1.385767
+  ...
+# Subtest: online and solo finished aliases show final scores and every tied winner without controls
+ok 21 - online and solo finished aliases show final scores and every tied winner without controls
+  ---
+  duration_ms: 0.986113
+  ...
+# Subtest: finished objects use the public board and LABEL rather than a private reveal draft
+ok 22 - finished objects use the public board and LABEL rather than a private reveal draft
+  ---
+  duration_ms: 0.40367
+  ...
+# Subtest: finished winner selection follows scoreWinners for a single winner and zero scores
+ok 23 - finished winner selection follows scoreWinners for a single winner and zero scores
+  ---
+  duration_ms: 0.27557
+  ...
+# Subtest: finished views without scores or revealed objects show a compact result
+ok 24 - finished views without scores or revealed objects show a compact result
+  ---
+  duration_ms: 0.31911
+  ...
+# Subtest: phase and permission transitions replace controls without mutating or submitting UI drafts
+ok 25 - phase and permission transitions replace controls without mutating or submitting UI drafts
+  ---
+  duration_ms: 0.841692
+  ...
+# Subtest: invalid theory count changes cannot exceed quota or silently clear the draft
+ok 26 - invalid theory count changes cannot exceed quota or silently clear the draft
+  ---
+  duration_ms: 0.688059
+  ...
+# Subtest: invalid or over-quota theory drafts never submit, including non-theory object types
+ok 27 - invalid or over-quota theory drafts never submit, including non-theory object types
+  ---
+  duration_ms: 2.052267
+  ...
+# Subtest: waiting views do not reveal private locate answers or a board before finished
+ok 28 - waiting views do not reveal private locate answers or a board before finished
+  ---
+  duration_ms: 0.351863
+  ...
+# Subtest: all sidecar classes already exist in the shared stylesheet
+ok 29 - all sidecar classes already exist in the shared stylesheet
+  ---
+  duration_ms: 1.710688
+  ...
+1..29
+# tests 29
+# suites 0
+# pass 29
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 52.292513
+
+──────── summary ────────
+✔  rules.test.js
+✔  launcher.test.js
+✔  research.test.js
+✔  puzzles.test.js
+✔  expert-puzzles.test.js
+✔  builtin-room.test.js
+✔  setup-config.test.js
+✔  tutorial.test.js
+✔  tutorial-server.test.js
+✔  record-parity.test.js
+✔  console.test.js
+✔  official-rules.test.js
+✔  review-order.test.js
+✔  room.test.js
+✔  server.test.js
+✔  client.test.js
+✔  client-config.test.js
+✔  app-state.test.js
+✔  ui.smoke.test.js
+✔  tutorial-ui.test.js
+✔  history-ui.test.js
+✔  endgame-ui.test.js
+all 22 test files passed

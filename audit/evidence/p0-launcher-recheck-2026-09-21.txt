@@ -1,0 +1,2 @@
+launcher stress 10x before harden: all pass 8 / skip 1 (darwin)
+launcher 3x after harden: all pass 8 / skip 1
