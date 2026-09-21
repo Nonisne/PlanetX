@@ -1,0 +1,97 @@
+READ-ONLY PROBE: separate in-memory ordinary and cold module instances; first initialization of EACH receives 2100ms; project files are not modified.
+INJECT first initialization: ordinary module, +2100ms
+INJECT first initialization: cold-generation-test module, +2100ms
+✔ standard board validation accepts the declared inventory and circular neighbors (0.5995ms)
+✔ standard board validation rejects each forbidden placement, including wraparound (0.106292ms)
+✔ standard board validation rejects malformed boards and incorrect inventory (0.100792ms)
+✔ board validation agrees with an independent exhaustive backtracking oracle (25.123209ms)
+ℹ 4446 independent valid boards; enumeration 25ms
+✔ research topics name one or two ordinary objects and contain exactly one fact (2250.6905ms)
+✔ relative research preserves legal mirror candidates until observations distinguish them (3.464125ms)
+✖ generation exposes the standard server contract without serializing private constraints (2217.404792ms)
+✔ expert and unknown modes are explicitly rejected instead of falling back (0.290125ms)
+✔ generation rejects invalid random sources and out-of-range draws (0.855292ms)
+✔ equal random streams reproduce puzzles and constant streams stay observation-solvable (9.000291ms)
+✔ the candidate counter covers the complete independent valid-board space (1.628916ms)
+✔ displayed facts independently match candidates and become unique with complete observations (665.576875ms)
+ℹ 32 independently solved puzzles; clue kinds within, band, x-candidates, opposite, adjacent, arc, x-neighbors, x-distance; maximum 7 statements
+✔ candidate filtering uses deduction constraints, not the stored answer (1.728208ms)
+✔ uniform board sampling uses equal-sized bins without rejection or rotation bias (17.04775ms)
+✔ generation produces varied complete puzzles within a bounded warm runtime (427.831959ms)
+ℹ 256 puzzles: 249 boards, 256 research sets, 427ms; X histogram 19,26,12,35,6,42,7,43,5,31,9,21
+✔ each player receives four fresh, deduplicated, zero-based ordinary-object exclusions (2.200958ms)
+✔ initial clue sampling handles the entire finite exclusion pool without retry loops (2.38875ms)
+✔ initial clue issuance rejects invalid counts, boards, and random sources (2.391542ms)
+✔ ordinary-object initial exclusions do not distinguish X from true empty sectors (9.263292ms)
+✔ solver rejects malformed selections instead of silently ignoring them (2.703583ms)
+✔ puzzles and their clue strings do not share mutable state through the server cache (5.752709ms)
+﹣ every valid board gets six single-fact topics and an observation-unique solution (PUZZLE_EXHAUSTIVE=1) (0.0295ms) # SKIP
+ℹ tests 22
+ℹ suites 0
+ℹ pass 20
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 5651.533125
+
+✖ failing tests:
+
+test at <in-memory-module>:310:1
+✖ generation exposes the standard server contract without serializing private constraints (2217.404792ms)
+  AssertionError [ERR_ASSERTION]: cold enumeration and first puzzle took 2215ms
+      at TestContext.<anonymous> (<in-memory-module>:318:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+probe_exit_status=1 (expected 1 for the 2000ms budget assertion)
+
+--- CONTROL: unmodified project test, PUZZLE_EXHAUSTIVE=0 ---
+✔ standard board validation accepts the declared inventory and circular neighbors (0.599625ms)
+✔ standard board validation rejects each forbidden placement, including wraparound (0.215083ms)
+✔ standard board validation rejects malformed boards and incorrect inventory (0.240666ms)
+✔ board validation agrees with an independent exhaustive backtracking oracle (26.321625ms)
+ℹ 4446 independent valid boards; enumeration 26ms
+✔ research topics name one or two ordinary objects and contain exactly one fact (123.583166ms)
+✔ relative research preserves legal mirror candidates until observations distinguish them (3.814834ms)
+✔ generation exposes the standard server contract without serializing private constraints (99.226ms)
+ℹ cold enumeration, feature cache, and first puzzle 94ms
+✔ expert and unknown modes are explicitly rejected instead of falling back (0.376875ms)
+✔ generation rejects invalid random sources and out-of-range draws (0.743ms)
+✔ equal random streams reproduce puzzles and constant streams stay observation-solvable (8.746042ms)
+✔ the candidate counter covers the complete independent valid-board space (1.533083ms)
+✔ displayed facts independently match candidates and become unique with complete observations (696.658792ms)
+ℹ 32 independently solved puzzles; clue kinds within, band, x-candidates, opposite, adjacent, arc, x-neighbors, x-distance; maximum 7 statements
+✔ candidate filtering uses deduction constraints, not the stored answer (1.627792ms)
+✔ uniform board sampling uses equal-sized bins without rejection or rotation bias (16.726416ms)
+✔ generation produces varied complete puzzles within a bounded warm runtime (433.032834ms)
+ℹ 256 puzzles: 249 boards, 256 research sets, 433ms; X histogram 19,26,12,35,6,42,7,43,5,31,9,21
+✔ each player receives four fresh, deduplicated, zero-based ordinary-object exclusions (2.195292ms)
+✔ initial clue sampling handles the entire finite exclusion pool without retry loops (2.468875ms)
+✔ initial clue issuance rejects invalid counts, boards, and random sources (2.387292ms)
+✔ ordinary-object initial exclusions do not distinguish X from true empty sectors (10.210292ms)
+✔ solver rejects malformed selections instead of silently ignoring them (3.400791ms)
+✔ puzzles and their clue strings do not share mutable state through the server cache (5.762ms)
+﹣ every valid board gets six single-fact topics and an observation-unique solution (PUZZLE_EXHAUSTIVE=1) (0.029166ms) # SKIP
+ℹ tests 22
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 1444.682083
+
+control_exit_status=0 (expected 0)
+
+--- final source hashes ---
+cd46a5433b26ac7d9f74814e88b2f8b82817116b96a85710c0a442d8ab3a2143  server/puzzles.js
+8f27f27713d30abb101835a9f52c6444eb00e0d65ed50bf476f8dedb4546a83d  tests/puzzles.test.js

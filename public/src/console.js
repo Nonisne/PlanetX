@@ -15,6 +15,7 @@ import {
   conferenceSectors,
   durationLabel,
   eventsAt,
+  isCometSector,
   mod,
   modeById,
   surveyCost,
@@ -183,6 +184,7 @@ export function consoleView(state) {
     theoryPhase: state.theoryPhases?.[0] || null,
     theoryUsedThisPhase: theoriesThisPhase(state).length,
     theoryLockedSectors: [...locked],
+    theoryOptions: theoryOptionsFor(state),
     myPendingReviews: awaiting.filter((t) => mine(state, t)).map((t) => t.id),
     awaitingReview: awaiting.map((t) => t.id),
     // the log as a table of rounds, and the running score
@@ -220,6 +222,22 @@ export function theoryLockedSectors(state) {
     if (entry.type === 'theory' && entry.review === 'correct' && entry.revealed) out.add(entry.sector);
   }
   return out;
+}
+
+export function theoryOptionsFor(state, { phaseId = state.theoryPhases?.[0]?.id || null } = {}) {
+  const locked = theoryLockedSectors(state);
+  const ownTheories = state.entries.filter((entry) => entry.type === 'theory' && mine(state, entry));
+  const options = [];
+  for (let sector = 0; sector < state.mode.sectors; sector++) {
+    if (locked.has(sector)) continue;
+    const previous = ownTheories.filter((entry) => entry.sector === sector);
+    if (phaseId && previous.some((entry) => entry.publicationPhase === phaseId)) continue;
+    const types = THEORY_TYPES.filter((type) =>
+      (type !== Obj.COMET || isCometSector(state.mode, sector)) && !previous.some((entry) => entry.objectType === type),
+    );
+    if (types.length) options.push({ sector, types });
+  }
+  return options;
 }
 
 function openOrFail(state) {
@@ -307,12 +325,15 @@ export function recordResearch(state, { topic, name, text }) {
   });
 }
 
-export function recordTheory(state, { sector, type }, { enforceSchedule = true, phaseId = null, final = false } = {}) {
+export function recordTheory(state, { sector, type }, { enforceSchedule = true, phaseId = null, final = false, stationSector = null } = {}) {
   const closed = openOrFail(state);
   if (closed && !(final && state.status === 'final')) return closed;
   if (!Number.isInteger(sector) || sector < 0 || sector >= state.mode.sectors) return fail('扇区编号不合法');
   if (!THEORY_TYPES.includes(type)) {
     return fail('理论只能针对：小行星／彗星／气体云／矮行星（空域可能是 X行星，不能作为理论提交）');
+  }
+  if (type === Obj.COMET && !isCometSector(state.mode, sector)) {
+    return fail('彗星只能在质数编号的扇区提交理论');
   }
 
   // a sector whose contents are known can never be researched again
@@ -325,7 +346,7 @@ export function recordTheory(state, { sector, type }, { enforceSchedule = true, 
     const schedule = theorySectors(state.mode);
     const arrow = eventsAt(state.mode, consoleTime(state)).sector;
     if (!state.theoryPhases?.length || theoriesAwaitingReview(state).length) {
-      return fail(`提交学术研究只在时间轨箭头走到 ${schedule.join('、')} 号扇区时进行（现在在 ${arrow} 号扇区）`);
+      return fail(`提交学术研究只在天窗起点离开 ${schedule.join('、')} 号扇区后进行（现在在 ${arrow} 号扇区）`);
     }
     const quota = theoryQuota(state.mode);
     if (theoriesThisPhase(state).length >= quota) {
@@ -348,7 +369,7 @@ export function recordTheory(state, { sector, type }, { enforceSchedule = true, 
     objectType: type,
     publicationPhase,
     slot: THEORY_TRACK[0],
-    stationSector: eventsAt(state.mode, consoleTime(state)).sector,
+    stationSector: stationSector ?? state.theoryPhases?.[0]?.sector ?? eventsAt(state.mode, consoleTime(state)).sector,
     review: 'pending',
     revealed: false,
     cost: COST.theory,
@@ -505,7 +526,7 @@ export function recordConference(state, { sector, text }) {
     sector,
     label: `扇区 ${sector} 的 X行星会议`,
     text: trimmed || '（未记录线索内容）',
-    scheduledTime: (sector - 1) * TIME_UNITS_PER_SHIFT,
+    scheduledTime: sector * TIME_UNITS_PER_SHIFT,
     cost: 0,
   });
 }

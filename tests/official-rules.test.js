@@ -14,7 +14,7 @@ function accepted(room, player, action) {
 }
 
 function playing(modeId = 'standard') {
-  const room = createRoom({ modeId, hostName: '甲' });
+  const room = createRoom({ modeId, hostName: '甲', initialClueCount: 0 });
   const host = room.players[0];
   const guest = addPlayer(room, '乙');
   accepted(room, host, { kind: 'start-game' });
@@ -107,19 +107,19 @@ test('one player cannot repeat a claim or publish two objects in one sector in t
   const { room, host } = playing('expert');
   nextPhase(room, 3);
   declare(room, 2);
-  accepted(room, host, { kind: 'research-submit', sector: 5, objectType: 'asteroid' });
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 5, objectType: 'asteroid' }).ok, false);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 5, objectType: 'comet' }).ok, false);
+  accepted(room, host, { kind: 'research-submit', sector: 4, objectType: 'asteroid' });
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 4, objectType: 'asteroid' }).ok, false);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 4, objectType: 'comet' }).ok, false);
   accepted(room, host, { kind: 'research-submit', sector: 6, objectType: 'comet' });
   nextPhase(room, 6);
   declare(room, 1);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 5, objectType: 'asteroid' }).ok, false);
-  accepted(room, host, { kind: 'research-submit', sector: 5, objectType: 'comet' });
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 4, objectType: 'asteroid' }).ok, false);
+  accepted(room, host, { kind: 'research-submit', sector: 4, objectType: 'comet' });
 });
 
 test('a rejected theory is public and duplicate reviews do not duplicate penalties', () => {
   const { room, host, guest } = playing();
-  const claim = paper(room, host, 5, 'comet');
+  const claim = paper(room, host, 4, 'comet');
   accepted(room, host, { kind: 'review', id: claim.id, review: 'wrong' });
   assert.equal(viewFor(room, guest.id).entries.find((entry) => entry.id === claim.id).objectType, 'comet');
   applyRoomAction(room, host.id, { kind: 'review', id: claim.id, review: 'wrong' });
@@ -129,8 +129,8 @@ test('a rejected theory is public and duplicate reviews do not duplicate penalti
 
 test('a correct review applies every inferred penalty in player order exactly once', () => {
   const { room, host, guest } = playing();
-  const correct = paper(room, host, 5, 'asteroid');
-  const incorrect = paper(room, guest, 5, 'comet', 3);
+  const correct = paper(room, host, 4, 'asteroid');
+  const incorrect = paper(room, guest, 4, 'comet', 3);
   accepted(room, host, { kind: 'review', id: correct.id, review: 'correct' });
   assert.equal(incorrect.review, 'wrong');
   assert.equal(incorrect.revealed, true);
@@ -173,6 +173,8 @@ test('local crossing keeps the skipped phase open and empty completion advances 
   assert.equal(engine.completeTheoryPhase(state).ok, true);
   assert.equal(state.entries.find((entry) => entry.type === 'theory').slot, 3);
   assert.equal(engine.recordWait(state).ok, true);
+  assert.equal(engine.consoleView(state).theoryPhaseOpen, false);
+  assert.equal(engine.recordWait(state).ok, true);
   assert.equal(engine.completeTheoryPhase(state).ok, true);
   assert.equal(state.entries.find((entry) => entry.type === 'theory').slot, 2);
 });
@@ -212,7 +214,7 @@ test('final theory batches validate atomically and outstanding papers score only
   const count = room.session.entries.length;
   assert.equal(applyRoomAction(room, guest.id, { kind: 'final-theories', theories: [{ sector: 1, objectType: 'comet' }, { sector: 1, objectType: 'asteroid' }] }).ok, false);
   assert.equal(room.session.entries.length, count);
-  accepted(room, guest, { kind: 'final-theories', theories: [{ sector: 1, objectType: 'comet' }, { sector: 3, objectType: 'comet' }] });
+  accepted(room, guest, { kind: 'final-theories', theories: [{ sector: 1, objectType: 'comet' }, { sector: 4, objectType: 'comet' }] });
   assert.equal(room.phase, 'reveal');
   assert.equal(timeOf(room.session, guest.id), 0);
   assert.equal(oldPaper.review, 'pending');
@@ -252,7 +254,7 @@ test('no final opportunity is granted to another pawn in the same sector', () =>
 
 test('local correct locate enters reveal and wrong pending papers incur no final penalties', () => {
   const state = createConsole();
-  const claim = recordTheory(state, { sector: 3, type: 'comet' }, { enforceSchedule: false }).entry;
+  const claim = recordTheory(state, { sector: 4, type: 'comet' }, { enforceSchedule: false }).entry;
   assert.equal(engine.recordLocate(state, answer).ok, true);
   assert.equal(state.status, 'reveal');
   assert.equal(typeof engine.revealObjects, 'function');
@@ -275,20 +277,20 @@ test('final reveal rejects sparse boards without changing state', () => {
 test('final reveal cannot reverse confirmed peer reviews or resurrect rejected papers', () => {
   for (const verdict of ['correct', 'wrong']) {
     const state = createConsole();
-    const theory = recordTheory(state, { sector: 3, type: 'comet' }, { enforceSchedule: false }).entry;
+    const theory = recordTheory(state, { sector: 4, type: 'comet' }, { enforceSchedule: false }).entry;
     theory.slot = 1;
     assert.equal(markTheoryReview(state, theory.id, verdict).ok, true);
     assert.equal(engine.recordLocate(state, answer).ok, true);
     const before = structuredClone(state);
     const conflict = [...revealed];
-    conflict[3] = verdict === 'wrong' ? 'comet' : 'empty';
+    conflict[4] = verdict === 'wrong' ? 'comet' : 'empty';
     const result = engine.revealObjects(state, conflict);
     assert.equal(result.ok, false);
     assert.match(result.error, /冲突/);
     assert.deepEqual(state, before);
 
     const consistent = [...revealed];
-    consistent[3] = verdict === 'correct' ? 'comet' : 'empty';
+    consistent[4] = verdict === 'correct' ? 'comet' : 'empty';
     assert.equal(engine.revealObjects(state, consistent).ok, true);
     assert.equal(theory.review, verdict);
     assert.equal(theory.finalReview, undefined);

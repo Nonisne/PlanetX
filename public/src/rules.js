@@ -1,4 +1,6 @@
 export const TIME_UNITS_PER_SHIFT = 1;
+export const BUILTIN_MAX_PLAYERS = 4;
+export const INITIAL_CLUE_COUNTS = Object.freeze([0, 4, 8, 12]);
 
 export const MODES = Object.freeze({
   standard: Object.freeze({ id: 'standard', name: '标准模式', sectors: 12, visible: 6 }),
@@ -92,6 +94,10 @@ export function cometSectors(mode) {
   return mode.id === 'expert' ? [2, 3, 5, 7, 11, 13, 17] : [2, 3, 5, 7, 11];
 }
 
+export function isCometSector(mode, sector) {
+  return Number.isInteger(sector) && cometSectors(mode).includes(sector + 1);
+}
+
 export const MAX_TARGET_USES = 2;
 
 export function mod(i, n) {
@@ -163,7 +169,7 @@ export const BASE_RULE_TEXT = Object.freeze([
   '小行星共 4 颗，每颗都至少与另一颗小行星相邻。',
   '气体云共 2 个，每个都至少与一个真正空域的扇区相邻。',
   '真正空域的扇区共 2 个。',
-  '矮行星从不与 X行星相邻。',
+  '矮行星共 1 颗，从不与 X行星相邻。',
   'X行星只有 1 颗，且它在勘测与扫描中都会被显示为“空域”。',
 ]);
 
@@ -171,7 +177,7 @@ export const BASE_RULE_TEXT_EXPERT = Object.freeze([
   '彗星共 2 颗，只出现在质数编号的扇区（2、3、5、7、11、13、17）。',
   ...BASE_RULE_TEXT.slice(1, 3),
   '真正空域的扇区共 5 个。',
-  BASE_RULE_TEXT[4],
+  '矮行星从不与 X行星相邻。',
   BASE_RULE_TEXT[5],
   '矮行星共 4 颗，全部位于恰好 6 个扇区组成的带状区域内，且带的两端都是矮行星。',
 ]);

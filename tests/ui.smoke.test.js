@@ -96,11 +96,13 @@ appTiming.toastMs = 0;
 
 const { visibleSectorsAt, mod, durationLabel, surveyCost, modeById } = await import('../public/src/rules.js');
 const { Obj, CODE, CODE_TO_TYPE } = await import('../public/src/types.js');
-const { renderBoard, GEOMETRY } = await import('../public/ui/board.js');
+const { createConsole, consoleView, completeTheoryPhase, recordWait, recordResearch, recordConference, recordLocate, revealObjects, nudgeWindow, recordSurvey, recordTarget, recordTheory, markTheoryReview } = await import('../public/src/console.js');
+const { createRoom, addPlayer, applyRoomAction, viewFor, currentPlayer } = await import('../public/src/room.js');
+const { renderBoard, GEOMETRY, sectorAngles } = await import('../public/ui/board.js');
 const { renderTopicsPanel, renderTheoriesPanel } = await import('../public/ui/notesheet.js');
-const { renderModal, renderStatus, renderActionPanel, renderKnowledgePanel, renderLogPanel } = await import('../public/ui/panels.js');
+const { renderModal, renderStatus, renderActionPanel, renderKnowledgePanel, renderLogPanel, renderMapPanel, renderScorePanel } = await import('../public/ui/panels.js');
 
-test('mode selection offers builtin puzzles before starting and keeps expert record boards explicit', () => {
+test('mode selection offers standard and expert builtin puzzles plus fixed tutorial entry', () => {
   storage.clear();
   tabStorage.clear();
   const root = makeEl('div');
@@ -111,9 +113,29 @@ test('mode selection offers builtin puzzles before starting and keeps expert rec
   app.api.setUi({ playMode: 'builtin', modeId: 'standard' });
   assert.match(collectText(root).join(''), /12 扇区/);
   assert.match(collectText(root).join(''), /服务/);
-  assert.equal(findAll(root, (element) => element.className.split(/\s+/).includes('mode-option')).length, 0);
+  assert.equal(findAll(root, (element) => element.className.split(/\s+/).includes('mode-option')).length, 2);
+  assert.match(collectText(root).join(''), /双人教学/);
   app.api.setUi({ playMode: 'record' });
   assert.equal(findAll(root, (element) => element.className.split(/\s+/).includes('mode-option')).length, 2);
+});
+
+test('builtin lobby states the four-player total includes the host', () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  app.api.setUi({ playMode: 'builtin', modal: { kind: 'lobby' } });
+  const text = collectText(root).join('');
+  assert.match(text, /1–4 人（含房主）/);
+  assert.doesNotMatch(text, /最多 6 人/);
+});
+
+test('builtin waiting-room copy explains automatic delivery of the shared initial count', () => {
+  const state = uiSliceState({ playMode: 'builtin', phase: 'lobby', amHost: true, playerCount: 1, roomId: 'LOBBY', players: [{ id: 'host', name: '房主', host: true }] });
+  const panel = renderActionPanel({ state, api: {} });
+  const text = collectText(panel).join('');
+  assert.match(text, /全桌统一数量自动分发私有初始线索/);
+  assert.doesNotMatch(text, /每人独立选择|领取私有初始线索/);
 });
 
 test('builtin action cards ask for queries, not self-reported results', () => {
@@ -169,7 +191,7 @@ test('builtin setup and tools expose no manual secret editing and locate request
   storage.clear();
   tabStorage.clear();
   const app = createApp(makeEl('div'));
-  const game = { ...app.state.game, playMode: 'builtin', phase: 'setup', isMyTurn: true, amHost: true, mySetup: { ready: false, clues: [{ sector: 0, type: Obj.COMET }], topics: {} } };
+  const game = { ...app.state.game, playMode: 'builtin', phase: 'setup', isMyTurn: true, amHost: true, mySetup: { ready: false, initialClueCount: 4, cluesClaimed: true, clues: [{ sector: 0, type: Obj.COMET }], topics: {} } };
   const state = { ...app.state, game };
   const setup = renderActionPanel({ state, api: app.api });
   assert.match(collectText(setup).join(''), /1 号/);
@@ -218,7 +240,12 @@ test('builtin app creates a solo room, uses actual query answers, and preserves 
     objects: [Obj.ASTEROID, Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.PLANET_X, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.DWARF_PLANET, Obj.ASTEROID, Obj.ASTEROID],
     topics: Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((topic) => [topic, { name: `课题 ${topic}`, clue: `仅自己的线索 ${topic}` }])),
     conferences: { 10: 'X行星的会议线索' },
-    startingClues: Array.from({ length: 6 }, () => [{ sector: 0, objectType: Obj.COMET }]),
+    startingClues: Array.from({ length: 6 }, () => [
+      { sector: 1, objectType: Obj.COMET },
+      { sector: 1, objectType: Obj.GAS_CLOUD },
+      { sector: 2, objectType: Obj.DWARF_PLANET },
+      { sector: 3, objectType: Obj.ASTEROID },
+    ]),
   };
   const room = createRoom({ playMode: 'builtin', puzzle });
   const host = room.players[0];
@@ -231,7 +258,7 @@ test('builtin app creates a solo room, uses actual query answers, and preserves 
     const body = options.body ? JSON.parse(options.body) : null;
     calls.push({ url: String(url), body });
     let response;
-    if (String(url).endsWith('/modes')) response = { playModes: ['record', 'builtin'] };
+    if (String(url).endsWith('/modes')) response = { playModes: ['record', 'builtin', 'tutorial'], builtinBoards: ['standard', 'expert'], initialClueCounts: [0, 4, 8, 12] };
     else if (String(url).endsWith('/action')) {
       const result = applyRoomAction(room, host.id, body.action);
       response = { ok: result.ok, error: result.error, entry: result.entry ? { id: result.entry.id, type: result.entry.type } : null, view: snapshot() };
@@ -249,12 +276,15 @@ test('builtin app creates a solo room, uses actual query answers, and preserves 
   app.api.setMark(17, CODE.asteroid, 'no');
   const offlineSave = storage.get('planetx.save.v3');
   const offlineNotes = storage.get('planetx.notes.v1');
+  app.api.setUi({ modeId: 'standard', playMode: 'builtin' });
   await app.api.startBuiltin();
   assert.equal(app.state.game.playMode, 'builtin');
   assert.equal(app.state.game.phase, 'setup');
   assert.ok(calls.some((call) => call.body?.playMode === 'builtin' && call.body.modeId === 'standard'));
+  assert.equal(app.state.game.mySetup.cluesClaimed, true);
+  assert.equal(app.state.notes[`1:${CODE.comet}`], 'no');
   await app.api.submitSetup();
-  assert.equal(app.state.notes[`0:${CODE.comet}`], 'no');
+  assert.equal(app.state.notes[`1:${CODE.comet}`], 'no');
   app.api.setUi({ action: 'survey', pick: [11, 0] });
   assert.equal(app.api.pickedRange().size, 2);
   app.api.setUi({ action: 'scan', pick: [5], targetResult: null });
@@ -315,6 +345,7 @@ test('temporary restore failures preserve builtin identities and allow a later r
   const room = createRoom({ playMode: 'builtin', puzzle });
   const host = room.players[0];
   assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'claim-initial-clues', count: 4 }).ok, true);
   assert.equal(applyRoomAction(room, host.id, { kind: 'setup' }).ok, true);
   const identity = { roomId: room.id, playerId: host.id, token: host.token };
   for (const failure of ['network', 503]) {
@@ -389,6 +420,7 @@ test('changing rooms isolates pending actions and ignores old responses and fail
     const oldRoom = createRoom({ playMode: 'builtin', puzzle });
     const newRoom = createRoom({ playMode: 'builtin', puzzle });
     assert.equal(applyRoomAction(oldRoom, oldRoom.hostId, { kind: 'start-game' }).ok, true);
+    assert.equal(applyRoomAction(oldRoom, oldRoom.hostId, { kind: 'claim-initial-clues', count: 4 }).ok, true);
     assert.equal(applyRoomAction(oldRoom, oldRoom.hostId, { kind: 'setup' }).ok, true);
     let finishOld;
     let failOld;
@@ -397,7 +429,7 @@ test('changing rooms isolates pending actions and ignores old responses and fail
     globalThis.fetch = async (url, options = {}) => {
       const body = options.body ? JSON.parse(options.body) : null;
       calls.push({ url, body });
-      if (url.endsWith('/modes')) return { status: 200, json: async () => ({ playModes: ['record', 'builtin'] }) };
+      if (url.endsWith('/modes')) return { status: 200, json: async () => ({ playModes: ['record', 'builtin', 'tutorial'], builtinBoards: ['standard', 'expert'], initialClueCounts: [0, 4, 8, 12] }) };
       if (url.endsWith('/rooms')) return { status: 200, json: async () => identityFor(newRoom) };
       if (url.includes(oldRoom.id)) {
         const result = applyRoomAction(oldRoom, oldRoom.hostId, body.action);
@@ -463,6 +495,8 @@ test('newer room pushes cannot be overwritten by delayed HTTP responses or stale
   const host = room.players[0];
   const guest = addPlayer(room, '乙');
   assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'claim-initial-clues', count: 4 }).ok, true);
+  assert.equal(applyRoomAction(room, guest.id, { kind: 'claim-initial-clues', count: 4 }).ok, true);
   assert.equal(applyRoomAction(room, host.id, { kind: 'setup' }).ok, true);
   assert.equal(applyRoomAction(room, guest.id, { kind: 'setup' }).ok, true);
   const snapshot = (revision) => ({ ...JSON.parse(JSON.stringify(viewFor(room, host.id))), revision });
@@ -498,7 +532,7 @@ test('record shared-info edits remain sequential when remote actions have a pend
   storage.clear();
   tabStorage.clear();
   const { createRoom, addPlayer, applyRoomAction, viewFor } = await import('../public/src/room.js');
-  const room = createRoom();
+  const room = createRoom({ initialClueCount: 0 });
   addPlayer(room, '乙');
   applyRoomAction(room, room.hostId, { kind: 'start-game' });
   for (const player of room.players) applyRoomAction(room, player.id, { kind: 'setup', noClues: true });
@@ -513,11 +547,12 @@ test('record shared-info edits remain sequential when remote actions have a pend
   context.after(() => { globalThis.fetch = previousFetch; });
   const app = createApp(makeEl('div'));
   app.state.remote = { roomId: room.id, playerId: room.hostId, token: room.players[0].token, view: viewFor(room, room.hostId) };
-  app.api.setUi({ tableInfo: { topicNames: { A: '更新名称' }, conferences: { 10: '更新会议线索' } } });
+  app.api.setUi({ tableInfo: { topicNames: { A: '更新名称' }, conferenceNames: { 10: '更新会议标题' }, conferences: { 10: '更新会议线索' } } });
   const result = await app.api.saveTableInfo();
   assert.equal(result.ok, true);
-  assert.deepEqual(calls, ['set-topic-names', 'set-conference-rules']);
+  assert.deepEqual(calls, ['set-topic-names', 'set-conference-rules', 'set-conference-names']);
   assert.equal(room.topicNames.A, '更新名称');
+  assert.equal(room.conferenceNames[10], '更新会议标题');
   assert.equal(room.conferenceRules[10], '更新会议线索');
 });
 
@@ -582,9 +617,9 @@ test('the record console renders the action launcher and the time-track markers'
   assert.ok(countNodes(globalThis.__root) > 200);
 
   const tiles = findAll(globalThis.__root, (n) => (n.className || '').split(/\s+/).includes('action-tile'));
-  assert.equal(tiles.length, 4, 'survey / scan / research / theory');
+  assert.equal(tiles.length, 3, 'survey / scan / research');
   const labels = tiles.map((t) => collectText(t).join(''));
-  for (const name of ['勘测', '扫描', '研究', '提交学术研究']) {
+  for (const name of ['勘测', '扫描', '研究']) {
     assert.ok(labels.some((t) => t.includes(name)), `the launcher needs a「${name}」tile`);
   }
   assert.ok(findButton(globalThis.__root, '记录定位结果'), 'locate is still recorded separately');
@@ -620,7 +655,6 @@ test('the record console walks an action: launch → pick on the map → fill in
     return out;
   };
 
-  // the launcher tiles, in order: survey, scan, research, theory
   const tiles = () => findAll(root, (n) => (n.className || '').split(/\s+/).includes('action-tile'));
 
   // --- 勘测: launch, click start + end on the map, type the count, confirm ---
@@ -678,19 +712,19 @@ test('the record console walks an action: launch → pick on the map → fill in
   assert.equal(state.ui.action, 'idle');
   finishAppPhases(app);
 
-  // --- 提交学术研究: only while the arrow stands on a research sector ---
-  assert.ok(tiles()[3].attributes.disabled !== undefined, 'the tile is asleep outside a research sector');
+  assert.equal(findButton(root, '提交学术研究'), undefined, 'ordinary actions do not include publishing');
   for (let i = 0; i < 12 && !state.game.theoryPhaseOpen; i++) fire(findButton(root, '前进 1 个时间单位'), 'click');
-  assert.equal(state.game.theoryPhaseOpen, true, 'the arrow reached a research sector');
+  assert.equal(state.game.theoryPhaseOpen, true, 'the visible-window start left a research marker');
   fire(findButton(root, '提交学术研究'), 'click');
   assert.equal(state.ui.action, 'theory');
   assert.ok(collectText(root).join('').includes('你还能提交 1 篇'), 'the card explains the phase quota');
+  api.setUi({ theorySector: 1, theoryType: Obj.COMET });
   fire(findButton(root, '确认提交'), 'click');
   assert.equal(state.game.knowledge.theories.length, 1);
   assert.equal(
-    state.game.theorySectors.includes(state.game.knowledge.theories[0].sector),
-    true,
-    'it defaults to a research sector with no paper yet',
+    state.game.knowledge.theories[0].sector,
+    1,
+    'the selected legal comet sector is zero-based',
   );
   assert.equal(state.game.knowledge.theories[0].objectType, Obj.COMET, 'the object is kept locally');
 
@@ -980,53 +1014,35 @@ test('stylesheets are structurally sane', async () => {
 
 test('map geometry keeps every icon inside the ring without overlapping', async () => {
   const { state } = globalThis.__app;
-  const { GEOMETRY, sectorAngles } = await import('../public/ui/board.js');
-  const el = renderBoard({
-    game: state.game,
-    ui: { ...state.ui, assist: { possibilities: true, count: true }, rangeStart: null, rangeSize: 6 },
-    notes: {},
-    onSector: () => {},
-    onMark: () => {},
-  });
-  const hits = findAll(el, (n) => /icon-hit/.test(n.className || ''));
-  assert.equal(hits.length, 72, 'six clickable icons per sector');
-
-  const inner = GEOMETRY.R_INNER;
-  const outer = GEOMETRY.R_MARK - GEOMETRY.MARK_SIZE / 2;
-  for (let sector = 0; sector < 12; sector++) {
-    const pts = hits.slice(sector * 6, sector * 6 + 6).map((c) => ({ x: Number(c.attributes.cx), y: Number(c.attributes.cy) }));
-    for (const p of pts) {
-      const d = Math.hypot(p.x - GEOMETRY.CX, p.y - GEOMETRY.CY);
-      assert.ok(d - GEOMETRY.DOT_SIZE / 2 >= inner - 0.5, `icon at r=${d.toFixed(1)} must stay outside the inner ring`);
-      assert.ok(d + GEOMETRY.DOT_SIZE / 2 <= outer + 0.5, `icon at r=${d.toFixed(1)} must not reach the revealed icon`);
-    }
-    for (let a = 0; a < pts.length; a++) {
-      for (let b = a + 1; b < pts.length; b++) {
-        const dist = Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y);
-        assert.ok(dist >= GEOMETRY.DOT_SIZE * 0.99, `icons ${a} and ${b} in sector ${sector + 1} overlap (${dist.toFixed(1)}px)`);
+  assert.ok(GEOMETRY.COL_PITCH > 23, 'ordinary icon columns have slightly more breathing room');
+  assert.ok(GEOMETRY.ROW_PITCH > 22, 'ordinary icon rows have slightly more breathing room');
+  for (const modeId of ['standard', 'expert']) {
+    const mode = modeById(modeId);
+    const board = renderBoard({ game: { ...state.game, mode }, ui: state.ui, notes: {}, onSector() {}, onMark() {} });
+    const sectors = findAll(board, (element) => element.attributes['data-sector'] !== undefined);
+    for (const sectorNode of sectors) {
+      const sector = Number(sectorNode.attributes['data-sector']);
+      const points = findAll(sectorNode, (element) => (element.className || '').includes('icon-hit')).map((circle) => ({
+        horizontal: Number(circle.attributes.cx) - GEOMETRY.CX,
+        vertical: Number(circle.attributes.cy) - GEOMETRY.CY,
+        radius: Number(circle.attributes.r),
+      }));
+      assert.equal(points.length, [2, 3, 5, 7, 11, 13, 17].includes(sector + 1) ? 6 : 5);
+      const [start, end] = sectorAngles(sector, mode.sectors).map((angle) => angle * Math.PI / 180);
+      for (const point of points) {
+        const radial = Math.hypot(point.horizontal, point.vertical);
+        assert.ok(radial - point.radius >= GEOMETRY.R_INNER, `${modeId}/${sector + 1}: clear of the hub`);
+        assert.ok(radial + point.radius <= GEOMETRY.R_MARK - GEOMETRY.MARK_SIZE / 2, `${modeId}/${sector + 1}: clear of revealed objects`);
+        assert.ok(point.vertical * Math.cos(start) - point.horizontal * Math.sin(start) >= point.radius - 0.01, `${modeId}/${sector + 1}: inside clockwise wedge boundary`);
+        assert.ok(point.horizontal * Math.sin(end) - point.vertical * Math.cos(end) >= point.radius - 0.01, `${modeId}/${sector + 1}: inside counterclockwise wedge boundary`);
+      }
+      for (const [index, point] of points.entries()) {
+        for (const other of points.slice(index + 1)) {
+          assert.ok(Math.hypot(point.horizontal - other.horizontal, point.vertical - other.vertical) >= point.radius + other.radius, `${modeId}/${sector + 1}: clickable icons do not overlap`);
+        }
       }
     }
-    // the 2×3 cluster is turned to sit parallel to the sector's two radial sides: undoing
-    // the sector's rotation must give back the plain grid offsets
-    const [a0, a1] = sectorAngles(sector, 12);
-    const turn = (((a0 + a1) / 2 - 90) * Math.PI) / 180;
-    const mx = pts.reduce((n, p) => n + p.x, 0) / 6;
-    const my = pts.reduce((n, p) => n + p.y, 0) / 6;
-    const local = pts.map((p) => {
-      const dx = p.x - mx;
-      const dy = p.y - my;
-      return { x: dx * Math.cos(-turn) - dy * Math.sin(-turn), y: dx * Math.sin(-turn) + dy * Math.cos(-turn) };
-    });
-    const distinct = (values) =>
-      values.reduce((acc, v) => {
-        if (!acc.some((g) => Math.abs(g - v) < 1)) acc.push(v);
-        return acc;
-      }, []);
-    assert.equal(distinct(local.map((p) => p.x)).length, 2, `sector ${sector + 1}: two columns across the sector`);
-    assert.equal(distinct(local.map((p) => p.y)).length, 3, `sector ${sector + 1}: three rows along the sector`);
   }
-
-  // the card lays the map and the marking side panel out side by side
   for (const cls of ['map-card-body', 'map-side']) {
     const found = findAll(globalThis.__root, (n) => (n.className || '').split(/\s+/).includes(cls));
     assert.equal(found.length, 1, `${cls} should be rendered exactly once`);
@@ -1103,7 +1119,7 @@ test('official local locate uses string answers and reaches reveal before final 
   assert.equal(app.state.game.time, 5);
   assert.equal(app.session.locate.left, Obj.ASTEROID);
   assert.equal(app.state.ui.modal, null);
-  assert.equal(app.session.theoryPhases.length, 2);
+  assert.equal(app.session.theoryPhases.length, 1, 'time 5 has left marker 3, but not marker 6');
   for (const phase of [...app.session.theoryPhases]) {
     assert.equal(app.state.game.theoryPhase.id, phase.id);
     assert.equal(app.api.consoleAction({ kind: 'theory-complete' }).ok, true);
@@ -1409,7 +1425,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   text = collectText(root).join('');
   assert.ok(text.includes('初始线索'), 'the setup card asks for the initial clues');
   assert.ok(text.includes('研究课题名称'), 'and for the A–F subject names');
-  assert.ok(text.includes('X行星会议线索'), 'and for the conference notes');
+  assert.ok(text.includes('X行星会议'), 'and for conference titles and notes');
   assert.ok(text.includes('本局 1 场：10 号扇区'), 'a standard board has one conference');
   assert.equal(
     findAll(root, (n) => n.tagName === 'input' && n.attributes.placeholder === '课题 C 的名称').length,
@@ -1427,38 +1443,40 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   const clueTypeSelect = findAll(clueRow, (node) => node.tagName === 'select')[1];
   assert.deepEqual(
     findAll(clueTypeSelect, (node) => node.tagName === 'option').map((option) => option.attributes.value),
-    [Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET],
-    'initial clues offer only ordinary objects, not empty sectors or Planet X',
+    [Obj.ASTEROID, Obj.GAS_CLOUD, Obj.DWARF_PLANET],
+    'a non-prime sector omits the impossible comet exclusion as well as empty and Planet X',
   );
-  assert.ok(collectText(root).join('').includes('已填 1/12'), 'the running count is shown');
+  assert.ok(collectText(root).join('').includes('有效线索 1/4 条'), 'the shared-count progress is shown');
 
-  // the sheet takes up to twelve clues, and then stops offering more
-  api.patchSetup((s) => ({ clues: Array.from({ length: 12 }, (_, i) => ({ sector: i, type: 'comet' })) }));
-  assert.equal(findAll(root, (n) => n.className === 'clue-row').length, 12, 'twelve rows');
-  assert.ok(collectText(root).join('').includes('已填 12/12'));
-  assert.equal(findButton(root, '+ 添加一条线索'), undefined, 'no thirteenth clue');
-  api.patchSetup({ clues: [{ sector: 0, type: 'comet' }], noClues: false, topicNames: state.ui.setup.topicNames });
+  for (let index = 0; index < 3; index += 1) fire(findButton(root, '+ 添加一条线索'), 'click');
+  const initialClues = state.ui.setup.clues.map(clue => ({ ...clue }));
+  assert.equal(findAll(root, element => element.className === 'clue-row').length, 4, 'exactly the host count of rows');
+  assert.ok(collectText(root).join('').includes('有效线索 4/4 条'));
+  assert.equal(findButton(root, '+ 添加一条线索'), undefined, 'no fifth clue when the host selected four');
 
   const nameInput = (id) => findAll(root, (n) => n.attributes.placeholder === `课题 ${id} 的名称`)[0];
   typeInto(nameInput('C'), '小行星带');
   typeInto(nameInput('D'), '气体云走廊');
   assert.equal(state.ui.setup.topicNames.C, '小行星带', 'typing goes into the shared draft');
   assert.equal(state.ui.setup.topicNames.D, '气体云走廊', 'and a second field does not drop the first');
-  typeInto(findAll(root, (n) => n.className === 'conf-row')[0].children[1], 'X行星紧邻一颗彗星');
+  typeInto(findAll(root, element => Number(element.attributes['data-conference-name']) === 10)[0], '彗星的邻居');
+  typeInto(findAll(root, element => element.tagName === 'textarea')[0], 'X行星紧邻一颗彗星');
+  assert.equal(state.ui.setup.conferenceNames[10], '彗星的邻居');
   assert.equal(state.ui.setup.conferences[10], 'X行星紧邻一颗彗星', 'the conference note lands in the draft too');
 
   // the guest finishes first, then the host submits: that flips the room to the first turn
-  applyRoomAction(room, guest.id, { kind: 'setup', noClues: true, topics: { A: '气体云' } });
+  assert.equal(applyRoomAction(room, guest.id, { kind: 'setup', clues: initialClues, topics: { A: '气体云' } }).ok, true);
   await api.submitSetup();
-  assert.deepEqual(room.setup[room.hostId].clues, [{ sector: 0, type: 'comet' }], 'the draft reached the server');
+  assert.deepEqual(room.setup[room.hostId].clues, initialClues, 'all four distinct draft clues reached the server');
   assert.equal(room.topicNames.C, '小行星带', 'the host’s A–F names became the table’s');
   assert.equal(room.topicNames.A, '', 'and the guest’s attempt to name A was ignored');
   assert.equal(room.conferenceRules[10], 'X行星紧邻一颗彗星', 'the conference note is shared');
   const guestView = viewFor(room, guest.id);
   assert.equal(guestView.topicNames.C, '小行星带', 'the guest reads the same subject names');
-  assert.equal(guestView.conferenceRules[10], 'X行星紧邻一颗彗星', 'and the same conference note');
+  assert.equal(guestView.conferenceNames[10], '彗星的邻居', 'and the same public conference title');
+  assert.deepEqual(guestView.knowledge.conferences, [], 'the conference body has not been earned yet');
   assert.equal(state.game.phase, 'play', 'everybody ready -> the first round');
-  assert.equal(state.notes['0:1'], 'no', 'my own initial clue also lands in my note sheet');
+  assert.equal(state.notes[`0:${CODE.asteroid}`], 'no', 'my own accepted initial clue also lands in my note sheet');
 
   const tiles = () => findAll(root, (n) => (n.className || '').split(/\s+/).includes('action-tile'));
 
@@ -1478,7 +1496,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   text = collectText(root).join('');
   assert.ok(text.includes('现在轮到'), 'the current player is announced');
   assert.ok(text.includes('阿甲'), 'by name');
-  assert.equal(tiles().length, 4, 'the acting player gets the four tiles');
+  assert.equal(tiles().length, 3, 'the acting player gets the three ordinary actions');
 
   // the research action opens with the subject names filled in during setup
   fire(tiles().find((t) => collectText(t)[0].trim() === '研究'), 'click');
@@ -1495,7 +1513,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   assert.equal(state.game.turnPlayerName, '阿甲');
   text = collectText(root).join('');
   assert.ok(text.includes('等 阿甲 行动'), 'the waiting player is told whose turn it is');
-  assert.equal(tiles().length, 4, 'the tiles are still visible');
+  assert.equal(tiles().length, 3, 'the ordinary action tiles are still visible');
   assert.ok(
     tiles().every((t) => t.attributes.disabled !== undefined),
     'but they are disabled out of turn',
@@ -1513,7 +1531,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
     assert.equal(usable(title).attributes.disabled, undefined, `${title} is usable again`);
   }
   // publishing is never a plain tile in a room: it waits for a research phase
-  assert.equal(usable('提交学术研究').attributes.disabled !== undefined, true, 'the theory tile waits for its phase');
+  assert.equal(findButton(root, '提交学术研究'), undefined, 'theory submission is absent outside its triggered phase');
 
   // the guest opens a form and the turn moves on: the stale form is dropped
   fire(tiles().find((t) => collectText(t)[0].trim() === '研究'), 'click');
@@ -1554,7 +1572,7 @@ test('the solo console can be started on the 18 sector board', () => {
   const markers = findAll(root, (n) => /event-marker/.test(n.className || ''));
   assert.equal(markers.length, 8, 'two conferences and six theory phases on the 18 sector track');
   const icons = findAll(root, (n) => /poss-icon/.test(n.className || ''));
-  assert.equal(icons.length, 6 * 18, '18 sectors × six object icons on the map');
+  assert.equal(icons.length, 5 * 18 + 7, 'only seven prime-numbered sectors offer a comet icon');
 
   // and recording still works on the bigger ring
   assert.equal(api.consoleAction({ kind: 'conference', sector: 7, text: 'X行星在两颗矮行星之间' }).ok, true);
@@ -1569,7 +1587,7 @@ test('the online research phase renders declare → publish → review', async (
   tabStorage.clear();
   const { createRoom, addPlayer, applyRoomAction, viewFor, currentPlayer } = await import('../public/src/room.js');
 
-  const room = createRoom({ modeId: 'standard', hostName: '阿甲' });
+  const room = createRoom({ modeId: 'standard', hostName: '阿甲', initialClueCount: 0 });
   const guest = addPlayer(room, '阿乙');
   applyRoomAction(room, room.hostId, { kind: 'start-game' });
   for (const p of room.players) applyRoomAction(room, p.id, { kind: 'setup', noClues: true });
@@ -1649,7 +1667,7 @@ test('the online research phase renders declare → publish → review', async (
   // the first publisher goes, then the other screen gets the publishing card
   const firstPlayer = cursor === guest.id ? guest : room.players[0];
   const secondPlayer = cursor === guest.id ? room.players[0] : guest;
-  applyRoomAction(room, firstPlayer.id, { kind: 'research-submit', phaseId: room.research.id, sector: 8, objectType: Obj.COMET });
+  assert.equal(applyRoomAction(room, firstPlayer.id, { kind: 'research-submit', phaseId: room.research.id, sector: 6, objectType: Obj.COMET }).ok, true);
   who = secondPlayer.id;
   push();
   assert.equal(state.game.research.isMyPick, true, 'now it is my turn to publish');
@@ -1658,8 +1676,9 @@ test('the online research phase renders declare → publish → review', async (
   const picksText = findAll(root, (n) => (n.className || '').split(/\s+/).includes('pick-row'))
     .map((row) => collectText(row).join(''))
     .join(' | ');
-  assert.ok(picksText.includes('9 号扇区'), 'and lists where the other player published');
+  assert.ok(picksText.includes('7 号扇区'), 'and lists where the other player published');
   assert.ok(!picksText.includes('彗星'), 'without leaking the object they claimed');
+  api.setUi({ theorySector: 1, theoryType: Obj.COMET });
   fire(findButton(root, '确认提交'), 'click');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(state.game.research, null, 'the phase closed');
@@ -1675,7 +1694,7 @@ test('the peer review prompt pays for a wrong answer', async () => {
   storage.clear();
   tabStorage.clear();
   const { createRoom, addPlayer, applyRoomAction, viewFor, currentPlayer } = await import('../public/src/room.js');
-  const room = createRoom({ modeId: 'standard', hostName: '阿甲' });
+  const room = createRoom({ modeId: 'standard', hostName: '阿甲', initialClueCount: 0 });
   const guest = addPlayer(room, '阿乙');
   applyRoomAction(room, room.hostId, { kind: 'start-game' });
   for (const p of room.players) applyRoomAction(room, p.id, { kind: 'setup', noClues: true });
@@ -1815,8 +1834,8 @@ test('the setup card can be filled in again, and an expert table asks for two co
   await api.createRoom();
   await api.startGame();
 
-  // the host fills a clue + the shared subjects, and submits while the guest is still typing
-  fire(findButton(root, '+ 添加一条线索'), 'click');
+  for (let index = 0; index < 4; index += 1) fire(findButton(root, '+ 添加一条线索'), 'click');
+  const initialClues = state.ui.setup.clues.map(clue => ({ ...clue }));
   typeInto(findAll(root, (n) => n.attributes.placeholder === '课题 A 的名称')[0], '小行星带');
   await api.submitSetup();
   assert.equal(room.phase, 'setup', 'the guest has not finished');
@@ -1840,17 +1859,17 @@ test('the setup card can be filled in again, and an expert table asks for two co
   text = collectText(root).join('');
   assert.ok(text.includes('① 初始线索'), 'the form is back');
   const draft = api.setupDraft();
-  assert.equal(draft.clues.length, 1, 'with the clue that was typed before');
+  assert.equal(draft.clues.length, 4, 'with every clue that was typed before');
   assert.equal(draft.topicNames.A, '小行星带', 'and the subject names');
-  assert.equal(findAll(root, (n) => n.className === 'clue-row').length, 1, 'rendered as a row again');
+  assert.equal(findAll(root, element => element.className === 'clue-row').length, 4, 'rendered as four rows again');
 
   // and submitting it a second time keeps everything
   await api.submitSetup();
-  assert.deepEqual(room.setup[room.hostId].clues, [{ sector: 0, type: 'comet' }], 'the clue survived the round trip');
+  assert.deepEqual(room.setup[room.hostId].clues, initialClues, 'the clues survived the round trip');
   assert.equal(room.topicNames.A, '小行星带', 'and so did the shared subject names');
 
   // ---- an expert table has two conference notes instead of one ----
-  const expert = createRoom({ modeId: 'expert', hostName: '甲' });
+  const expert = createRoom({ modeId: 'expert', hostName: '甲', initialClueCount: 0 });
   addPlayer(expert, '乙');
   applyRoomAction(expert, expert.hostId, { kind: 'start-game' });
   const expertRoot = makeEl('div');
@@ -1881,78 +1900,46 @@ test('the setup card can be filled in again, and an expert table asks for two co
   globalThis.EventSource = realEventSource;
 });
 
-test('pawns in one sector line up around the ring with the earliest arrival leftmost', () => {
+test('pawns preserve clockwise arrival and join order in every quadrant and occupancy without changing turn priority', () => {
   const { state } = globalThis.__app;
-  const players = [
-    { id: 'B', name: '乙', color: '#f5b942', sector: 4, time: 3, arrival: 20, isMe: false, isTurn: false },
-    { id: 'A', name: '甲', color: '#5eead4', sector: 4, time: 3, arrival: 5, isMe: true, isTurn: true },
-    { id: 'C', name: '丙', color: '#7c9cff', sector: 4, time: 3, arrival: 30, isMe: false, isTurn: false },
-  ];
-  const draw = (list) =>
-    renderBoard({ game: { ...state.game, players: list }, ui: state.ui, notes: {}, onSector: () => {}, onMark: () => {} });
-  const dotsOf = (el) =>
-    findAll(el, (n) => (n.className || '').split(/\s+/).includes('pawn')).map((g) => {
-      const dot = (g.children || []).find((c) => (c.className || '').includes('pawn-dot'));
-      return {
-        player: g.attributes['data-player'],
-        x: Number(dot.attributes.cx),
-        y: Number(dot.attributes.cy),
-        r: Number(dot.attributes.r),
-      };
-    });
-
-  // sector 1 sits at the top, where "leftmost on screen" is unambiguous
-  const top = dotsOf(draw(players.map((p) => ({ ...p, sector: 1 }))));
-  assert.equal(top.length, 3, 'one pawn per player');
-  assert.deepEqual(
-    top.slice().sort((a, b) => a.x - b.x).map((d) => d.player),
-    ['A', 'B', 'C'],
-    'the one who arrived first sits leftmost',
-  );
-  for (const dot of top) {
-    const radius = Math.hypot(dot.x - GEOMETRY.CX, dot.y - GEOMETRY.CY);
-    assert.ok(Math.abs(radius - GEOMETRY.R_PAWN) < 0.001, 'every pawn stays on the outer band');
-    assert.ok(dot.r > 0 && dot.r <= GEOMETRY.PAWN_SIZE);
+  for (const modeId of ['standard', 'expert']) {
+    const mode = modeById(modeId);
+    for (const sector of [1, Math.floor(mode.sectors / 4) + 1, Math.floor(mode.sectors / 2) + 1, Math.floor(mode.sectors * 3 / 4) + 1]) {
+      for (const count of [1, 2, 3, 4, 6]) {
+        const players = Array.from({ length: count }, (unused, index) => ({
+          id: `player-${index}`, name: `玩家${index}`, color: '#5eead4', sector,
+          time: index === count - 1 ? sector - 1 : sector - 1 + mode.sectors,
+          arrival: Math.floor(index / 2), joinIndex: index, isTurn: index === count - 1,
+        })).reverse();
+        const original = structuredClone(players);
+        const board = renderBoard({ game: { ...state.game, mode, players }, ui: state.ui, notes: {}, onSector() {}, onMark() {} });
+        const [start, end] = sectorAngles(sector - 1, mode.sectors);
+        const pawns = findAll(board, (element) => (element.className || '').split(/\s+/).includes('pawn'));
+        const dots = pawns.map((pawn) => {
+          const dot = findAll(pawn, (element) => (element.className || '').includes('pawn-dot'))[0];
+          const horizontal = Number(dot.attributes.cx) - GEOMETRY.CX;
+          const vertical = Number(dot.attributes.cy) - GEOMETRY.CY;
+          return { id: pawn.attributes['data-player'], horizontal, vertical, radius: Number(dot.attributes.r), angle: mod(Math.atan2(vertical, horizontal) * 180 / Math.PI - start, 360) };
+        });
+        assert.equal(dots.length, count);
+        assert.deepEqual(dots.slice().sort((first, second) => first.angle - second.angle).map((dot) => dot.id), Array.from({ length: count }, (unused, index) => `player-${index}`), `${modeId}/${sector}/${count}: earlier arrivals stand behind, never screen-left sorted`);
+        for (const [index, dot] of dots.entries()) {
+          assert.ok(Math.abs(Math.hypot(dot.horizontal, dot.vertical) - GEOMETRY.R_PAWN) < 0.001);
+          assert.ok(dot.angle > 0 && dot.angle < end - start);
+          for (const other of dots.slice(index + 1)) assert.ok(Math.hypot(dot.horizontal - other.horizontal, dot.vertical - other.vertical) > dot.radius + other.radius, 'crowded pawns remain separate');
+        }
+        assert.equal(pawns.find((pawn) => pawn.className.split(/\s+/).includes('turn')).attributes['data-player'], `player-${count - 1}`, 'absolute elapsed time still decides the supplied turn');
+        assert.deepEqual(players, original, 'drawing does not reorder server state');
+      }
+    }
   }
-  // but they are lined up along the arc, not stacked on top of each other
-  assert.equal(new Set(top.map((d) => Math.round(d.x))).size, 3, 'three distinct places along the ring');
-
-  // on the side of the ring the same arc reads top-down; the pawns still do not overlap
-  const side = dotsOf(draw(players));
-  assert.equal(side.length, 3);
-  assert.equal(new Set(side.map((d) => `${Math.round(d.x)},${Math.round(d.y)}`)).size, 3, 'no two pawns share a spot');
-  assert.ok(
-    side.every((d) => Math.abs(Math.hypot(d.x - GEOMETRY.CX, d.y - GEOMETRY.CY) - GEOMETRY.R_PAWN) < 0.001),
-    'and they still sit on the band',
-  );
-
-  // a crowded sector shrinks the pawns so six of them fit
-  const six = dotsOf(
-    draw(
-      Array.from({ length: 6 }, (_, i) => ({
-        id: `P${i}`,
-        name: `玩家${i}`,
-        color: '#5eead4',
-        sector: 1,
-        time: 0,
-        arrival: i,
-        isMe: i === 0,
-      })),
-    ),
-  );
-  assert.equal(six.length, 6);
-  const gaps = six
-    .slice()
-    .sort((a, b) => a.x - b.x)
-    .map((d, i, all) => (i ? d.x - all[i - 1].x : Infinity));
-  assert.ok(Math.min(...gaps) > 4, 'six pawns still leave room between them');
 });
 
 test('a conference crossing is announced and asks for the app’s rule', async () => {
   storage.clear();
   tabStorage.clear();
   const { createRoom, addPlayer, applyRoomAction, viewFor, currentPlayer } = await import('../public/src/room.js');
-  const room = createRoom({ modeId: 'standard', hostName: '阿甲' });
+  const room = createRoom({ modeId: 'standard', hostName: '阿甲', initialClueCount: 0 });
   const guest = addPlayer(room, '阿乙');
   applyRoomAction(room, room.hostId, { kind: 'start-game' });
   for (const p of room.players) applyRoomAction(room, p.id, { kind: 'setup', noClues: true });
@@ -2089,15 +2076,16 @@ test('the theory card only offers the four claimable objects', () => {
   const root = makeEl('div');
   const app = createApp(root);
   const { api, state } = app;
-  // walk onto a research sector so the publishing card opens
   for (let i = 0; i < 12 && !state.game.theoryPhaseOpen; i++) api.consoleAction({ kind: 'wait' });
   fire(findAll(root, (n) => (n.className || '').split(/\s+/).includes('action-tile') && collectText(n)[0].trim() === '提交学术研究')[0], 'click');
   const card = findAll(root, (n) => (n.className || '').split(/\s+/).includes('active-action'))[0];
   assert.ok(card, 'the publishing card is open');
-  const cardText = collectText(card).join('');
+  api.setUi({ theorySector: 1 });
+  const currentCard = findAll(root, (element) => (element.className || '').split(/\s+/).includes('active-action'))[0];
+  const cardText = collectText(currentCard).join('');
   for (const label of ['小行星', '彗星', '气体云', '矮行星']) assert.ok(cardText.includes(label), `${label} can be claimed`);
   assert.equal(cardText.includes('空域'), false, 'but an empty sector may be Planet X, so it is not offered');
-  const chosen = findAll(card, (n) => (n.className || '').includes('chip-select'));
+  const chosen = findAll(currentCard, (element) => (element.className || '').includes('chip-select'));
   assert.equal(chosen.length, 4, 'four chips, not five');
 });
 
@@ -2193,7 +2181,19 @@ test('conference entry is contextual and locating does not compete with an activ
   app.api.startAction('survey');
   const active = renderActionPanel({ state: app.state, api: app.api });
   assert.equal(findButton(active, '记录定位结果'), undefined);
-  const due = renderActionPanel({ state: { ...app.state, ui: { ...app.state.ui, action: 'idle' }, game: { ...app.state.game, arrowSector: 10 } }, api: app.api });
+  app.api.setUi({ action: 'idle' });
+  assert.equal(app.api.consoleAction({ kind: 'wait', units: 9 }).ok, true);
+  finishAppPhases(app);
+  assert.equal(app.state.game.events.conference, true, 'the current marker is 10, but its conference has not departed');
+  const entering = renderActionPanel({ state: app.state, api: app.api });
+  assert.equal(findAll(entering, (element) => element.attributes['data-disclosure'] === 'conference-due-10').length, 0, 'entering marker 10 does not trigger its conference');
+  const enteringStatus = collectText(renderStatus({ state: app.state, api: app.api })).join('');
+  assert.match(enteringStatus, /自由推理/);
+  assert.doesNotMatch(enteringStatus, /该开会了|离开 9 号事件标记/);
+  assert.equal(app.api.consoleAction({ kind: 'research', topic: 'A', text: '会议前的研究' }).ok, true);
+  assert.equal(app.state.game.time, 10);
+  assert.equal(app.state.game.events.conference, false, 'the current marker is now 11');
+  const due = renderActionPanel({ state: app.state, api: app.api });
   const dueEntry = findAll(due, element => element.attributes['data-disclosure'] === 'conference-due-10')[0];
   assert.equal(dueEntry?.attributes.open, '');
 });
@@ -2217,13 +2217,12 @@ test('every recordable action goes through the api and lands in the log', () => 
   finishAppPhases(app);
   assert.equal(api.consoleAction({ kind: 'wait' }).ok, true);
   finishAppPhases(app);
-  // publishing only happens once the arrow stands on a research sector (month 3 -> sector 3)
-  const early = api.consoleAction({ kind: 'theory', sector: 5, type: Obj.COMET });
+  const early = api.consoleAction({ kind: 'theory', sector: 4, type: Obj.COMET });
   assert.equal(early.ok, false, 'not while the arrow is elsewhere');
-  assert.equal(state.ui.toast.text.includes('学术研究只在时间轨箭头'), true, 'and the app says why');
+  assert.match(state.ui.toast.text, /学术研究.*天窗起点离开/, 'and the app explains departure timing');
   for (let i = 0; i < 12 && !state.game.theoryPhaseOpen; i++) assert.equal(api.consoleAction({ kind: 'wait' }).ok, true);
-  assert.equal(state.game.theoryPhaseOpen, true, 'the arrow reached a research sector');
-  assert.equal(api.consoleAction({ kind: 'theory', sector: 5, type: Obj.COMET }).ok, true, 'now it may be published');
+  assert.equal(state.game.theoryPhaseOpen, true, 'the visible-window start left a research marker');
+  assert.equal(api.consoleAction({ kind: 'theory', sector: 4, type: Obj.COMET }).ok, true, 'now it may be published');
   finishAppPhases(app);
   assert.equal(api.consoleAction({ kind: 'conference', sector: 10, text: 'X行星紧邻一颗彗星' }).ok, true);
   assert.equal(api.consoleAction({ kind: 'locate', sector: 4, left: Obj.COMET, right: Obj.EMPTY }).ok, true);
@@ -2273,7 +2272,7 @@ test('the map draws every mark and the side cards render without the grid', () =
   assert.equal(withClass('mark-yes'), 2, 'two “exists” marks');
   // exact class match: `mark-no` is a prefix of `mark-none`, which every unmarked icon carries
   assert.equal(withClass('mark-no'), 1, 'one “does not exist” mark');
-  assert.equal(withClass('mark-none'), 69, 'and every other icon is still unmarked');
+  assert.equal(withClass('mark-none'), 62, 'all other legal icons stay unmarked; seven forbidden comet slots are absent');
   const topics = renderTopicsPanel({ game: state.game, draftNames: null, onReview: () => {} });
   const theories = renderTheoriesPanel({ game: state.game, onReview: () => {} });
   assert.ok(countNodes(topics) > 10 && countNodes(theories) > 3, 'both side cards render');
@@ -2298,4 +2297,718 @@ test('modal variants render: help, locate, conference, result, start', () => {
   const locate = renderModal({ state, api });
   assert.ok(countNodes(locate) > 10);
   api.setUi({ modal: null });
+});
+
+async function initialClueApp(context, { failClaim = false, mismatchedView = false } = {}) {
+  storage.clear();
+  tabStorage.clear();
+  const previousFetch = globalThis.fetch;
+  const previousEventSource = globalThis.EventSource;
+  globalThis.EventSource = undefined;
+  context.after(() => {
+    globalThis.fetch = previousFetch;
+    globalThis.EventSource = previousEventSource;
+    tabStorage.clear();
+  });
+  const { createRoom, addPlayer, applyRoomAction, viewFor } = await import('../public/src/room.js');
+  const ownClues = [
+    { sector: 1, objectType: Obj.COMET },
+    { sector: 1, objectType: Obj.GAS_CLOUD },
+    { sector: 2, objectType: Obj.DWARF_PLANET },
+    { sector: 3, objectType: Obj.ASTEROID },
+  ];
+  const foreignClues = [
+    { sector: 10, objectType: Obj.COMET },
+    { sector: 9, objectType: Obj.GAS_CLOUD },
+    { sector: 10, objectType: Obj.DWARF_PLANET },
+    { sector: 11, objectType: Obj.GAS_CLOUD },
+  ];
+  const room = createRoom({ playMode: 'builtin', puzzle: {
+    objects: [Obj.ASTEROID, Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.PLANET_X, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.DWARF_PLANET, Obj.ASTEROID, Obj.ASTEROID],
+    topics: Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((topic) => [topic, { name: topic, clue: `线索 ${topic}` }])),
+    conferences: { 10: '会议线索' },
+    startingClues: [ownClues, foreignClues],
+  } });
+  const host = room.players[0];
+  const guest = addPlayer(room, '另一位玩家');
+  assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, true);
+  const identity = { roomId: room.id, playerId: host.id, token: host.token };
+  const roomNotesKey = `planetx.notes.${room.id}.${host.id}`;
+  const handwritten = { [`7:${CODE.asteroid}`]: 'yes', [`5:${CODE.planetX}`]: 'no' };
+  storage.set(roomNotesKey, JSON.stringify(handwritten));
+  tabStorage.set('planetx.room.v1', JSON.stringify(identity));
+  const calls = [];
+  const snapshot = () => JSON.parse(JSON.stringify(viewFor(room, mismatchedView ? guest.id : host.id)));
+  globalThis.fetch = async (url, options = {}) => {
+    const action = options.body ? JSON.parse(options.body).action : null;
+    if (!action) return { status: 200, json: async () => ({ view: snapshot() }) };
+    calls.push(action);
+    const result = failClaim && action.kind === 'claim-initial-clues'
+      ? { ok: false, error: '领取失败，请稍后重试' }
+      : applyRoomAction(room, host.id, action);
+    return { status: result.ok ? 200 : 400, json: async () => ({ ...result, view: snapshot() }) };
+  };
+  const root = makeEl('div');
+  const app = createApp(root);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(app.state.remote?.playerId, host.id);
+  return { app, root, calls, ownClues, foreignClues, roomNotesKey, handwritten };
+}
+
+test('initial clue app automatically marks its own delivery and keeps same-count retries idempotent', async (context) => {
+  const { app, calls, ownClues, foreignClues, handwritten } = await initialClueApp(context);
+  const expectedNotes = { ...handwritten, ...Object.fromEntries(ownClues.map(clue => [`${clue.sector}:${CODE[clue.objectType]}`, 'no'])) };
+  assert.deepEqual(app.state.notes, expectedNotes, 'automatic delivery imports only this player’s clues and preserves handwritten notes');
+  for (const clue of foreignClues) assert.equal(app.state.notes[`${clue.sector}:${CODE[clue.objectType]}`], undefined);
+  assert.equal(typeof app.api.claimInitialClues, 'function', 'the app exposes the agreed claim handler');
+  const result = await app.api.claimInitialClues(4);
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [{ kind: 'claim-initial-clues', count: 4 }]);
+  assert.equal(app.state.game.mySetup.cluesClaimed, true);
+  assert.equal(app.state.game.mySetup.ready, false, 'retrying never presses Ready');
+  assert.equal(app.state.game.phase, 'setup');
+  assert.deepEqual(app.state.notes, expectedNotes);
+});
+
+test('initial clue app refresh restores delivered clues even when the notes cache only has handwritten marks', async (context) => {
+  const { app, ownClues, handwritten, roomNotesKey } = await initialClueApp(context);
+  const expectedNotes = { ...handwritten, ...Object.fromEntries(ownClues.map((clue) => [`${clue.sector}:${CODE[clue.objectType]}`, 'no'])) };
+  assert.equal(app.state.game.mySetup.ready, false);
+  assert.deepEqual(app.state.notes, expectedNotes, 'joining a delivered setup restores the exclusions');
+  storage.set(roomNotesKey, JSON.stringify(handwritten));
+  const refreshed = createApp(makeEl('div'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(refreshed.state.notes, expectedNotes, 'refresh restores facts without discarding unrelated notes');
+});
+
+test('initial clue app does not import another player’s delivered setup into this player’s notes', async (context) => {
+  const { app, handwritten } = await initialClueApp(context, { mismatchedView: true });
+  assert.equal(app.state.game.mySetup.cluesClaimed, true);
+  assert.notEqual(app.state.game.me, app.state.remote.playerId);
+  assert.deepEqual(app.state.notes, handwritten);
+});
+
+test('initial clue app failed retry leaves already-delivered clues and readiness unchanged', async (context) => {
+  const { app, calls } = await initialClueApp(context, { failClaim: true });
+  const before = { ...app.state.notes };
+  assert.equal(typeof app.api.claimInitialClues, 'function', 'the app exposes the agreed claim handler');
+  const result = await app.api.claimInitialClues(4);
+  assert.equal(result.ok, false);
+  assert.deepEqual(calls, [{ kind: 'claim-initial-clues', count: 4 }]);
+  assert.deepEqual(app.state.notes, before);
+  assert.equal(app.state.game.mySetup.cluesClaimed, true);
+  assert.equal(app.state.game.mySetup.ready, false);
+});
+
+test('app refuses forbidden comet endpoints even through previously rendered map callbacks', () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  const callbacks = new Map(findAll(root, (element) => element.attributes['data-sector'] !== undefined).map((sector) => [
+    Number(sector.attributes['data-sector']),
+    findAll(sector, (element) => (element.className || '').split(/\s+/).includes('wedge'))[0].listeners.click[0],
+  ]));
+  app.api.startAction('survey');
+  app.api.setUi({ surveyType: Obj.COMET });
+  callbacks.get(0)();
+  assert.deepEqual(app.state.ui.pick, [], 'sector 1 is not a prime-numbered endpoint');
+  assert.equal(app.state.ui.selectedSector, null);
+  callbacks.get(1)();
+  assert.deepEqual(app.state.ui.pick, [1]);
+  callbacks.get(3)();
+  callbacks.get(6)();
+  assert.deepEqual(app.state.ui.pick, [1], 'neither non-prime 4 nor currently hidden prime 7 can finish the range');
+  callbacks.get(2)();
+  assert.deepEqual(app.state.ui.pick, [1, 2]);
+});
+
+function uiSliceState(game = {}, ui = {}) {
+  storage.clear();
+  tabStorage.clear();
+  const app = createApp(makeEl('div'));
+  return { ...app.state, game: { ...app.state.game, ...game }, ui: { ...app.state.ui, ...ui } };
+}
+
+test('approved initial clue setup displays the locked host count and never offers a personal claim', () => {
+  for (const count of [0, 4, 8, 12]) {
+    const state = uiSliceState({ playMode: 'builtin', phase: 'setup', initialClueCount: count, mySetup: { initialClueCount: count, cluesClaimed: false, clues: [], ready: false } }, { initialClueCount: count === 4 ? 8 : 4 });
+    const calls = [];
+    const api = {
+      submitSetup() { calls.push({ kind: 'setup' }); },
+    };
+    const render = () => renderActionPanel({ state, api });
+    let panel = render();
+    const choices = findAll(panel, (element) => element.attributes['data-initial-clue-count'] !== undefined);
+    assert.deepEqual(choices, []);
+    const ready = findButton(panel, '我已准备');
+    assert.ok(Object.hasOwn(ready.attributes, 'disabled'));
+    fire(ready, 'click');
+    assert.deepEqual(calls, [], 'readiness cannot precede the authoritative delivery');
+    assert.equal(findButton(panel, '领取初始线索'), undefined);
+    state.game.mySetup = { initialClueCount: count, cluesClaimed: true, ready: false, clues: count ? [{ sector: 1, type: Obj.GAS_CLOUD }] : [] };
+    state.ui.initialClueCount = count === 4 ? 8 : 4;
+    panel = render();
+    const locked = findAll(panel, (element) => element.attributes['data-initial-clue-count'] !== undefined);
+    assert.deepEqual(locked, [], 'there is no personal count control after starting');
+    assert.equal(calls.length, 0, 'there is no reroll or count-changing action');
+    assert.match(collectText(panel).join(''), new RegExp(`已自动收到 ${count} 条`));
+    if (count) assert.match(collectText(panel).join(''), /2 号扇区没有气体云/);
+    const unlockedReady = findButton(panel, '我已准备');
+    assert.equal(unlockedReady.attributes.disabled, undefined);
+    fire(unlockedReady, 'click');
+    assert.deepEqual(calls.at(-1), { kind: 'setup' });
+  }
+});
+
+test('approved map omits forbidden comet glyphs, click slots, mark chips and stale popovers on both boards', () => {
+  for (const modeId of ['standard', 'expert']) {
+    const mode = modeById(modeId);
+    const state = uiSliceState({ mode, visible: visibleSectorsAt(0, mode) }, { selectedSector: 0, mark: { sector: 0, code: CODE.comet } });
+    state.notes = { [`0:${CODE.comet}`]: 'yes' };
+    const marks = [];
+    const board = renderBoard({ game: state.game, ui: state.ui, notes: state.notes, onSector() {}, onMark: (sector, code) => marks.push({ sector, code }) });
+    const sectors = findAll(board, (element) => element.attributes['data-sector'] !== undefined);
+    for (const sectorNode of sectors) {
+      const sector = Number(sectorNode.attributes['data-sector']);
+      const legal = [2, 3, 5, 7, 11, 13, 17].includes(sector + 1);
+      assert.equal(findAll(sectorNode, (element) => (element.className || '').split(/\s+/).includes('icon-comet')).length, legal ? 1 : 0);
+      findAll(sectorNode, (element) => (element.className || '').includes('icon-hit')).forEach((hit) => fire(hit, 'click'));
+    }
+    assert.ok(marks.every((mark) => mark.code !== CODE.comet || [2, 3, 5, 7, 11, 13, 17].includes(mark.sector + 1)));
+    const panel = renderMapPanel({ state, api: {}, boardEl: board });
+    const strip = findAll(panel, (element) => element.className === 'mark-strip')[0];
+    assert.doesNotMatch(collectText(strip).join(''), /彗星/);
+    assert.equal(findAll(panel, (element) => element.className === 'mark-pop').length, 0);
+  }
+});
+
+test('approved comet surveys offer only visible prime-numbered endpoints in selects and SVG wedges', () => {
+  for (const modeId of ['standard', 'expert']) {
+    const mode = modeById(modeId);
+    const visible = visibleSectorsAt(mode.sectors - 2, mode);
+    const allowed = visible.filter((sector) => [2, 3, 5, 7, 11, 13, 17].includes(sector + 1));
+    const state = uiSliceState({ mode, visible, visibleStart: visible[0] }, { action: 'survey', surveyType: Obj.COMET, pick: [] });
+    const api = { pickedRange: () => null, setUi(patch) { state.ui = { ...state.ui, ...patch }; } };
+    let panel = renderActionPanel({ state, api });
+    for (const label of ['勘测起点', '勘测终点']) {
+      const select = findAll(panel, (element) => element.tagName === 'select' && element.attributes['aria-label'] === label)[0];
+      assert.ok(select, `${label} is available without relying on map clicks`);
+      assert.deepEqual(select.children.filter((option) => option.attributes.value !== '').map((option) => Number(option.attributes.value)), allowed);
+      assert.ok(select.children.every((option) => option.attributes.disabled === undefined), 'invalid sectors are omitted rather than disabled');
+    }
+    const start = findAll(panel, (element) => element.attributes['aria-label'] === '勘测起点')[0];
+    fire(start, 'change', { target: { value: String(allowed[0]) } });
+    assert.deepEqual(state.ui.pick, [allowed[0]]);
+    panel = renderActionPanel({ state, api });
+    const end = findAll(panel, (element) => element.attributes['aria-label'] === '勘测终点')[0];
+    fire(end, 'change', { target: { value: String(allowed[1]) } });
+    assert.deepEqual(state.ui.pick, [allowed[0], allowed[1]]);
+    const selected = [];
+    const board = renderBoard({ game: state.game, ui: state.ui, notes: {}, onSector: (sector) => selected.push(sector), onMark() {} });
+    findAll(board, (element) => (element.className || '').split(/\s+/).includes('wedge')).forEach((wedge) => fire(wedge, 'click'));
+    assert.deepEqual(selected.sort((first, second) => first - second), [...allowed].sort((first, second) => first - second));
+    state.ui.pick = [0, 1];
+    const invalid = renderActionPanel({ state, api: { ...api, pickedRange: () => ({ start: 0, size: 2 }) } });
+    assert.ok(Object.hasOwn(findButton(invalid, '确认勘测').attributes, 'disabled'), 'a stale non-prime endpoint cannot be confirmed');
+  }
+});
+
+test('approved regular and triggered research selectors consume per-sector theoryOptions without re-deriving locks', () => {
+  for (const online of [false, true]) {
+    const state = uiSliceState({
+      phase: online ? 'play' : undefined,
+      theoryPhaseOpen: true,
+      theoryPhase: { sector: 3 },
+      theoryOptions: [{ sector: 1, types: [Obj.GAS_CLOUD] }, { sector: 4, types: [Obj.COMET, Obj.DWARF_PLANET] }],
+      theoryLockedSectors: [2, 8],
+      research: online ? { id: 'phase-3', sector: 3, myCount: 1, allDeclared: true, isMyPick: true, left: 1, orderNames: ['甲', '乙'], picks: [], myPicks: [] } : null,
+    }, { action: 'theory', theorySector: 1, theoryType: Obj.GAS_CLOUD });
+    state.game.knowledge = { ...state.game.knowledge, theories: [{ id: 'older', actorId: state.game.me, sector: 1, objectType: Obj.ASTEROID, review: 'wrong', slot: 1 }] };
+    const api = { setUi(patch) { state.ui = { ...state.ui, ...patch }; }, confirmAction() {}, cancelAction() {}, consoleAction() {} };
+    let panel = renderActionPanel({ state, api });
+    const sectorSelect = findAll(panel, (element) => element.tagName === 'select')[0];
+    assert.deepEqual(sectorSelect.children.map((option) => Number(option.attributes.value)), [1, 4]);
+    assert.ok(sectorSelect.children.every((option) => option.attributes.disabled === undefined));
+    assert.doesNotMatch(collectText(sectorSelect).join(''), /已公开/);
+    const chips = findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select'));
+    assert.deepEqual(chips.map((chip) => collectText(chip).join('')), ['气体云'], 'another type at an older attempted sector remains available');
+    state.ui.theoryType = Obj.ASTEROID;
+    panel = renderActionPanel({ state, api });
+    assert.ok(Object.hasOwn(findButton(panel, '确认提交').attributes, 'disabled'));
+    state.ui.theorySector = 4;
+    state.ui.theoryType = Obj.COMET;
+    panel = renderActionPanel({ state, api });
+    assert.deepEqual(findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select')).map((chip) => collectText(chip).join('')), ['彗星', '矮行星']);
+    assert.equal(findButton(panel, '确认提交').attributes.disabled, undefined);
+  }
+});
+
+function activeEventMarkers(game) {
+  const board = renderBoard({ game, ui: {}, notes: {}, onSector() {}, onMark() {} });
+  return findAll(board, (element) => matches(element, '.event-marker') && matches(element, '.active')).map((marker) => {
+    const title = marker.children.find((element) => element.tagName === 'title');
+    return {
+      kind: matches(marker, '.event-theory') ? 'theory' : 'conference',
+      sector: Number(collectText(title).join('').match(/离开 (\d+) 号/)[1]),
+    };
+  });
+}
+
+function completeConsoleEventPhases(session, beforeTime = Infinity) {
+  while (session.theoryPhases[0]?.time < beforeTime) assert.equal(completeTheoryPhase(session).ok, true);
+}
+
+function createEventRoom(modeId = 'standard') {
+  const room = createRoom({ modeId, hostName: '先到者', initialClueCount: 0 });
+  addPlayer(room, '后到者');
+  assert.equal(applyRoomAction(room, room.hostId, { kind: 'start-game' }).ok, true);
+  for (const player of room.players) assert.equal(applyRoomAction(room, player.id, { kind: 'setup', noClues: true }).ok, true);
+  return room;
+}
+
+function completeRoomEventPhase(room) {
+  const phaseId = room.research.id;
+  for (const player of room.players) assert.equal(applyRoomAction(room, player.id, { kind: 'research-declare', phaseId, count: 0 }).ok, true);
+}
+
+function advanceEventRoom(room, targetTime) {
+  while (viewFor(room, room.hostId).windowTime < targetTime) {
+    if (room.research) completeRoomEventPhase(room);
+    else if (room.conference) assert.equal(applyRoomAction(room, room.hostId, { kind: 'conference', sector: room.conference.sector, text: '已记录的会议' }).ok, true);
+    else assert.equal(applyRoomAction(room, currentPlayer(room).id, { kind: 'wait' }).ok, true);
+  }
+}
+
+for (const [modeId, marker, kind] of [['standard', 3, 'theory'], ['standard', 10, 'conference'], ['expert', 7, 'conference'], ['expert', 16, 'conference']]) {
+  test(`event UI follows real console ${modeId} ${kind} departure at ${marker}`, () => {
+    const session = createConsole({ modeId });
+    assert.equal(recordWait(session, marker - 1).ok, true);
+    completeConsoleEventPhases(session);
+    for (const sector of consoleView(session).conferenceSectors.filter((sector) => sector < marker)) {
+      assert.equal(recordConference(session, { sector, text: '先前会议' }).ok, true);
+    }
+    const entering = consoleView(session);
+    assert.equal(entering.events[kind], true);
+    assert.deepEqual(activeEventMarkers(entering), [], 'standing on a marker does not activate it');
+    assert.equal(recordResearch(session, { topic: 'A', text: '推进一个时间单位' }).ok, true);
+    const game = consoleView(session);
+    assert.equal(game.time, marker);
+    assert.equal(game.events[kind], false, 'eventsAt continues to describe the new current marker');
+    const state = uiSliceState(game);
+    const status = collectText(renderStatus({ state, api: {} })).join('');
+    assert.match(status, new RegExp(`天窗起点离开 ${marker} 号.*${marker}→${marker + 1}`));
+    assert.doesNotMatch(status, /箭头走到|到达或越过|棋子越过/);
+    assert.deepEqual(activeEventMarkers(game), [{ kind, sector: marker }]);
+    if (kind === 'conference') {
+      const panel = renderActionPanel({ state, api: {} });
+      const entry = findAll(panel, (element) => element.attributes['data-disclosure'] === `conference-due-${marker}`)[0];
+      assert.equal(entry?.attributes.open, '', 'a departed offline conference opens its entry form');
+    }
+    const help = collectText(renderModal({ state: { ...state, ui: { ...state.ui, modal: { kind: 'help' } } }, api: {} })).join('');
+    assert.match(help, new RegExp(`${marker}→${marker + 1}`));
+    assert.match(help, /先到者在后.*先行动.*先提交/);
+  });
+}
+
+test('event UI defers an overdue offline conference until earlier theory phases finish', () => {
+  const session = createConsole();
+  assert.equal(recordWait(session, 11).ok, true);
+  completeConsoleEventPhases(session, 9);
+  const pending = consoleView(session);
+  assert.equal(pending.theoryPhase.sector, 9);
+  assert.equal(pending.time, 11);
+  assert.deepEqual(activeEventMarkers(pending), [{ kind: 'theory', sector: 9 }]);
+  const pendingState = uiSliceState(pending);
+  assert.match(collectText(renderStatus({ state: pendingState, api: {} })).join(''), /离开 9 号事件标记/);
+  assert.equal(findAll(renderActionPanel({ state: pendingState, api: {} }), (element) => /^conference-due-/.test(element.attributes['data-disclosure'] || '')).length, 0);
+  assert.equal(completeTheoryPhase(session).ok, true);
+  assert.equal(nudgeWindow(session, 4).ok, true);
+  const due = consoleView(session);
+  assert.equal(due.visibleStart, 3, 'manual window placement does not change elapsed departure time');
+  const dueState = uiSliceState(due);
+  assert.match(collectText(renderStatus({ state: dueState, api: {} })).join(''), /离开 10 号事件标记/);
+  assert.deepEqual(activeEventMarkers(due), [{ kind: 'conference', sector: 10 }]);
+  const entry = findAll(renderActionPanel({ state: dueState, api: {} }), (element) => element.attributes['data-disclosure'] === 'conference-due-10')[0];
+  assert.equal(entry?.attributes.open, '');
+  assert.equal(recordConference(session, { sector: 10, text: '会议已记录' }).ok, true);
+  const completed = consoleView(session);
+  assert.deepEqual(activeEventMarkers(completed), []);
+  assert.match(collectText(renderStatus({ state: uiSliceState(completed), api: {} })).join(''), /自由推理/);
+});
+
+test('event UI pauses queued markers and conference reminders during offline peer review', () => {
+  const session = createConsole();
+  assert.equal(recordSurvey(session, { type: Obj.ASTEROID, start: 0, size: 1, count: 1 }).ok, true);
+  const paper = recordTheory(session, { sector: 0, type: Obj.GAS_CLOUD });
+  assert.equal(paper.ok, true);
+  assert.equal(completeTheoryPhase(session).ok, true);
+  assert.equal(recordSurvey(session, { type: Obj.ASTEROID, start: 4, size: 1, count: 0 }).ok, true);
+  assert.equal(completeTheoryPhase(session).ok, true);
+  assert.equal(recordTarget(session, { sector: 8, apparent: Obj.ASTEROID }).ok, true);
+  assert.equal(consoleView(session).theoryPhase.sector, 9);
+  assert.equal(completeTheoryPhase(session).ok, true);
+  const blocked = consoleView(session);
+  assert.equal(blocked.time, 12);
+  assert.deepEqual(blocked.awaitingReview, [paper.entry.id]);
+  assert.equal(blocked.theoryPhase.sector, 12);
+  assert.equal(blocked.theoryPhaseOpen, false);
+  assert.equal(completeTheoryPhase(session).ok, false);
+  assert.deepEqual(activeEventMarkers(blocked), [], 'review blocks both the queued theory and the later conference');
+  const state = uiSliceState(blocked);
+  const status = collectText(renderStatus({ state, api: {} })).join('');
+  assert.match(status, /同行评审/);
+  assert.doesNotMatch(status, /该开会了|天窗起点离开 \d+ 号|自由推理/);
+  assert.match(collectText(renderActionPanel({ state, api: {} })).join(''), /等待同行评审/);
+  assert.equal(markTheoryReview(session, paper.entry.id, 'wrong').ok, true);
+  const resumed = consoleView(session);
+  assert.equal(resumed.awaitingReview.length, 0);
+  assert.equal(resumed.theoryPhaseOpen, true);
+  assert.ok(activeEventMarkers(resumed).some((marker) => marker.kind === 'theory' && marker.sector === 12));
+  assert.doesNotMatch(collectText(renderStatus({ state: uiSliceState(resumed), api: {} })).join(''), /同行评审/);
+});
+
+test('event SVG follows real shared pending phases, not a leading viewer clock or wrapped marker', () => {
+  for (const modeId of ['standard', 'expert']) {
+    const room = createEventRoom(modeId);
+    assert.equal(applyRoomAction(room, room.hostId, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.EMPTY, correct: false }).ok, true);
+    const initial = viewFor(room, room.hostId);
+    assert.equal(initial.time, 5);
+    assert.equal(initial.windowTime, 0);
+    assert.deepEqual(activeEventMarkers(initial), []);
+    advanceEventRoom(room, 2);
+    const entering = viewFor(room, room.hostId);
+    assert.equal(entering.events.theory, true);
+    assert.equal(entering.research, null);
+    assert.deepEqual(activeEventMarkers(entering), []);
+    for (const windowTime of [3, room.session.mode.sectors]) {
+      advanceEventRoom(room, windowTime);
+      const game = viewFor(room, room.hostId);
+      assert.equal(game.windowTime, windowTime);
+      assert.equal(game.events.theory, false);
+      assert.equal(game.research.sector, windowTime);
+      assert.deepEqual(activeEventMarkers(game), [{ kind: 'theory', sector: windowTime }]);
+      completeRoomEventPhase(room);
+      assert.deepEqual(activeEventMarkers(viewFor(room, room.hostId)), [], 'completion removes the highlight without moving the window');
+    }
+  }
+});
+
+test('event UI follows a real room conference after departure and until its prompt is recorded', () => {
+  const room = createEventRoom();
+  advanceEventRoom(room, 9);
+  completeRoomEventPhase(room);
+  const entering = viewFor(room, room.hostId);
+  assert.equal(entering.events.conference, true);
+  assert.equal(entering.conference, null);
+  assert.match(collectText(renderStatus({ state: uiSliceState(entering), api: {} })).join(''), /自由推理/);
+  const researcherId = currentPlayer(room).id;
+  assert.equal(applyRoomAction(room, researcherId, { kind: 'research', topic: 'A', text: '先到下一格' }).ok, true);
+  const ahead = viewFor(room, researcherId);
+  assert.equal(ahead.time, 10);
+  assert.equal(ahead.windowTime, 9);
+  assert.equal(ahead.conference, null);
+  assert.deepEqual(activeEventMarkers(ahead), []);
+  assert.match(collectText(renderStatus({ state: uiSliceState(ahead), api: {} })).join(''), /自由推理/);
+  assert.equal(applyRoomAction(room, currentPlayer(room).id, { kind: 'research', topic: 'A', text: '天窗离开会议标记' }).ok, true);
+  for (const windowTime of [10, 11]) {
+    const game = viewFor(room, room.hostId);
+    assert.equal(game.windowTime, windowTime);
+    assert.equal(game.events.conference, false);
+    assert.equal(game.conference.sector, 10);
+    const state = uiSliceState(game);
+    assert.match(collectText(renderStatus({ state, api: {} })).join(''), /离开 10 号事件标记/);
+    assert.deepEqual(activeEventMarkers(game), [{ kind: 'conference', sector: 10 }]);
+    const entry = findAll(renderActionPanel({ state, api: {} }), (element) => element.attributes['data-disclosure'] === 'conference-due-10')[0];
+    assert.equal(entry?.attributes.open, '');
+    if (windowTime === 10) {
+      for (const player of room.players) assert.equal(applyRoomAction(room, currentPlayer(room).id, { kind: 'wait' }).ok, true);
+    }
+  }
+  assert.equal(applyRoomAction(room, room.hostId, { kind: 'conference', sector: 10, text: '会议已记录' }).ok, true);
+  const completed = viewFor(room, room.hostId);
+  assert.equal(completed.conference, null);
+  assert.deepEqual(activeEventMarkers(completed), []);
+  assert.match(collectText(renderStatus({ state: uiSliceState(completed), api: {} })).join(''), /自由推理/);
+});
+
+test('event UI never highlights conferences or research in real frozen final and revealed views', () => {
+  const room = createEventRoom();
+  advanceEventRoom(room, 10);
+  assert.equal(viewFor(room, room.hostId).conference.sector, 10);
+  assert.equal(applyRoomAction(room, currentPlayer(room).id, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.EMPTY, correct: true }).ok, true);
+  for (const phase of ['final', 'reveal', 'done']) {
+    const game = viewFor(room, room.hostId);
+    assert.equal(game.phase, phase);
+    assert.equal(game.windowTime, 10);
+    assert.deepEqual(activeEventMarkers(game), []);
+    const status = renderStatus({ state: uiSliceState(game), api: {} });
+    assert.match(collectText(status).join(''), /终局/);
+    assert.equal(findAll(status, (element) => matches(element, '.event-now')).length, 0);
+    if (phase === 'final') assert.equal(applyRoomAction(room, room.endgame.cursorId, { kind: 'final-pass' }).ok, true);
+    if (phase === 'reveal') assert.equal(applyRoomAction(room, room.hostId, { kind: 'reveal-objects', objects: Array.from({ length: 12 }, (unused, sector) => sector === 0 ? Obj.PLANET_X : Obj.EMPTY) }).ok, true);
+  }
+  const session = createConsole();
+  assert.equal(recordWait(session, 9).ok, true);
+  completeConsoleEventPhases(session);
+  assert.equal(recordLocate(session, { sector: 0, left: Obj.EMPTY, right: Obj.EMPTY, correct: true }).ok, true);
+  for (const status of ['reveal', 'finished']) {
+    const game = consoleView(session);
+    assert.equal(game.status, status);
+    assert.equal(game.visibleStart, 9);
+    assert.equal(game.time, 14, 'the personal locate cost cannot trigger the next frozen conference');
+    assert.deepEqual(activeEventMarkers(game), []);
+    const panel = renderStatus({ state: uiSliceState(game), api: {} });
+    assert.equal(findAll(panel, (element) => matches(element, '.event-now')).length, 0);
+    if (status === 'reveal') assert.equal(revealObjects(session, Array.from({ length: 12 }, (unused, sector) => sector === 0 ? Obj.PLANET_X : Obj.EMPTY)).ok, true);
+  }
+});
+
+test('approved normal actions omit waiting and publishing while triggered research retains padded controls', async () => {
+  for (const playMode of ['record', 'builtin']) {
+    const state = uiSliceState({ playMode, phase: 'play', isMyTurn: true }, { action: 'idle' });
+    const panel = renderActionPanel({ state, api: {} });
+    assert.equal(findAll(panel, (element) => element.className === 'action-tile').length, 3);
+    assert.equal(findButton(panel, '提交学术研究'), undefined);
+    assert.equal(findButton(panel, '等待 1'), undefined);
+    state.game.research = { id: 'research', sector: 3, myCount: null, declaredCount: 0, playerCount: 1, quota: 1, maxDeclare: 1 };
+    state.game.theoryOptions = [{ sector: 1, types: [Obj.ASTEROID] }];
+    assert.ok(findButton(renderActionPanel({ state, api: {} }), '提交 1 篇'));
+  }
+  const { readFileSync } = await import('node:fs');
+  const styles = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
+  assert.match(styles.match(/\.research-open\s*\{([^}]+)\}/)?.[1] || '', /padding:\s*(?:1[6-9]|[2-9]\d)px/);
+});
+
+test('approved academic progress groups multiple papers into two columns with authors, slots and per-view privacy', () => {
+  const state = uiSliceState({ me: 'mine', status: 'open', players: [{ id: 'mine', name: '甲', color: '#5eead4' }, { id: 'other', name: '乙', color: '#f5b942' }] });
+  state.game.knowledge = { ...state.game.knowledge, theories: [
+    { id: 'own', actorId: 'mine', sector: 1, objectType: Obj.ASTEROID, review: 'pending', slot: 1 },
+    { id: 'hidden', actorId: 'other', sector: 1, review: 'pending', slot: 2 },
+    { id: 'public', actorId: 'other', sector: 1, objectType: Obj.GAS_CLOUD, revealed: true, review: 'correct', slot: 1 },
+    { id: 'later', actorId: 'mine', sector: 5, objectType: Obj.DWARF_PLANET, review: 'pending', slot: 3 },
+  ] };
+  const reviews = [];
+  const panel = renderTheoriesPanel({ game: state.game, onReview: (id, verdict) => reviews.push({ id, verdict }) });
+  const table = findAll(panel, (element) => element.tagName === 'table')[0];
+  assert.ok(table, 'academic progress is a real table');
+  const rows = findAll(table, (element) => element.tagName === 'tr');
+  assert.equal(rows.length, 3, 'one header and one row per occupied sector');
+  assert.ok(rows.every((row) => row.children.length === 2));
+  assert.deepEqual(rows.slice(1).map((row) => collectText(row.children[0]).join('')), ['2 号', '6 号']);
+  const papers = findAll(table, (element) => element.attributes['data-theory-id'] !== undefined);
+  assert.equal(papers.length, 4);
+  assert.equal(findAll(table, (element) => (element.className || '').split(/\s+/).includes('track')).length, 4);
+  const hidden = papers.find((paper) => paper.attributes['data-theory-id'] === 'hidden');
+  assert.match(collectText(hidden).join(''), /乙/);
+  assert.match(collectText(hidden).join(''), /未公开|\?/);
+  assert.doesNotMatch(collectText(hidden).join(''), /小行星|气体云|矮行星|彗星/);
+  assert.equal(findAll(hidden, (element) => element.tagName === 'svg').length, 0, 'a neighbor’s public paper does not reveal this paper’s object');
+  assert.equal(findAll(hidden, (element) => element.tagName === 'button').length, 0);
+  fire(findButton(papers.find((paper) => paper.attributes['data-theory-id'] === 'own'), '正确'), 'click');
+  assert.deepEqual(reviews, [{ id: 'own', verdict: 'correct' }]);
+});
+
+test('approved public scores use a two-row per-player table with object unit values and actual sums, never an extra first-X bonus', async () => {
+  for (const modeId of ['standard', 'expert']) {
+    const dwarfPoints = modeId === 'expert' ? 2 : 4;
+    const rows = [
+      { id: 'mine', name: '甲', theories: [{ objectType: Obj.ASTEROID, points: 2 }, { objectType: Obj.ASTEROID, points: 2 }, { objectType: Obj.COMET, points: 3 }, { objectType: Obj.GAS_CLOUD, points: 4 }, { objectType: Obj.DWARF_PLANET, points: dwarfPoints }], leaderBonus: 2, located: true, locatePoints: 10, total: 23 + dwarfPoints },
+      { id: 'other', name: '乙', theories: [{ objectType: Obj.GAS_CLOUD, points: 4 }], leaderBonus: 1, located: false, locatePoints: 0, total: 5 },
+      { id: 'waiting', name: '丙', theories: [], leaderBonus: 0, located: false, locatePoints: 0, total: 0 },
+    ];
+    const state = uiSliceState({ mode: modeById(modeId), me: 'mine', scores: { rows, firstFinderId: 'mine', finished: false, locateFirst: 10, locatePerSector: 2, leaderBonus: 1 } });
+    const panel = renderScorePanel({ state, api: {} });
+    const tables = findAll(panel, (element) => element.tagName === 'table');
+    assert.equal(tables.length, rows.length, 'all players’ public scores remain visible');
+    for (const [index, table] of tables.entries()) {
+      const tableRows = findAll(table, (element) => element.tagName === 'tr');
+      assert.equal(tableRows.length, 2);
+      assert.ok(tableRows.every((row) => row.children.length === 7));
+      assert.match(collectText(table).join(''), new RegExp(rows[index].name));
+      const headings = tableRows[0].children.map((cell) => collectText(cell).join(''));
+      for (const [typeIndex, label, points] of [[0, '小行星', 2], [1, '彗星', 3], [2, '气体云', 4], [3, '矮行星', dwarfPoints]]) assert.match(headings[typeIndex], new RegExp(`${label}.*${points}.*分`));
+      assert.match(headings[4], /首对奖励.*\+1.*扇区/);
+      assert.match(headings[5], /定位\s*X行星/);
+      assert.equal(headings[6], '合计');
+      const values = tableRows[1].children.map((cell) => Number(collectText(cell).join('')));
+      assert.deepEqual(values, index === 0 ? [4, 3, 4, dwarfPoints, 2, 10, 23 + dwarfPoints] : index === 1 ? [0, 0, 4, 0, 1, 0, 5] : [0, 0, 0, 0, 0, 0, 0]);
+      assert.equal(values.slice(0, -1).reduce((sum, value) => sum + value, 0), values.at(-1));
+    }
+  }
+  const { readFileSync } = await import('node:fs');
+  const styles = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.score-table-wrap\s*\{[^}]*overflow-x:\s*auto/);
+});
+
+test('app theory defaults omit revealed sectors but keep a different allowed type at a previously attempted sector', () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  const game = {
+    ...app.state.game, me: 'viewer', phase: 'play', isMyTurn: true, theoryPhaseOpen: true, theoryPhase: { sector: 6 },
+    theoryLockedSectors: [0],
+    theoryOptions: [{ sector: 1, types: [Obj.GAS_CLOUD] }, { sector: 4, types: [Obj.COMET, Obj.DWARF_PLANET] }],
+    knowledge: { ...app.state.game.knowledge, theories: [
+      { id: 'revealed', actorId: 'viewer', sector: 0, objectType: Obj.ASTEROID, review: 'correct', revealed: true, slot: 1 },
+      { id: 'earlier-phase', actorId: 'viewer', sector: 1, objectType: Obj.ASTEROID, review: 'wrong', slot: 1 },
+    ] },
+  };
+  app.state.remote = { roomId: 'THEORY-UI', playerId: 'viewer', token: 'fixture', view: game };
+  app.api.startAction('theory');
+  assert.equal(app.state.ui.theorySector, 1, 'the default skips the revealed sector without discarding an earlier attempted sector');
+  assert.equal(app.state.ui.theoryType, Obj.GAS_CLOUD, 'the previously attempted identical claim is not reused');
+  const selector = findAll(root, (element) => element.tagName === 'select' && element.attributes['aria-label'] === '扇区')[0];
+  assert.deepEqual(selector.children.map((option) => Number(option.attributes.value)), [1, 4]);
+  app.api.setUi({ theorySector: 1, theoryType: Obj.ASTEROID });
+  assert.equal(app.state.ui.theorySector, 1);
+  assert.equal(app.state.ui.theoryType, Obj.GAS_CLOUD);
+  game.theoryOptions = [{ sector: 4, types: [Obj.COMET] }];
+  app.render();
+  assert.equal(app.state.ui.theorySector, 4, 'a same-phase used sector is removed when the server options change');
+  assert.equal(app.state.ui.theoryType, Obj.COMET);
+});
+
+test('app switching survey type to comet clears invalid old endpoints while retaining visible prime picks', () => {
+  storage.clear();
+  tabStorage.clear();
+  const app = createApp(makeEl('div'));
+  for (const modeId of ['standard', 'expert']) {
+    app.api.newSession(modeId);
+    app.api.startAction('survey');
+    const hiddenPrime = modeId === 'standard' ? 10 : 16;
+    for (const [picks, expected] of [[[0, 3], []], [[1, 3], [1]], [[0, 2], [2]], [[1, 2], [1, 2]], [[1, hiddenPrime], [1]]]) {
+      app.api.setUi({ surveyType: Obj.ASTEROID, pick: picks, selectedSector: picks.at(-1) });
+      app.api.setUi({ surveyType: Obj.COMET });
+      assert.deepEqual(app.state.ui.pick, expected, `${modeId}: remove forbidden or invisible endpoints`);
+      assert.equal(app.state.ui.selectedSector, expected.at(-1) ?? null);
+      if (expected.length < 2) assert.equal(app.api.pickedRange(), null);
+    }
+  }
+});
+
+test('integrated tutorial uses real rendered controls through reveal, restart and isolated exit', async context => {
+  storage.clear();
+  tabStorage.clear();
+  const { createTutorialRoom, applyTutorialAction } = await import('../server/tutorial.js');
+  const previousFetch = globalThis.fetch;
+  const previousEventSource = globalThis.EventSource;
+  globalThis.EventSource = undefined;
+  const rooms = new Map();
+  const results = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/modes')) return { status: 200, json: async () => ({ playModes: ['record', 'builtin', 'tutorial'], builtinBoards: ['standard', 'expert'], initialClueCounts: [0, 4, 8, 12] }) };
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (path.endsWith('/rooms')) {
+      assert.equal(body.playMode, 'tutorial');
+      assert.equal(body.modeId, 'standard');
+      assert.equal(body.initialClueCount, 4);
+      const room = createTutorialRoom({ hostName: body.name });
+      rooms.set(room.id, room);
+      return { status: 200, json: async () => ({ roomId: room.id, playerId: room.hostId, token: room.players[0].token, view: JSON.parse(JSON.stringify(viewFor(room, room.hostId))) }) };
+    }
+    const room = rooms.get(path.split('/')[3]);
+    assert.ok(room, `expected a tutorial room for ${path}`);
+    const result = body?.action ? applyTutorialAction(room, room.hostId, body.action) : { ok: true };
+    if (body?.action) results.push({ action: body.action, result });
+    return { status: result.ok ? 200 : 400, json: async () => ({ ...result, view: JSON.parse(JSON.stringify(viewFor(room, room.hostId))) }) };
+  };
+  context.after(() => {
+    globalThis.fetch = previousFetch;
+    globalThis.EventSource = previousEventSource;
+    tabStorage.clear();
+  });
+  const root = makeEl('div');
+  const app = createApp(root);
+  app.api.newSession('expert');
+  await app.api.setMark(17, CODE.asteroid, 'no');
+  const offlineSave = storage.get('planetx.save.v3');
+  const offlineNotes = storage.get('planetx.notes.v1');
+  const press = async control => {
+    assert.ok(control, 'expected a rendered tutorial control');
+    fire(control, 'click');
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  const markedControl = target => findAll(root, element => element.tagName === 'button' && element.attributes['data-tutorial-target'] === target)[0];
+  const sectorControl = sector => {
+    const group = findAll(root, element => element.attributes['data-sector'] === sector)[0];
+    return findAll(group, element => matches(element, '.wedge'))[0];
+  };
+  app.api.setUi({ playMode: 'tutorial', modal: { kind: 'start' } });
+  await press(findButton(root, '开始双人教学'));
+  assert.equal(app.state.game.playMode, 'builtin');
+  assert.equal(app.state.game.initialClueCount, 4);
+  const roomId = app.state.remote.roomId;
+  const staleNext = findButton(root, '继续');
+  await press(staleNext);
+  const inspectedStep = app.state.game.tutorial.stepId;
+  await press(staleNext);
+  assert.equal(results.at(-1).result.ok, false, 'an old Next button cannot advance a different step');
+  assert.equal(app.state.game.tutorial.stepId, inspectedStep);
+  results.length = 0;
+  let steps = 0;
+  while (!app.state.game.tutorial.completed && steps < 80) {
+    const tutorial = app.state.game.tutorial;
+    const expected = tutorial.expected;
+    const guide = findAll(root, element => matches(element, '.tutorial-guide'))[0];
+    assert.equal(guide.parent.className, 'col-actions');
+    assert.equal(guide.parent.children[0], guide, 'the guide precedes contextual actions');
+    const conferences = findAll(root, element => matches(element, '.conferences-card'))[0];
+    assert.equal(conferences.parent.className, 'col-info');
+    if (tutorial.interaction === 'continue') await press(findButton(guide, tutorial.actor === 'bot' ? '观看 Bot' : tutorial.nextLabel));
+    else if (tutorial.interaction === 'inspect') await press(sectorControl(expected.sector));
+    else if (tutorial.interaction === 'mark') {
+      const object = findAll(root, element => element.tagName === 'g' && element.attributes['data-tutorial-target'] === 'object')[0];
+      await press(findAll(object, element => matches(element, '.icon-hit'))[0]);
+      await press(markedControl('mark'));
+    } else if (expected.kind === 'survey') {
+      await press(findButton(root, '勘测'));
+      await press(markedControl('type'));
+      await press(sectorControl(expected.start));
+      await press(sectorControl(mod(expected.start + expected.size - 1, app.state.game.mode.sectors)));
+      await press(findButton(root, '确认勘测'));
+    } else if (expected.kind === 'target') {
+      await press(findButton(root, '扫描'));
+      await press(sectorControl(expected.sector));
+      await press(findButton(root, '确认扫描'));
+    } else if (expected.kind === 'research') {
+      await press(findButton(root, '研究'));
+      await press(markedControl('topic'));
+      await press(findButton(root, '确认研究'));
+    } else if (expected.kind === 'research-declare') await press(markedControl('count'));
+    else if (expected.kind === 'research-submit') {
+      const select = findAll(root, element => element.tagName === 'select' && element.attributes['data-tutorial-target'] === 'sector')[0];
+      fire(select, 'change', { target: { value: String(expected.sector) } });
+      await press(markedControl('type'));
+      await press(findButton(root, '确认提交'));
+    } else if (expected.kind === 'locate') {
+      await press(findButton(root, '尝试定位'));
+      for (const [index, value] of [expected.sector, expected.left, expected.right].entries()) {
+        const modal = findAll(root, element => matches(element, '.modal'))[0];
+        const select = findAll(modal, element => element.tagName === 'select')[index];
+        fire(select, 'change', { target: { value: String(value) } });
+      }
+      await press(findButton(root, '确认提交'));
+    } else assert.fail(`unhandled human tutorial action: ${expected.kind}`);
+    assert.notEqual(app.state.game.tutorial.stepId, tutorial.stepId, `the rendered controls complete ${tutorial.title}`);
+    assert.equal(results.at(-1).result.ok, true, results.at(-1).result.error);
+    steps += 1;
+  }
+  assert.ok(app.state.game.tutorial.completed);
+  assert.equal(app.state.game.phase, 'done');
+  assert.match(collectText(root).join(''), /最终积分/);
+  assert.match(collectText(root).join(''), /公开棋盘/);
+  assert.equal(app.state.game.revealedObjects.length, 12);
+  assert.equal(storage.get('planetx.save.v3'), offlineSave);
+  assert.equal(storage.get('planetx.notes.v1'), offlineNotes);
+  await press(findButton(root, '重新教学'));
+  assert.notEqual(app.state.remote.roomId, roomId);
+  assert.equal(app.state.game.tutorial.completed, false);
+  assert.notEqual(app.state.notes[`5:${CODE.planetX}`], 'yes');
+  await press(findButton(root, '退出教学'));
+  assert.equal(app.state.remote, null);
+  assert.equal(app.state.game.mode.id, 'expert');
+  assert.deepEqual(app.state.notes, { [`17:${CODE.asteroid}`]: 'no' });
 });

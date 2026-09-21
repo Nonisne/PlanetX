@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Obj } from '../public/src/types.js';
-import {
+import * as research from '../server/research.js';
+
+const {
   buildResearchFeatures,
   researchFeatureValue,
   researchTopicName,
   researchClueText,
-} from '../server/research.js';
+} = research;
 
 const ORDINARY_TYPES = [Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET];
 const OBJECT_COUNTS = Object.freeze({
@@ -141,6 +143,85 @@ test('research generates only ordinary-object bands and distinct-type relations'
     if (feature.kind === 'relation') {
       assert.ok(ORDINARY_TYPES.includes(feature.neighborType));
       assert.notEqual(feature.objectType, feature.neighborType);
+    }
+  }
+});
+
+test('conferences enumerate all 144 allowed X-to-ordinary relations in both directions', () => {
+  assert.equal(typeof research.buildConferenceFeatures, 'function');
+  const features = research.buildConferenceFeatures(12);
+  assert.equal(features.length, 144);
+  assert.equal(new Set(features.map((feature) => JSON.stringify(feature))).size, 144);
+  const expectedDescriptors = ['adjacent', 'opposite', 'within:2', 'within:3', 'within:4', 'within:5']
+    .flatMap((relation) => ['none', 'some', 'all'].map((quantifier) => `${relation}/${quantifier}`));
+  for (const ordinaryType of ORDINARY_TYPES) {
+    for (const [objectType, neighborType] of [[Obj.PLANET_X, ordinaryType], [ordinaryType, Obj.PLANET_X]]) {
+      const matching = features.filter((feature) => feature.objectType === objectType && feature.neighborType === neighborType);
+      assert.equal(matching.length, 18);
+      assert.deepEqual(new Set(matching.map((feature) => (
+        `${feature.relation}${feature.relation === 'within' ? `:${feature.range}` : ''}/${feature.quantifier}`
+      ))), new Set(expectedDescriptors));
+    }
+  }
+  for (const feature of features) {
+    assert.equal(feature.kind, 'relation');
+    assert.ok([feature.objectType, feature.neighborType].includes(Obj.PLANET_X));
+    assert.equal([feature.objectType, feature.neighborType].filter((objectType) => ORDINARY_TYPES.includes(objectType)).length, 1);
+    for (const field of ['start', 'length', 'count', 'mask', 'first', 'second']) assert.equal(Object.hasOwn(feature, field), false);
+  }
+});
+
+test('conference feature construction is deterministic and does not contaminate ordinary research', () => {
+  assert.equal(typeof research.buildConferenceFeatures, 'function');
+  const ordinary = buildResearchFeatures(12, OBJECT_COUNTS);
+  const features = research.buildConferenceFeatures(12);
+  const expected = structuredClone(features);
+  for (const feature of features) feature.values = new Uint8Array([0, 1]);
+  assert.deepEqual(research.buildConferenceFeatures(12), expected);
+  assert.deepEqual(buildResearchFeatures(12, OBJECT_COUNTS), ordinary);
+});
+
+test('conference titles expose only X and the ordinary subject in both modes and directions', () => {
+  assert.equal(typeof research.conferenceTopicName, 'function');
+  for (const sectorCount of [12, 18]) {
+    for (const feature of research.buildConferenceFeatures(sectorCount)) {
+      const title = research.conferenceTopicName(feature);
+      assert.equal(title, `X行星和${researchTopicName(feature)}`);
+      assert.match(title, /^X行星和(小行星|彗星|气体云|矮行星)$/u);
+      assert.doesNotMatch(title, /相邻|正对|以内|至少|没有|每个|\d/u);
+    }
+  }
+});
+
+test('all 216 expert conference predicates match an independent eighteen-sector array oracle', () => {
+  const features = research.buildConferenceFeatures(18);
+  assert.equal(features.length, 216);
+  assert.equal(new Set(features.map((feature) => JSON.stringify(feature))).size, 216);
+  const inventory = inventoryBoard(inventoryFor(18));
+  for (let seed = 1; seed <= 128; seed += 1) {
+    assertBoardFeatures(features, shuffledBoard(inventory, seed * 104729));
+  }
+});
+
+test('all conference predicates agree with the independent array oracle on varied inventories', () => {
+  assert.equal(typeof research.buildConferenceFeatures, 'function');
+  const features = research.buildConferenceFeatures(12);
+  const board = inventoryBoard(OBJECT_COUNTS);
+  for (let seed = 1; seed <= 48; seed += 1) {
+    assertBoardFeatures(features, shuffledBoard(board, seed));
+  }
+});
+
+test('all remains directional when the conference subject or neighbor is the singleton X', () => {
+  for (const [relation, ordinarySectors] of [['adjacent', [12, 5]], ['opposite', [7, 8]], ['within', [12, 6]]]) {
+    const board = boardWith(12, { [Obj.PLANET_X]: [1], [Obj.ASTEROID]: ordinarySectors });
+    const forward = { ...relationFeature(relation, 'all', 2), objectType: Obj.PLANET_X, neighborType: Obj.ASTEROID };
+    const reverse = { ...forward, objectType: Obj.ASTEROID, neighborType: Obj.PLANET_X };
+    assertPredicate(forward, board, 1);
+    assertPredicate(reverse, board, 0);
+    for (const feature of [forward, reverse]) {
+      assertPredicate({ ...feature, quantifier: 'some' }, board, 1);
+      assertPredicate({ ...feature, quantifier: 'none' }, board, 0);
     }
   }
 });
@@ -510,6 +591,32 @@ const RELATION_TEXT_CASES = [
   ['within', 'some', '至少有一个气体云位于某个彗星的 5 个扇区以内。'],
   ['within', 'all', '每个气体云都位于至少一个彗星的 5 个扇区以内。'],
 ];
+
+const CONFERENCE_TEXT_CASES = [
+  ['adjacent', 'none', 'X行星不与任何气体云相邻。', '没有任何气体云与X行星相邻。'],
+  ['adjacent', 'some', 'X行星与至少一个气体云相邻。', '至少有一个气体云与X行星相邻。'],
+  ['adjacent', 'all', 'X行星与至少一个气体云相邻。', '每个气体云都与X行星相邻。'],
+  ['opposite', 'none', 'X行星不与任何气体云正对。', '没有任何气体云与X行星正对。'],
+  ['opposite', 'some', 'X行星与至少一个气体云正对。', '至少有一个气体云与X行星正对。'],
+  ['opposite', 'all', 'X行星与至少一个气体云正对。', '每个气体云都与X行星正对。'],
+  ['within', 'none', 'X行星不在任何气体云的 5 个扇区以内。', '没有任何气体云位于X行星的 5 个扇区以内。'],
+  ['within', 'some', 'X行星位于至少一个气体云的 5 个扇区以内。', '至少有一个气体云位于X行星的 5 个扇区以内。'],
+  ['within', 'all', 'X行星位于至少一个气体云的 5 个扇区以内。', '每个气体云都位于X行星的 5 个扇区以内。'],
+];
+
+for (const [relation, quantifier, expectedForward, expectedReverse] of CONFERENCE_TEXT_CASES) {
+  test(`${relation}/${quantifier} conference wording treats X as a singleton in either direction`, () => {
+    const forward = { ...relationFeature(relation, quantifier, 5), objectType: Obj.PLANET_X, neighborType: Obj.GAS_CLOUD };
+    const reverse = { ...forward, objectType: Obj.GAS_CLOUD, neighborType: Obj.PLANET_X };
+    assert.equal(researchClueText(forward), expectedForward);
+    assert.equal(researchClueText(reverse), expectedReverse);
+    for (const feature of [forward, reverse]) {
+      const text = researchClueText(feature);
+      assert.match(text, /^[^。！？\n]+。$/u);
+      assert.doesNotMatch(text, /空域|第|恰有|每个X行星|任何X行星|某个X行星|至少(?:有)?一个X行星/u);
+    }
+  });
+}
 
 for (const [relation, quantifier, expected] of RELATION_TEXT_CASES) {
   test(`${relation}/${quantifier} clue preserves its subject and follows the literal Chinese template`, () => {

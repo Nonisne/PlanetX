@@ -5,10 +5,13 @@ import assert from 'node:assert/strict';
 
 import { createServer, rooms } from '../server.mjs';
 import { Obj } from '../public/src/types.js';
+import { inMemoryFetch } from './server-dispatch.js';
 
 const server = createServer();
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const base = `http://127.0.0.1:${server.address().port}`;
+const useMemory = process.env.PLANETX_TEST_TRANSPORT === 'memory';
+if (!useMemory) await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const base = useMemory ? 'http://in-memory.test' : `http://127.0.0.1:${server.address().port}`;
+const fetch = useMemory ? inMemoryFetch(server) : globalThis.fetch;
 
 async function createBuiltinTable(playerCount = 1) {
   const created = await api('/api/rooms', { method: 'POST', body: { name: '内置甲', modeId: 'standard', playMode: 'builtin' } });
@@ -20,13 +23,17 @@ async function createBuiltinTable(playerCount = 1) {
     players.push(joined.body);
   }
   await acceptedAction(players[0], { kind: 'start-game' });
-  for (const player of players) await acceptedAction(player, { kind: 'setup' });
+  for (const player of players) {
+    await acceptedAction(player, { kind: 'claim-initial-clues', count: 4 });
+    await acceptedAction(player, { kind: 'setup' });
+  }
   return { host: players[0], guest: players[1], players, room: rooms.get(created.body.roomId) };
 }
 
 test('builtin HTTP creation validates mode and keeps generator files outside the static root', async () => {
   const expert = await api('/api/rooms', { method: 'POST', body: { playMode: 'builtin', modeId: 'expert' } });
-  assert.equal(expert.status, 400);
+  assert.equal(expert.status, 200);
+  assert.equal(expert.body.view.mode.sectors, 18);
   const unknown = await api('/api/rooms', { method: 'POST', body: { playMode: 'unknown' } });
   assert.equal(unknown.status, 400);
   for (const privatePath of ['/server/puzzles.js', '/server.mjs']) {
@@ -35,6 +42,46 @@ test('builtin HTTP creation validates mode and keeps generator files outside the
   const { host } = await createBuiltinTable();
   const lateJoin = await api(`/api/rooms/${host.roomId}/join`, { method: 'POST', body: { name: '迟到玩家' } });
   assert.equal(lateJoin.status, 409);
+});
+
+test('builtin HTTP caps rooms at four players and distributes the host-selected initial clue count', async () => {
+  const created = await api('/api/rooms', { method: 'POST', body: { name: '房主', playMode: 'builtin', initialClueCount: 12 } });
+  assert.equal(created.status, 200);
+  const players = [created.body];
+  const room = rooms.get(created.body.roomId);
+  assert.equal(room.puzzle.startingClues.length, 4);
+  assert.ok(room.puzzle.startingClues.every((hand) => hand.length === 12));
+  while (players.length < 4) {
+    const joined = await api(`/api/rooms/${room.id}/join`, { method: 'POST', body: { name: `玩家 ${players.length + 1}` } });
+    assert.equal(joined.status, 200);
+    players.push(joined.body);
+  }
+  const revision = room.revision;
+  const extra = await api(`/api/rooms/${room.id}/join`, { method: 'POST', body: { name: '第五位' } });
+  assert.equal(extra.status, 409);
+  assert.match(extra.body.error, /最多支持 4 名玩家/);
+  assert.equal(room.players.length, 4);
+  assert.equal(room.revision, revision);
+  await acceptedAction(players[0], { kind: 'start-game' });
+  for (const player of players) {
+    assert.equal(room.setup[player.playerId].clues.length, 12);
+    const count = 12;
+    const claimed = await acceptedAction(player, { kind: 'claim-initial-clues', count });
+    assert.equal(claimed.view.mySetup.clues.length, count);
+    assert.equal(claimed.view.mySetup.initialClueCount, count);
+    assert.equal(claimed.view.mySetup.cluesClaimed, true);
+    for (const clue of claimed.view.mySetup.clues) {
+      assert.notEqual(room.puzzle.objects[clue.sector], clue.type);
+      if (clue.type === Obj.COMET) assert.ok([1, 2, 4, 6, 10].includes(clue.sector));
+    }
+    const retry = await acceptedAction(player, { kind: 'claim-initial-clues', count });
+    assert.deepEqual(retry.view.mySetup.clues, claimed.view.mySetup.clues);
+    const reroll = await roomAction(player, { kind: 'claim-initial-clues', count: count === 12 ? 0 : 12 });
+    assert.equal(reroll.status, 400);
+    assert.deepEqual(reroll.body.view.mySetup.clues, claimed.view.mySetup.clues);
+    await acceptedAction(player, { kind: 'setup' });
+  }
+  assert.equal(room.phase, 'play');
 });
 
 test('HTTP and SSE views share monotonic revisions for joins and non-log actions', async (context) => {
@@ -50,21 +97,27 @@ test('HTTP and SSE views share monotonic revisions for joins and non-log actions
   const started = await acceptedAction(host, { kind: 'start-game' });
   assert.equal(started.view.revision, 2);
   assert.equal((await stream.nextEvent()).data.view.revision, 2);
-  const hostReady = await acceptedAction(host, { kind: 'setup' });
-  assert.equal(hostReady.view.revision, 3);
+  const hostClaim = await acceptedAction(host, { kind: 'claim-initial-clues', count: 4 });
+  assert.equal(hostClaim.view.revision, 3);
   assert.equal((await stream.nextEvent()).data.view.revision, 3);
-  const guestReady = await acceptedAction(guest, { kind: 'setup' });
-  assert.equal(guestReady.view.revision, 4);
-  assert.equal(guestReady.view.recordCount, 0);
+  const guestClaim = await acceptedAction(guest, { kind: 'claim-initial-clues', count: 4 });
+  assert.equal(guestClaim.view.revision, 4);
   assert.equal((await stream.nextEvent()).data.view.revision, 4);
+  const hostReady = await acceptedAction(host, { kind: 'setup' });
+  assert.equal(hostReady.view.revision, 5);
+  assert.equal((await stream.nextEvent()).data.view.revision, 5);
+  const guestReady = await acceptedAction(guest, { kind: 'setup' });
+  assert.equal(guestReady.view.revision, 6);
+  assert.equal(guestReady.view.recordCount, 0);
+  assert.equal((await stream.nextEvent()).data.view.revision, 6);
   const rejected = await roomAction(guest, { kind: 'wait' });
   assert.equal(rejected.status, 400);
-  assert.equal(rejected.body.view.revision, 4);
+  assert.equal(rejected.body.view.revision, 6);
   const moved = await acceptedAction(host, { kind: 'wait' });
-  assert.equal(moved.view.revision, 5);
-  assert.equal((await stream.nextEvent()).data.view.revision, 5);
+  assert.equal(moved.view.revision, 7);
+  assert.equal((await stream.nextEvent()).data.view.revision, 7);
   const refreshed = await api(`/api/rooms/${host.roomId}/view`, { token: host.token });
-  assert.equal(refreshed.body.view.revision, 5);
+  assert.equal(refreshed.body.view.revision, 7);
 });
 
 test('builtin HTTP responses and SSE keep truth, initial cards and unearned research private', async (context) => {
@@ -91,6 +144,29 @@ test('builtin HTTP responses and SSE keep truth, initial cards and unearned rese
   const forbidden = await roomAction(guest, { kind: 'reveal-objects', objects: room.puzzle.objects });
   assert.equal(forbidden.status, 400);
   assert.equal(forbidden.body.view.revealedObjects, null);
+});
+
+test('builtin HTTP and SSE delay a crossed conference until the preceding research phase is finished', async (context) => {
+  const { host, room } = await createBuiltinTable();
+  for (const start of [0, 4]) {
+    const moved = await acceptedAction(host, { kind: 'survey', type: Obj.ASTEROID, start, size: 1 });
+    await acceptedAction(host, { kind: 'research-declare', phaseId: moved.view.research.id, count: 0 });
+  }
+  const stream = await openViewStream(context, host);
+  await stream.nextEvent();
+  const jumped = await acceptedAction(host, { kind: 'target', sector: 8 });
+  const queued = await stream.nextEvent();
+  for (const payload of [jumped, queued.data]) {
+    assert.equal(payload.view.research.sector, 9);
+    assert.equal(payload.view.knowledge.conferences.length, 0);
+    assert.equal(JSON.stringify(payload).includes(room.puzzle.conferences[10]), false);
+  }
+  const finished = await acceptedAction(host, { kind: 'research-declare', phaseId: jumped.view.research.id, count: 0 });
+  const published = await stream.nextEvent();
+  for (const payload of [finished, published.data]) {
+    assert.equal(payload.view.research.sector, 12);
+    assert.equal(payload.view.knowledge.conferences[0].text, room.puzzle.conferences[10]);
+  }
 });
 
 test('builtin HTTP solo locate ignores forged verdict and automatically reveals a valid generated board', async () => {
@@ -132,6 +208,7 @@ test('builtin HTTP multiplayer resolves final theories without manual reveal or 
 test.after(() => server.close());
 
 async function api(path, { method = 'GET', body, token } = {}) {
+  if (path === '/api/rooms' && body && !body.playMode) body = { initialClueCount: 0, ...body };
   const res = await fetch(`${base}${path}`, {
     method,
     headers: { 'content-type': 'application/json', ...(token ? { 'x-room-token': token } : {}) },
@@ -280,7 +357,8 @@ test('static files are still served', async () => {
 });
 
 test('a room can be created, joined and played over HTTP', async () => {
-  const created = await api('/api/rooms', { method: 'POST', body: { name: '阿甲' } });
+  const created = await api('/api/rooms', { method: 'POST', body: { name: '阿甲', initialClueCount: 4 } });
+  const initialClues = [{ sector: 1, type: Obj.COMET }, { sector: 0, type: Obj.GAS_CLOUD }, { sector: 3, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }];
   assert.equal(created.status, 200);
   const { roomId, token } = created.body;
   assert.match(roomId, /^[A-Z0-9]{6}$/);
@@ -308,20 +386,20 @@ test('a room can be created, joined and played over HTTP', async () => {
   const hostCard = await api(`/api/rooms/${roomId}/action`, {
     method: 'POST',
     token,
-    body: { action: { kind: 'setup', clues: [{ sector: 3, type: Obj.COMET }], topics: { A: '小行星带' } } },
+    body: { action: { kind: 'setup', clues: initialClues, topics: { A: '小行星带' } } },
   });
   assert.equal(hostCard.body.ok, true);
-  assert.deepEqual(hostCard.body.view.mySetup.clues, [{ sector: 3, type: Obj.COMET }], 'my own initial clue comes back');
+  assert.deepEqual(hostCard.body.view.mySetup.clues, initialClues, 'my own initial clues come back');
   const guestCard = await api(`/api/rooms/${roomId}/action`, {
     method: 'POST',
     token: guest.token,
-    body: { action: { kind: 'setup', noClues: true, topics: {} } },
+    body: { action: { kind: 'setup', clues: initialClues.map((clue) => ({ ...clue, type: Obj.GAS_CLOUD })), topics: {} } },
   });
   assert.equal(guestCard.body.ok, true);
   assert.equal(guestCard.body.view.phase, 'play', 'everybody ready -> first round');
   assert.equal(guestCard.body.view.turnPlayerId, created.body.playerId, 'the host opens');
   const guestSetupView = await api(`/api/rooms/${roomId}/view`, { token: guest.token });
-  assert.equal(guestSetupView.body.view.mySetup.clues.length, 0, 'the guest had no clue');
+  assert.equal(guestSetupView.body.view.mySetup.clues.length, 4, 'the guest uses the same host-selected count');
   assert.equal(guestSetupView.body.view.players[0].ready, true, 'readiness is public');
 
   // turns: the guest cannot act first
@@ -382,37 +460,40 @@ test('a room can be created, joined and played over HTTP', async () => {
 
   const hostWait = await step(token, { kind: 'wait' }); // host 1 -> 2, which lifts the window
   assert.equal(hostWait.ok, true);
-  assert.equal(hostWait.view.research.sector, 3, 'the window passed sector 3, so a phase is open');
-  assert.equal(hostWait.view.research.quota, 1, 'a standard board allows one paper per player');
-  const phaseId = hostWait.view.research.id;
-  assert.equal(phaseId, 'theory:2');
+  assert.equal(hostWait.view.research, null, 'entering sector 3 does not open a phase');
+  const departed = await step(token, { kind: 'wait' });
+  assert.equal(departed.view.research.sector, 3, 'leaving sector 3 opens the phase');
+  assert.equal(departed.view.research.quota, 1, 'a standard board allows one paper per player');
+  const phaseId = departed.view.research.id;
+  assert.equal(phaseId, 'theory:3');
 
   assert.equal((await step(token, { kind: 'research-declare', phaseId, count: 1 })).ok, true);
   assert.equal((await step(guest.token, { kind: 'research-declare', phaseId, count: 1 })).ok, true);
   const ordered = (await api(`/api/rooms/${roomId}/view`, { token })).body.view.research;
-  assert.deepEqual(ordered.orderNames, ['阿甲', '阿乙'], 'the host is a month behind and publishes first');
+  assert.deepEqual(ordered.orderNames, ['阿乙', '阿甲'], 'at equal time the earlier-arriving guest is behind and publishes first');
 
-  const first = await step(token, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.COMET });
+  const first = await step(guest.token, { kind: 'research-submit', phaseId, sector: 1, objectType: Obj.COMET });
   assert.equal(first.ok, true);
-  const second = await step(guest.token, { kind: 'research-submit', phaseId, sector: 3, objectType: Obj.GAS_CLOUD });
+  const second = await step(token, { kind: 'research-submit', phaseId, sector: 3, objectType: Obj.GAS_CLOUD });
   assert.equal(second.ok, true);
   assert.equal(second.view.research, null, 'the phase closes after everybody published');
   assert.deepEqual(second.view.knowledge.theories.map((t) => t.slot).sort(), [3, 3], 'one phase -> one track space');
   assert.equal(second.view.knowledge.theories[0].objectType, undefined, 'and the objects stay private');
-  assert.equal(second.view.arrowSector, 3, 'the shared window sits on sector 3 (month 2)');
-  assert.equal(second.view.windowPlayerId, created.body.playerId, 'and follows the pawn furthest behind');
+  assert.equal(second.view.arrowSector, 4, 'the shared window has left sector 3');
+  assert.equal(second.view.windowPlayerId, guest.playerId, 'and follows the earlier arrival behind the host');
 });
 
 test('HTTP rejects missing and replayed declarations when a zero-submission phase opens the next queued event', async () => {
   const { host, guest } = await playingTable();
   const players = [host, guest];
+  for (const player of players) await acceptedAction(player, { kind: 'wait' });
   for (const player of players) await acceptedAction(player, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.COMET, correct: false });
   const firstViews = await fetchViews(players);
   const firstPhaseId = firstViews[0].research.id;
-  assert.equal(firstPhaseId, 'theory:2');
+  assert.equal(firstPhaseId, 'theory:3');
   assert.equal(firstViews[1].research.id, firstPhaseId);
   assert.equal(firstViews[0].research.sector, 3);
-  assert.equal(firstViews[0].windowTime, 5);
+  assert.equal(firstViews[0].windowTime, 6);
   const frozen = frozenState(firstViews[0]);
   for (const player of players) {
     const missing = await roomAction(player, { kind: 'research-declare', count: 0 });
@@ -426,7 +507,7 @@ test('HTTP rejects missing and replayed declarations when a zero-submission phas
   await acceptedAction(guest, oldDeclaration);
   const nextViews = await fetchViews(players);
   const nextPhaseId = nextViews[0].research.id;
-  assert.equal(nextPhaseId, 'theory:5');
+  assert.equal(nextPhaseId, 'theory:6');
   assert.notEqual(nextPhaseId, firstPhaseId, 'queued empty phases have distinct ids without another log entry');
   assert.equal(nextViews[1].research.id, nextPhaseId);
   assert.equal(nextViews[0].research.sector, 6);
@@ -455,23 +536,24 @@ test('HTTP rejects missing and replayed declarations when a zero-submission phas
   }
   const resumed = await acceptedAction(host, { kind: 'wait' });
   assert.equal(resumed.view.phase, 'play');
-  assert.deepEqual(resumed.view.players.map((player) => player.time), [6, 5]);
+  assert.deepEqual(resumed.view.players.map((player) => player.time), [7, 6]);
 });
 
 test('HTTP rejects stale and missing submission ids without spending the current publication quota', async () => {
   const { host, guest } = await playingTable();
   const players = [host, guest];
+  for (const player of players) await acceptedAction(player, { kind: 'wait' });
   for (const player of players) await acceptedAction(player, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.COMET, correct: false });
   const firstViews = await fetchViews(players);
   const firstPhaseId = firstViews[0].research.id;
-  assert.equal(firstPhaseId, 'theory:2');
+  assert.equal(firstPhaseId, 'theory:3');
   await acceptedAction(host, { kind: 'research-declare', phaseId: firstPhaseId, count: 1 });
   const firstDeclared = await acceptedAction(guest, { kind: 'research-declare', phaseId: firstPhaseId, count: 0 });
   assert.equal(firstDeclared.view.research.cursorId, host.playerId);
   const delayedSubmission = { kind: 'research-submit', phaseId: firstPhaseId, sector: 1, objectType: Obj.COMET };
   const skipped = await acceptedAction(host, { kind: 'skip-turn' });
   const currentPhaseId = skipped.view.research.id;
-  assert.equal(currentPhaseId, 'theory:5');
+  assert.equal(currentPhaseId, 'theory:6');
   assert.equal(skipped.view.knowledge.theories.length, 0, 'the delayed claim has never been published, so duplicate-claim checks cannot mask a stale id');
   assert.equal(skipped.view.recordCount, firstViews[0].recordCount);
   await acceptedAction(host, { kind: 'research-declare', phaseId: currentPhaseId, count: 1 });
@@ -593,14 +675,15 @@ test('two SSE clients keep all locate fields private through final choices and f
   assert.deepEqual(views[0].players.map((player) => player.time), [1, 5]);
   assert.equal(views[0].scores.firstFinderId, null, 'a failed locate does not become the first finder');
   await pushAction(host, { kind: 'wait' });
+  assert.equal(views[0].research, null);
+  await pushAction(host, { kind: 'wait' });
   assert.equal(views[0].research.sector, 3);
   const phaseId = views[0].research.id;
-  assert.equal(phaseId, 'theory:2');
+  assert.equal(phaseId, 'theory:3');
   assert.equal(views[1].research.id, phaseId, 'both SSE clients receive the same phase identity');
   for (const player of players) await pushAction(player, { kind: 'research-declare', phaseId, count: 1 });
   const firstPaper = await pushAction(host, { kind: 'research-submit', phaseId, sector: 3, objectType: Obj.ASTEROID });
   await pushAction(guest, { kind: 'research-submit', phaseId, sector: 10, objectType: Obj.COMET });
-  await pushAction(host, { kind: 'wait' });
   const beforeLocate = frozenState(views[0]);
   assert.equal(beforeLocate.windowTime, 3);
   assert.deepEqual(beforeLocate.pawns.map((player) => player.time), [3, 5]);
@@ -704,13 +787,14 @@ for (const modeId of ['standard', 'expert']) {
     const players = [host, guest];
     await acceptedAction(host, { kind: 'research', topic: 'A', text: '甲的线索' });
     await acceptedAction(guest, { kind: 'target', sector: 2, apparent: Obj.COMET });
+    const entered = await acceptedAction(host, { kind: 'wait' });
+    assert.equal(entered.view.research, null);
     const opened = await acceptedAction(host, { kind: 'wait' });
     const phaseId = opened.view.research.id;
-    assert.equal(phaseId, 'theory:2');
+    assert.equal(phaseId, 'theory:3');
     for (const player of players) await acceptedAction(player, { kind: 'research-declare', phaseId, count: 1 });
     await acceptedAction(host, { kind: 'research-submit', phaseId, sector: 3, objectType: Obj.ASTEROID });
     await acceptedAction(guest, { kind: 'research-submit', phaseId, sector: 10, objectType: Obj.COMET });
-    await acceptedAction(host, { kind: 'wait' });
     const located = await acceptedAction(host, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.COMET, correct: true });
     const beforeBatch = await fetchViews(players);
     const frozen = frozenState(located.view);
@@ -726,6 +810,7 @@ for (const modeId of ['standard', 'expert']) {
       [validPaper, null],
       [validPaper, { sector: located.view.mode.sectors, objectType: Obj.COMET }],
       [validPaper, { sector: 2, objectType: Obj.EMPTY }],
+      [validPaper, { sector: 0, objectType: Obj.COMET }],
       [validPaper, validPaper],
       [validPaper, { sector: 1, objectType: Obj.ASTEROID }],
       [validPaper, { sector: 10, objectType: Obj.COMET }],
@@ -736,7 +821,7 @@ for (const modeId of ['standard', 'expert']) {
       assert.deepEqual(refused.body.view, beforeBatch[1], 'a bad second paper cannot publish the first or consume the choice');
       assert.deepEqual(await fetchViews(players), beforeBatch);
     }
-    const papers = [validPaper, { sector: 8, objectType: Obj.COMET }];
+    const papers = [validPaper, { sector: 4, objectType: Obj.COMET }];
     const published = await acceptedAction(guest, { kind: 'final-theories', theories: papers });
     assert.equal(published.view.phase, 'reveal');
     assert.equal(published.view.status, 'reveal');

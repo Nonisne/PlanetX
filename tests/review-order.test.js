@@ -26,7 +26,7 @@ function rejectedWithoutMutation(room, player, action) {
 }
 
 function playing() {
-  const room = createRoom({ hostName: '甲' });
+  const room = createRoom({ hostName: '甲', initialClueCount: 0 });
   const host = room.players[0];
   const guest = addPlayer(room, '乙');
   accepted(room, host, { kind: 'start-game' });
@@ -65,6 +65,7 @@ function readyPapers(room, claims) {
 
 function queuedPhases() {
   const fixture = playing();
+  for (const player of fixture.room.players) accepted(fixture.room, player, { kind: 'wait' });
   for (const player of fixture.room.players) {
     accepted(fixture.room, player, {
       kind: 'locate', sector: 0, left: Obj.ASTEROID, right: Obj.COMET, correct: false,
@@ -90,36 +91,36 @@ function eventIdentity(event) {
 test('penalty-triggered theory events stay behind previously queued events in FIFO order', () => {
   const { room, host, guest } = playing();
   nextPhase(room, 3);
-  const correct = publishPhase(room, { [host.id]: { sector: 5, objectType: Obj.COMET } })[0];
+  const correct = publishPhase(room, { [host.id]: { sector: 4, objectType: Obj.COMET } })[0];
   nextPhase(room, 6);
   publishPhase(room, {
-    [host.id]: { sector: 5, objectType: Obj.GAS_CLOUD },
-    [guest.id]: { sector: 5, objectType: Obj.GAS_CLOUD },
+    [host.id]: { sector: 4, objectType: Obj.GAS_CLOUD },
+    [guest.id]: { sector: 4, objectType: Obj.GAS_CLOUD },
   });
-  for (let step = 0; windowTimeOf(room) < 7 && step < 20; step += 1) {
+  for (let step = 0; windowTimeOf(room) < 8 && step < 20; step += 1) {
     accepted(room, currentPlayer(room), { kind: 'wait' });
   }
-  assert.equal(windowTimeOf(room), 7);
+  assert.equal(windowTimeOf(room), 8);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     accepted(room, currentPlayer(room), {
       kind: 'locate', sector: 0, left: Obj.ASTEROID, right: Obj.COMET, correct: false,
     });
   }
-  assert.deepEqual(clocks(room), [12, 12]);
+  assert.deepEqual(clocks(room), [13, 13]);
   assert.equal(room.research?.sector, 9);
   assert.equal(room.pendingResearch?.length, 1);
   publishPhase(room, {
-    [host.id]: { sector: 5, objectType: Obj.ASTEROID },
-    [guest.id]: { sector: 5, objectType: Obj.ASTEROID },
+    [host.id]: { sector: 4, objectType: Obj.ASTEROID },
+    [guest.id]: { sector: 4, objectType: Obj.ASTEROID },
   });
   const review = accepted(room, host, { kind: 'review', id: correct.id, review: 'correct' });
   assert.equal(review.penalties.length, 4);
-  assert.deepEqual(clocks(room), [14, 14]);
+  assert.deepEqual(clocks(room), [15, 15]);
   assert.equal(room.research?.sector, 12, 'The queued sector 12 phase must precede the new sector 3 phase');
-  assert.deepEqual(eventIdentity(room.research), { id: 'theory:11', time: 11, sector: 12 });
-  assert.deepEqual(room.pendingResearch.map(eventIdentity), [{ id: 'theory:14', time: 14, sector: 3 }]);
+  assert.deepEqual(eventIdentity(room.research), { id: 'theory:12', time: 12, sector: 12 });
+  assert.deepEqual(room.pendingResearch.map(eventIdentity), [{ id: 'theory:15', time: 15, sector: 3 }]);
   publishPhase(room);
-  assert.deepEqual(eventIdentity(room.research), { id: 'theory:14', time: 14, sector: 3 });
+  assert.deepEqual(eventIdentity(room.research), { id: 'theory:15', time: 15, sector: 3 });
   publishPhase(room);
   assert.equal(room.research, null);
   assert.equal(room.pendingResearch?.length || 0, 0);
@@ -128,8 +129,8 @@ test('penalty-triggered theory events stay behind previously queued events in FI
 test('one wrong review batches matching inner theories and repeated reviews do not penalize again', () => {
   const { room, host, guest } = playing();
   const papers = readyPapers(room, {
-    [host.id]: { sector: 5, objectType: Obj.COMET },
-    [guest.id]: { sector: 5, objectType: Obj.COMET },
+    [host.id]: { sector: 4, objectType: Obj.COMET },
+    [guest.id]: { sector: 4, objectType: Obj.COMET },
   });
   const previousOrder = orderIds(room);
   const previousClocks = clocks(room);
@@ -154,8 +155,8 @@ test('one wrong review batches matching inner theories and repeated reviews do n
 test('reversing matching review requests preserves the original pawn order', () => {
   const { room, host, guest } = playing();
   const papers = readyPapers(room, {
-    [host.id]: { sector: 5, objectType: Obj.COMET },
-    [guest.id]: { sector: 5, objectType: Obj.COMET },
+    [host.id]: { sector: 4, objectType: Obj.COMET },
+    [guest.id]: { sector: 4, objectType: Obj.COMET },
   });
   const previousOrder = orderIds(room);
   const previousClocks = clocks(room);
@@ -170,9 +171,9 @@ test('reversing matching review requests preserves the original pawn order', () 
 test('a wrong review leaves matching outer theories private, pending and unpenalized', () => {
   const { room, host, guest } = playing();
   nextPhase(room, 3);
-  const inner = publishPhase(room, { [host.id]: { sector: 5, objectType: Obj.COMET } })[0];
+  const inner = publishPhase(room, { [host.id]: { sector: 4, objectType: Obj.COMET } })[0];
   nextPhase(room, 6);
-  const outer = publishPhase(room, { [guest.id]: { sector: 5, objectType: Obj.COMET } })[0];
+  const outer = publishPhase(room, { [guest.id]: { sector: 4, objectType: Obj.COMET } })[0];
   nextPhase(room, 9);
   publishPhase(room);
   assert.equal(inner.slot, 1);
@@ -192,11 +193,11 @@ test('a wrong review leaves matching outer theories private, pending and unpenal
 test('peer review rejects a higher sector until every lower ready sector is settled', () => {
   const { room, host, guest } = playing();
   const papers = readyPapers(room, {
-    [host.id]: { sector: 0, objectType: Obj.COMET },
-    [guest.id]: { sector: 1, objectType: Obj.COMET },
+    [host.id]: { sector: 1, objectType: Obj.COMET },
+    [guest.id]: { sector: 2, objectType: Obj.COMET },
   });
-  const lower = papers.find((paper) => paper.sector === 0);
-  const higher = papers.find((paper) => paper.sector === 1);
+  const lower = papers.find((paper) => paper.sector === 1);
+  const higher = papers.find((paper) => paper.sector === 2);
   const previousOrder = orderIds(room);
   rejectedWithoutMutation(room, guest, { kind: 'review', id: higher.id, review: 'wrong' });
   accepted(room, host, { kind: 'review', id: lower.id, review: 'wrong' });
@@ -207,11 +208,11 @@ test('peer review rejects a higher sector until every lower ready sector is sett
 test('only the lowest ready sector is public until it settles and exposes the next sector', () => {
   const { room, host, guest } = playing();
   const papers = readyPapers(room, {
-    [host.id]: { sector: 0, objectType: Obj.COMET },
-    [guest.id]: { sector: 1, objectType: Obj.COMET },
+    [host.id]: { sector: 1, objectType: Obj.COMET },
+    [guest.id]: { sector: 2, objectType: Obj.COMET },
   });
-  const lower = papers.find((paper) => paper.sector === 0);
-  const higher = papers.find((paper) => paper.sector === 1);
+  const lower = papers.find((paper) => paper.sector === 1);
+  const higher = papers.find((paper) => paper.sector === 2);
   const publicLower = viewFor(room, guest.id).entries.find((entry) => entry.id === lower.id);
   const privateHigher = viewFor(room, host.id).entries.find((entry) => entry.id === higher.id);
   assert.equal(publicLower.revealed, true);
@@ -235,8 +236,8 @@ test('empty queued phases have distinct absolute event identities exposed by res
   publishPhase(room);
   const second = eventIdentity(room.research);
   assert.notEqual(second.id, first.id, 'Completing an empty phase must not reuse its identity for the next phase');
-  assert.deepEqual(first, { id: 'theory:2', time: 2, sector: 3 });
-  assert.deepEqual(second, { id: 'theory:5', time: 5, sector: 6 });
+  assert.deepEqual(first, { id: 'theory:3', time: 3, sector: 3 });
+  assert.deepEqual(second, { id: 'theory:6', time: 6, sector: 6 });
   assert.deepEqual(pending.map(eventIdentity), [second]);
   assert.ok(pending.every((event) => event.kind === 'theory'));
   assert.ok(firstViews.every((view) => view.id === first.id));
@@ -257,13 +258,13 @@ for (const kind of PHASE_ACTIONS) {
       const phaseId = phaseCase === 'missing' ? undefined : oldPhaseId;
       const action = kind === 'research-declare'
         ? { kind, phaseId, count: 0 }
-        : { kind, phaseId, sector: 5, objectType: Obj.COMET };
+        : { kind, phaseId, sector: 4, objectType: Obj.COMET };
       rejectedWithoutMutation(room, host, action);
       if (kind === 'research-declare') {
         accepted(room, host, { kind: 'research-declare', count: 1 });
         accepted(room, guest, { kind: 'research-declare', count: 0 });
       }
-      accepted(room, host, { kind: 'research-submit', sector: 5, objectType: Obj.COMET });
+      accepted(room, host, { kind: 'research-submit', sector: 4, objectType: Obj.COMET });
       assert.equal(room.research, null);
     });
   }
@@ -276,8 +277,8 @@ test('legacy theory actions stay rejected with missing, stale or current phase i
   accepted(room, host, { kind: 'research-declare', count: 1 });
   accepted(room, guest, { kind: 'research-declare', count: 0 });
   for (const phaseId of [undefined, oldPhaseId, room.research.id]) {
-    rejectedWithoutMutation(room, host, { kind: 'theory', phaseId, sector: 5, type: Obj.COMET });
+    rejectedWithoutMutation(room, host, { kind: 'theory', phaseId, sector: 4, type: Obj.COMET });
   }
-  accepted(room, host, { kind: 'research-submit', sector: 5, objectType: Obj.COMET });
+  accepted(room, host, { kind: 'research-submit', sector: 4, objectType: Obj.COMET });
   assert.equal(room.research, null);
 });

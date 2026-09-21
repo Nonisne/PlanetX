@@ -32,6 +32,37 @@ import {
 
 const mode = MODES.standard;
 
+test('theory submission rejects comets outside prime-numbered sectors in both modes', () => {
+  for (const modeId of ['standard', 'expert']) {
+    const state = createConsole({ modeId });
+    for (const sector of [0, 3, 5, 7, 8, 9, 11]) {
+      assert.equal(recordTheory(state, { sector, type: Obj.COMET }, { enforceSchedule: false }).ok, false, `sector ${sector + 1}`);
+    }
+    assert.equal(state.entries.length, 0);
+    assert.equal(recordTheory(state, { sector: 1, type: Obj.COMET }, { enforceSchedule: false }).ok, true);
+  }
+});
+
+test('theory option projection filters base rules, own history, same phase and public locks', () => {
+  const state = createConsole({ actorId: 'me' });
+  let view = consoleView(state);
+  assert.ok(Array.isArray(view.theoryOptions));
+  assert.equal(view.theoryOptions.length, 12);
+  assert.equal(view.theoryOptions.find((option) => option.sector === 0).types.includes(Obj.COMET), false);
+  assert.equal(recordTheory(state, { sector: 0, type: Obj.ASTEROID }, { enforceSchedule: false, phaseId: 'first' }).ok, true);
+  state.theoryPhases = [{ id: 'first', sector: 3, time: 3 }];
+  assert.equal(consoleView(state).theoryOptions.some((option) => option.sector === 0), false);
+  state.theoryPhases = [{ id: 'second', sector: 6, time: 6 }];
+  view = consoleView(state);
+  assert.deepEqual(view.theoryOptions.find((option) => option.sector === 0).types, [Obj.GAS_CLOUD, Obj.DWARF_PLANET]);
+  assert.equal(recordTheory(state, { sector: 0, type: Obj.GAS_CLOUD }, { enforceSchedule: false, phaseId: 'second' }).ok, true);
+  assert.equal(recordTheory(state, { sector: 0, type: Obj.ASTEROID }, { enforceSchedule: false, phaseId: 'third' }).ok, false);
+  const correct = recordTheory(state, { sector: 2, type: Obj.COMET }, { enforceSchedule: false, phaseId: 'second' }).entry;
+  correct.slot = 1;
+  assert.equal(markTheoryReview(state, correct.id, 'correct').ok, true);
+  assert.equal(consoleView(state).theoryOptions.some((option) => option.sector === 2), false);
+});
+
 function finishEmptyPhases(state) {
   for (const phase of [...state.theoryPhases]) {
     assert.equal(consoleView(state).theoryPhase.id, phase.id);
@@ -255,7 +286,7 @@ test('conference schedules use time units on either board', () => {
     for (const sector of conferenceSectors(boardMode)) {
       const result = recordConference(state, { sector, text: '公开线索' });
       assert.equal(result.ok, true);
-      assert.equal(result.entry.scheduledTime, sector - 1);
+      assert.equal(result.entry.scheduledTime, sector);
       assert.equal(result.entry.time, 0);
       assert.equal(result.entry.cost, 0);
     }
@@ -267,27 +298,31 @@ test('a theory may only be published during a research phase, once per phase', (
   const state = createConsole();
 
   // the arrow starts on sector 1, which is not a research sector
-  const tooEarly = recordTheory(state, { sector: 5, type: Obj.COMET });
+  const tooEarly = recordTheory(state, { sector: 4, type: Obj.COMET });
   assert.equal(tooEarly.ok, false);
-  assert.match(tooEarly.error, /学术研究只在时间轨箭头走到 3、6、9、12 号扇区/);
+  assert.match(tooEarly.error, /学术研究只在天窗起点离开 3、6、9、12 号扇区/);
 
   recordWait(state);
-  assert.equal(recordTheory(state, { sector: 5, type: Obj.COMET }).ok, false, 'step 2 is still too early');
+  assert.equal(recordTheory(state, { sector: 4, type: Obj.COMET }).ok, false, 'step 2 is still too early');
   recordWait(state, 3);
   const view = consoleView(state);
   assert.equal(view.arrowSector, 5, 'a long action has passed sector 3');
-  assert.equal(recordTheory(state, { sector: 5, type: Obj.COMET }).ok, true, 'the crossed phase remains open');
+  assert.equal(recordTheory(state, { sector: 4, type: Obj.COMET }).ok, true, 'the crossed phase remains open');
   assert.equal(recordWait(state).ok, false, 'another action cannot skip a pending phase');
 
   const onSector = createConsole();
   recordWait(onSector);
   recordWait(onSector);
   assert.equal(consoleView(onSector).arrowSector, 3);
+  assert.equal(consoleView(onSector).theoryPhaseOpen, false);
+  recordWait(onSector);
+  assert.equal(consoleView(onSector).arrowSector, 4);
   assert.equal(consoleView(onSector).theoryPhaseOpen, true);
   assert.equal(consoleView(onSector).theoryQuota, 1, 'a standard board hands out one paper per phase');
 
-  const a = recordTheory(onSector, { sector: 5, type: Obj.COMET });
+  const a = recordTheory(onSector, { sector: 4, type: Obj.COMET });
   assert.equal(a.ok, true);
+  assert.equal(a.entry.stationSector, 3);
   assert.equal(a.entry.slot, 4, 'a new theory enters at the top of the track');
   assert.equal(a.entry.revealed, false);
   const twice = recordTheory(onSector, { sector: 1, type: Obj.ASTEROID });
@@ -318,7 +353,7 @@ test('a round’s papers share a track space, and the phase end moves the whole 
   };
 
   phase([
-    [5, Obj.COMET],
+    [4, Obj.COMET],
     [0, Obj.ASTEROID],
   ]);
   assert.deepEqual(slots(), [3, 3], 'the round’s papers stepped forward together');
@@ -330,18 +365,18 @@ test('a round’s papers share a track space, and the phase end moves the whole 
   assert.deepEqual(slots(), [2, 2, 3, 3], 'the older round leads, the new round follows');
 
   phase([
-    [9, Obj.COMET],
+    [12, Obj.COMET],
     [10, Obj.ASTEROID],
   ]);
   assert.deepEqual(slots(), [1, 1, 2, 2, 3, 3], 'the first round reaches the review space together');
   assert.deepEqual(
     theoriesAwaitingReview(state).map((t) => t.sector).sort((a, b) => a - b),
-    [0, 5],
+    [0, 4],
     'both papers of that round wait for the app at the same time',
   );
 
   // a reviewed paper stops travelling
-  const first = state.entries.find((e) => e.type === 'theory' && e.sector === 5);
+  const first = state.entries.find((e) => e.type === 'theory' && e.sector === 4);
   for (const theory of theoriesAwaitingReview(state).sort((earlier, later) => earlier.sector - later.sector)) {
     assert.equal(markTheoryReview(state, theory.id, 'correct').ok, true);
   }

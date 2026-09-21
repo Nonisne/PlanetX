@@ -2,9 +2,10 @@
 // event markers and the player's own marks.
 import { s } from './dom.js';
 import { CODE, CODE_TO_TYPE, LABEL } from '../src/types.js';
-import { durationLabel, mod, timeShort, visibleSectorsAt, visibleStartAt } from '../src/rules.js';
+import { durationLabel, isCometSector, mod, timeShort, visibleSectorsAt, visibleStartAt } from '../src/rules.js';
 import { iconAt } from './icons.js';
 import { TYPE_COLOR } from './theme.js';
+import { tutorialExpected, tutorialFocusProps } from './tutorial.js';
 
 export { TYPE_COLOR, SHORT_BY_CODE } from './theme.js';
 
@@ -14,22 +15,35 @@ const R_OUTER = 244;
 const R_INNER = 112;
 const R_EARTH_ORBIT = 94;
 const EARTH_RADIUS = 14;
-const R_NUMBER = 231;
-const R_MARK = 203;
-const R_DOTS = 151;
+const R_NUMBER = 237;
+const R_MARK = 216;
+const R_DOTS = 166;
 const R_EVENT = 269;
 /** Player pawns sit outside the event glyphs, on the very edge of the ring. */
 const R_PAWN = 291;
 const PAWN_SIZE = 8.5;
 const PAD_DEG = 1.1;
 
-const MARK_SIZE = 32;
+const MARK_SIZE = 28;
 const DOT_SIZE = 21;
-const COL_PITCH = 23;
-const ROW_PITCH = 22;
+const COL_PITCH = 24;
+const ROW_PITCH = 24;
 const EVENT_SIZE = 17;
 
 export const EVENT_COLOR = Object.freeze({ conference: '#f5b942', theory: '#a78bfa' });
+
+export function pendingUiEvents(game) {
+  if (game.status !== 'open' || (game.phase && game.phase !== 'play') || game.awaitingReview?.length) return { theory: null, conference: null };
+  const theory = game.research || (!game.phase && game.theoryPhaseOpen ? game.theoryPhase || null : null);
+  let conference = game.conference || null;
+  if (!game.phase && !conference) {
+    const progress = game.windowTime ?? game.time ?? 0;
+    const recorded = new Set((game.knowledge?.conferences || []).map((entry) => entry.sector));
+    const sector = (game.conferenceSectors || []).find((marker) => progress >= marker && !recorded.has(marker) && (!theory || theory.time > marker));
+    if (sector !== undefined) conference = { sector };
+  }
+  return { theory, conference };
+}
 
 /** Small glyphs for the two kinds of time-track events (conference / theory phase). */
 export function eventGlyph(kind, cx, cy, size, { active = false } = {}) {
@@ -130,12 +144,20 @@ function marksFor(notes, sector) {
 export function renderBoard({ game, ui, notes, onSector, onMark }) {
   const mode = game.mode;
   const n = mode.sectors;
+  const dotSize = n === 18 ? 18 : DOT_SIZE;
   // The console never knows the answer, so every slot is a neutral check box the
   // player annotates by hand.
   const visibleList = Array.isArray(game.visible) ? game.visible : visibleSectorsAt(game.time, mode);
   const visibleStart = Number.isInteger(game.visibleStart) ? mod(game.visibleStart, n) : Number.isInteger(visibleList[0]) ? visibleList[0] : visibleStartAt(game.time, mode);
   const isVisibleSector = (sector) => visibleList.includes(sector);
   const targeted = new Map(game.knowledge.targets.map((t) => [t.sector, t.apparent]));
+  const expected = tutorialExpected(game);
+  const tutorialSectors = new Set();
+  if (Number.isInteger(expected?.sector)) tutorialSectors.add(expected.sector);
+  if (Number.isInteger(expected?.start) && Number.isInteger(expected?.size)) {
+    for (let offset = 0; offset < Math.min(expected.size, mode.sectors); offset += 1) tutorialSectors.add(mod(expected.start + offset, mode.sectors));
+  }
+  const expectedCode = CODE[expected?.type || expected?.objectType || expected?.surveyType] || expected?.code;
 
   const possibilities = new Map();
   for (let i = 0; i < n; i++) possibilities.set(i, new Set(SLOT_ORDER));
@@ -149,7 +171,7 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
   const picked = Array.isArray(ui.pick) ? ui.pick : [];
   for (const sector of picked) rangeSectors.add(sector);
 
-  const root = s('svg', { viewBox: `0 0 ${CX * 2} ${CY * 2}`, class: 'starmap', role: 'img' });
+  const root = s('svg', { viewBox: `0 0 ${CX * 2} ${CY * 2}`, class: 'starmap', role: game.tutorial ? 'group' : 'img', 'aria-label': '星图与公共时间轨', ...tutorialFocusProps(game, game.tutorial?.focus === 'timeline' ? 'timeline' : 'map') });
 
   // rotating visible sky window
   const [wa0] = sectorAngles(visibleStart, n);
@@ -159,7 +181,7 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
   // time-track events: the sectors where a conference / theory phase happens
   const confSectors = Array.isArray(game.conferenceSectors) ? game.conferenceSectors : [];
   const theo = Array.isArray(game.theorySectors) ? game.theorySectors : [];
-  const arrow = game.arrowSector || visibleStart + 1;
+  const pendingEvents = pendingUiEvents(game);
   for (const [kind, list] of [
     ['conference', confSectors],
     ['theory', theo],
@@ -168,7 +190,9 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
       const [a] = sectorAngles(sector - 1, n);
       const [, aEnd] = sectorAngles(sector - 1, n);
       const [ex, ey] = polar(R_EVENT, (a + aEnd) / 2);
-      root.append(eventGlyph(kind, ex, ey, EVENT_SIZE, { active: arrow === sector }));
+      const glyph = eventGlyph(kind, ex, ey, EVENT_SIZE, { active: pendingEvents[kind]?.sector === sector });
+      glyph.append(s('title', {}, `天窗起点离开 ${sector} 号事件标记（${sector}→${mod(sector, n) + 1} 号）时触发${kind === 'conference' ? '会议' : '学术研究'}`));
+      root.append(glyph);
     }
   }
 
@@ -176,18 +200,34 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
     const [a0, a1] = sectorAngles(i, n);
     const g = s('g', { class: `sector${isVisibleSector(i) ? ' visible' : ''}`, 'data-sector': i });
 
-    const revealed = targeted.get(i);
+    const revealedCode = CODE[targeted.get(i)] || targeted.get(i);
+    const revealed = revealedCode === CODE.comet && !isCometSector(mode, i) ? null : revealedCode;
+    const canPick = !['survey', 'scan'].includes(ui.action) || (isVisibleSector(i) && (ui.action !== 'survey' || ui.surveyType !== 'comet' || isCometSector(mode, i)));
     const fill = revealed ? TYPE_COLOR[revealed] : null;
+    const tutorialTarget = tutorialSectors.has(i);
+    const sectorLabel = `${i + 1} 号扇区${isVisibleSector(i) ? '（可见）' : '（当前不可见）'}${tutorialTarget ? ' · 教学目标' : ''}`;
     const path = s('path', {
       d: wedgePath(R_INNER, R_OUTER, a0, a1),
-      class: ['wedge', isVisibleSector(i) ? 'visible' : 'hidden', ui.selectedSector === i ? 'selected' : '', rangeSectors.has(i) ? 'in-range' : '']
+      class: ['wedge', isVisibleSector(i) ? 'visible' : 'hidden', ui.selectedSector === i ? 'selected' : '', rangeSectors.has(i) ? 'in-range' : '', canPick ? '' : 'unavailable', tutorialTarget ? 'tutorial-target' : '']
         .filter(Boolean)
         .join(' '),
       fill: fill || undefined,
       'fill-opacity': fill ? 0.34 : undefined,
-      onclick: () => onSector(i),
+      'aria-disabled': canPick ? null : 'true',
+      'data-tutorial-target': tutorialTarget ? 'sector' : null,
+      'aria-describedby': tutorialTarget ? 'tutorial-instruction' : null,
+      'aria-label': tutorialTarget ? sectorLabel : null,
+      role: tutorialTarget ? 'button' : null,
+      tabindex: tutorialTarget && canPick ? 0 : null,
+      onkeydown: tutorialTarget && canPick ? event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSector?.(i);
+        }
+      } : null,
+      onclick: canPick ? () => onSector(i) : null,
     });
-    path.append(s('title', {}, `${i + 1} 号扇区${isVisibleSector(i) ? '（可见）' : '（当前不可见）'}`));
+    path.append(s('title', {}, sectorLabel));
     g.append(path);
 
     const mid = (a0 + a1) / 2;
@@ -196,14 +236,12 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
 
     const marks = marksFor(notes, i);
 
-    // All six object types are always drawn, each in its own fixed slot (two columns of
-    // three), so nothing ever moves around. The whole cluster is turned to sit parallel to
-    // the sector's two radial sides, and the player's marks only change how an icon looks.
     const [mx, my] = polar(R_DOTS, mid);
     const turn = ((mid - 90) * Math.PI) / 180;
     const cos = Math.cos(turn);
     const sin = Math.sin(turn);
     SLOT_ORDER.forEach((code, slot) => {
+      if (code === CODE.comet && !isCometSector(mode, i)) return;
       const markState = marks.yes.has(code) ? 'yes' : marks.no.has(code) ? 'no' : 'none';
       const visual = markState === 'yes' ? 'yes' : markState === 'no' ? 'no' : 'possible';
       const { dx, dy } = slotOffset(slot);
@@ -211,15 +249,28 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
       const rx = dx * cos - dy * sin;
       const ry = dx * sin + dy * cos;
       const stateText = markState === 'yes' ? '你已确定存在' : markState === 'no' ? '你已标记不存在' : '可能存在';
-      g.append(
-        iconAt(code, DOT_SIZE, mx + rx, my + ry, {
-          halo: markState === 'yes',
-          struck: markState === 'no',
-          className: `poss-icon state-${visual} mark-${markState}`,
-          title: `${i + 1} 号扇区 · ${LABEL[CODE_TO_TYPE[code]]}（${stateText}，点击标注）`,
-          onclick: onMark ? () => onMark(i, code) : null,
-        }),
-      );
+      const tutorialMark = game.tutorial?.interaction === 'mark' && expected?.sector === i && expectedCode === code;
+      const markIcon = iconAt(code, dotSize, mx + rx, my + ry, {
+        halo: markState === 'yes',
+        struck: markState === 'no',
+        className: `poss-icon state-${visual} mark-${markState}${tutorialMark ? ' tutorial-target' : ''}`,
+        title: `${i + 1} 号扇区 · ${LABEL[CODE_TO_TYPE[code]]}（${stateText}，点击标注）`,
+        onclick: onMark ? () => onMark(i, code) : null,
+      });
+      if (tutorialMark) {
+        markIcon.setAttribute('data-tutorial-target', 'object');
+        markIcon.setAttribute('aria-describedby', 'tutorial-instruction');
+        markIcon.setAttribute('aria-label', `${i + 1} 号扇区 · ${LABEL[CODE_TO_TYPE[code]]} · 教学标注目标`);
+        markIcon.setAttribute('role', 'button');
+        markIcon.setAttribute('tabindex', '0');
+        markIcon.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onMark?.(i, code);
+          }
+        });
+      }
+      g.append(markIcon);
     });
 
     if (revealed) {
@@ -230,8 +281,6 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
     root.append(g);
   }
 
-  // Pawns: everybody's place on the time track, along the outer band. Inside one sector
-  // the pawns are lined up around the circle and the one who arrived first sits leftmost.
   const players = Array.isArray(game.players) ? game.players : [];
   if (players.length) {
     const bySector = new Map();
@@ -242,7 +291,6 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
     }
     for (const [sector, group] of bySector) {
       const [a0, a1] = sectorAngles(sector, n);
-      // leftmost first on screen, so the earliest arrival ends up on the left
       const list = group
         .slice()
         .sort((a, b) => (a.arrival || 0) - (b.arrival || 0) || (a.joinIndex || 0) - (b.joinIndex || 0));
@@ -257,8 +305,6 @@ export function renderBoard({ game, ui, notes, onSector, onMark }) {
         const [sx, sy] = polar(R_PAWN, deg);
         slots.push({ deg, x: sx, y: sy });
       }
-      // leftmost first (ties read top-down), so the earliest arrival ends up on the left
-      slots.sort((a, b) => a.x - b.x || a.y - b.y);
       list.forEach((p, index) => {
         const [px, py] = polar(R_PAWN, slots[index].deg);
         const g = s('g', {

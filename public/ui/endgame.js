@@ -1,17 +1,17 @@
 import { h } from './dom.js';
-import { LABEL, Obj, THEORY_TYPES } from '../src/types.js';
+import { LABEL, Obj } from '../src/types.js';
 import { scoreWinners } from '../src/score.js';
 
 const REVEAL_TYPES = Object.values(Obj);
 
-function selectField(label, value, options, onChange) {
+function selectField(label, value, options, onChange, disabled = false) {
   return h(
     'label',
     {},
     label,
     h(
       'select',
-      { 'aria-label': label, onchange: (event) => onChange(event.target.value) },
+      { 'aria-label': label, disabled, onchange: (event) => onChange(event.target.value) },
       options.map((option) => h('option', { value: option.value, selected: option.value === value }, option.text)),
     ),
   );
@@ -35,18 +35,16 @@ function renderFinal({ game, ui, api }) {
   }
 
   const quota = Number.isInteger(endgame.quota) ? Math.max(0, endgame.quota) : 0;
+  const available = game.theoryOptions || [];
+  const maxTheories = Math.min(quota, available.length);
   const theories = Array.from(ui.finalTheories || [], (theory) => ({
     sector: theory?.sector ?? '',
     objectType: theory?.objectType ?? '',
   }));
-  const canSubmit = theories.length <= quota && theories.every((theory) =>
-    Number.isInteger(theory.sector) && theory.sector >= 0 && theory.sector < game.mode.sectors && THEORY_TYPES.includes(theory.objectType),
-  );
-  const sectorOptions = [
-    { value: '', text: '请选择扇区' },
-    ...Array.from({ length: game.mode.sectors }, (unused, sector) => ({ value: sector, text: `${sector + 1} 号` })),
-  ];
-  const typeOptions = [{ value: '', text: '请选择天体' }, ...THEORY_TYPES.map((objectType) => ({ value: objectType, text: LABEL[objectType] }))];
+  const canSubmit = theories.length <= maxTheories
+    && new Set(theories.map((theory) => theory.sector)).size === theories.length
+    && theories.every((theory) => available.some((option) => option.sector === theory.sector && option.types.includes(theory.objectType)));
+  const optionsFor = (index) => available.filter((option) => !theories.some((theory, otherIndex) => otherIndex !== index && theory.sector === option.sector));
   const updateTheory = (index, patch) => api.setUi({
     finalTheories: theories.map((theory, theoryIndex) => theoryIndex === index ? { ...theory, ...patch } : theory),
   });
@@ -59,7 +57,8 @@ function renderFinal({ game, ui, api }) {
       'div',
       { class: 'action-block' },
       h('h3', {}, '轮到你的最后机会'),
-      h('p', {}, `你落后 ${endgame.behind ?? 0} 格，可以尝试定位，或提交最多 ${quota} 篇最终理论，也可以放弃。`),
+      h('p', {}, `你落后 ${endgame.behind ?? 0} 格，可以尝试定位，或提交最多 ${maxTheories} 篇最终理论，也可以放弃。`),
+      maxTheories < quota ? h('p', { class: 'muted small' }, `按剩余可提交的不同扇区计算，可用名额为 ${maxTheories} 篇。`) : null,
       h('div', { class: 'action-buttons' }, h('button', { class: 'btn', onclick: () => api.openLocate() }, '尝试定位 X行星')),
     ),
     h(
@@ -72,22 +71,31 @@ function renderFinal({ game, ui, api }) {
         selectField(
           '最终理论数量',
           theories.length,
-          Array.from({ length: quota + 1 }, (unused, count) => ({ value: count, text: `${count} 篇` })),
+          Array.from({ length: maxTheories + 1 }, (unused, count) => ({ value: count, text: `${count} 篇` })),
           (value) => {
             const count = Number(value);
-            if (value === '' || !Number.isInteger(count) || count < 0 || count > quota) return;
+            if (value === '' || !Number.isInteger(count) || count < 0 || count > maxTheories) return;
             api.setUi({
               finalTheories: Array.from({ length: count }, (unused, index) => theories[index] || { sector: '', objectType: '' }),
             });
           },
         ),
       ),
-      theories.map((theory, index) => h(
-        'div',
-        { class: 'range-row' },
-        selectField(`理论 ${index + 1} 扇区`, theory.sector, sectorOptions, (value) => updateTheory(index, { sector: value === '' ? '' : Number(value) })),
-        selectField(`理论 ${index + 1} 天体`, theory.objectType, typeOptions, (value) => updateTheory(index, { objectType: value })),
-      )),
+      theories.map((theory, index) => {
+        const options = optionsFor(index);
+        const selected = options.find((option) => option.sector === theory.sector);
+        const types = selected?.types || [];
+        return h('div', { class: 'range-row' },
+          selectField(`理论 ${index + 1} 扇区`, theory.sector, [{ value: '', text: '请选择扇区' }, ...options.map((option) => ({ value: option.sector, text: `${option.sector + 1} 号` }))], (value) => {
+            if (value === '') return updateTheory(index, { sector: '', objectType: '' });
+            const next = options.find((option) => option.sector === Number(value));
+            if (next) updateTheory(index, { sector: next.sector, objectType: next.types.includes(theory.objectType) ? theory.objectType : '' });
+          }),
+          selectField(`理论 ${index + 1} 天体`, theory.objectType, [{ value: '', text: '请选择天体' }, ...types.map((objectType) => ({ value: objectType, text: LABEL[objectType] }))], (value) => {
+            if (value === '' || types.includes(value)) updateTheory(index, { objectType: value });
+          }, !types.length),
+        );
+      }),
       h('p', { class: 'muted small' }, '可选择 0 篇；所选理论必须全部填写完，再一次性提交。'),
       h(
         'div',

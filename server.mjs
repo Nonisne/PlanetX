@@ -12,8 +12,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { addPlayer, applyRoomAction, createRoom, playerByToken, roomSummary, viewFor } from './public/src/room.js';
-import { MODES } from './public/src/rules.js';
+import { BUILTIN_MAX_PLAYERS, INITIAL_CLUE_COUNTS, MODES } from './public/src/rules.js';
 import { createPuzzle, initialCluesFor } from './server/puzzles.js';
+import { applyTutorialAction, createTutorialRoom } from './server/tutorial.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const port = Number(process.env.PORT || 5173);
@@ -98,8 +99,10 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/modes') {
     sendJson(res, 200, {
       modes: Object.values(MODES).map((m) => ({ id: m.id, name: m.name, sectors: m.sectors, visible: m.visible })),
-      playModes: ['record', 'builtin'],
-      builtinBoards: ['standard'],
+      playModes: ['record', 'builtin', 'tutorial'],
+      builtinBoards: ['standard', 'expert'],
+      initialClueCounts: INITIAL_CLUE_COUNTS,
+      tutorial: { modeId: 'standard', humanPlayers: 1, botPlayers: 1, initialClueCount: 4 },
     });
     return true;
   }
@@ -109,20 +112,22 @@ async function handleApi(req, res, url) {
     // the host picks the board; anything unknown quietly means the standard one
     const modeId = MODES[body.modeId] ? body.modeId : 'standard';
     const playMode = body.playMode || 'record';
-    if (!['record', 'builtin'].includes(playMode)) {
-      sendJson(res, 400, { error: '请选择记录模式或内置谜题模式' });
+    if (!['record', 'builtin', 'tutorial'].includes(playMode)) {
+      sendJson(res, 400, { error: '请选择记录模式、内置谜题模式或教学模式' });
       return true;
     }
-    if (playMode === 'builtin' && body.modeId && body.modeId !== 'standard') {
-      sendJson(res, 400, { error: '内置谜题目前仅支持标准 12 扇区棋盘，专家棋盘请使用记录模式' });
+    const initialClueCount = body.initialClueCount === undefined ? 4 : body.initialClueCount;
+    if (!INITIAL_CLUE_COUNTS.includes(initialClueCount)) {
+      sendJson(res, 400, { error: '初始线索数量只能选择 0、4、8、12 条' });
       return true;
     }
     let puzzle = null;
     if (playMode === 'builtin') {
       const generated = createPuzzle({ modeId });
-      puzzle = { ...generated, startingClues: Array.from({ length: 6 }, () => initialCluesFor(generated)) };
+      puzzle = { ...generated, startingClues: Array.from({ length: BUILTIN_MAX_PLAYERS }, () => initialCluesFor(generated, { count: 12 })) };
     }
-    const room = createRoom({ modeId, hostName: body.name, playMode, puzzle });
+    const room = playMode === 'tutorial' ? createTutorialRoom({ hostName: body.name })
+      : createRoom({ modeId, hostName: body.name, playMode, puzzle, initialClueCount });
     room.revision = 0;
     rooms.set(room.id, room);
     const me = room.players[0];
@@ -142,8 +147,12 @@ async function handleApi(req, res, url) {
     const body = req.method === 'POST' ? await readJson(req) : {};
 
     if (req.method === 'POST' && parts[3] === 'join') {
-      if (room.playMode === 'builtin' && (room.phase !== 'lobby' || room.players.length >= 6)) {
-        sendJson(res, 409, { error: room.phase !== 'lobby' ? '内置谜题已开始，不能中途加入；请等待下一局' : '内置谜题最多支持 6 名玩家' });
+      if (room.tutorialState) {
+        sendJson(res, 409, { error: '教学房间固定为 1 名真人和 1 个 Bot，不能加入其他玩家' });
+        return true;
+      }
+      if (room.playMode === 'builtin' && (room.phase !== 'lobby' || room.players.length >= BUILTIN_MAX_PLAYERS)) {
+        sendJson(res, 409, { error: room.phase !== 'lobby' ? '内置谜题已开始，不能中途加入；请等待下一局' : `内置谜题最多支持 ${BUILTIN_MAX_PLAYERS} 名玩家` });
         return true;
       }
       const player = addPlayer(room, body.name);
@@ -155,7 +164,7 @@ async function handleApi(req, res, url) {
 
     const token = url.searchParams.get('token') || req.headers['x-room-token'] || body.token || '';
     const player = playerByToken(room, token);
-    if (!player) {
+    if (!player || (room.tutorialState && player.id !== room.tutorialState.humanId)) {
       sendJson(res, 403, { error: '身份已失效，请重新加入房间' });
       return true;
     }
@@ -194,7 +203,8 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === 'POST' && parts[3] === 'action') {
-      const result = applyRoomAction(room, player.id, body.action || {});
+      const result = room.tutorialState ? applyTutorialAction(room, player.id, body.action || {})
+        : applyRoomAction(room, player.id, body.action || {});
       if (result.ok) {
         room.revision = (room.revision || 0) + 1;
         broadcast(room, { kind: 'action', by: player.name, byId: player.id, action: (body.action || {}).kind });

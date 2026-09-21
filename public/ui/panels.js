@@ -1,8 +1,10 @@
 // Panels: header, status, map, actions, knowledge, log and modals for the record console.
 import { h } from './dom.js';
-import { CODE, CODE_TO_TYPE, LABEL, Obj, SURVEY_TYPES, THEORY_TYPES, labelOf } from '../src/types.js';
+import { CODE, CODE_TO_TYPE, LABEL, Obj, SURVEY_TYPES, labelOf } from '../src/types.js';
 import {
+  BUILTIN_MAX_PLAYERS,
   COST,
+  INITIAL_CLUE_COUNTS,
   MAX_TARGET_USES,
   MODE_LIST,
   THEORY_TRACK,
@@ -10,34 +12,32 @@ import {
   conferenceSectors,
   durationLabel,
   eventSummary,
+  isCometSector,
   mod,
   modeById,
   surveyCost,
   theorySectors,
+  theoryPointsFor,
   timeLabel,
   timeShort,
   visibleSectorsAt,
   visibleStartAt,
 } from '../src/rules.js';
 import { iconEl, iconLabel } from './icons.js';
-import { sectorAnchor } from './board.js';
-import { CLUE_TYPES, MAX_SETUP_CLUES } from '../src/room.js';
+import { pendingUiEvents, sectorAnchor } from './board.js';
+import { CLUE_TYPES } from '../src/room.js';
 import { TYPE_COLOR } from './theme.js';
 import { renderEndgame } from './endgame.js';
 import { scoreWinners } from '../src/score.js';
 import { renderActionHistory } from './history.js';
 import { renderDisclosure } from './disclosure.js';
+import { tutorialExpected, tutorialFocusProps, tutorialTargetProps } from './tutorial.js';
 
 const ALL_SECTOR_CODES = ['planetX', 'asteroid', 'comet', 'gasCloud', 'dwarfPlanet', 'empty'].map((t) => CODE[t]);
 const TOPIC_IDS = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F']);
 
-/** Which object icons the per-sector marking strip offers: always all six, fixed order. */
-function stripCodes(possible, notes, sector, showPossibilities) {
-  void possible;
-  void notes;
-  void sector;
-  void showPossibilities;
-  return ALL_SECTOR_CODES.slice();
+function stripCodes(mode, sector) {
+  return ALL_SECTOR_CODES.filter((code) => code !== CODE.comet || !Number.isInteger(sector) || isCometSector(mode, sector));
 }
 
 const pct = (a, b) => (b && b !== Infinity ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
@@ -47,8 +47,13 @@ function renderMarkPopover({ state, api }) {
   const { ui, game, notes } = state;
   if (!ui.mark) return null;
   const { sector, code } = ui.mark;
+  if (code === CODE.comet && !isCometSector(game.mode, sector)) return null;
   const anchor = sectorAnchor(sector, game.mode.sectors);
   const current = notes[`${sector}:${code}`] || 'maybe';
+  const expected = tutorialExpected(game);
+  const expectedCode = CODE[expected?.type || expected?.objectType] || expected?.code;
+  const tutorialMark = game.tutorial?.interaction === 'mark' && expected?.sector === sector && expectedCode === code;
+  const expectedMark = expected?.markState || expected?.mark;
   const below = anchor.top < 46;
   const left = Math.max(20, Math.min(80, anchor.left));
 
@@ -56,7 +61,9 @@ function renderMarkPopover({ state, api }) {
     h(
       'button',
       {
-        class: `mark-choice ${cls}${current === value ? ' active' : ''}`,
+        class: `mark-choice ${cls}${current === value ? ' active' : ''}${tutorialMark && expectedMark === value ? ' tutorial-target' : ''}`,
+        'data-tutorial-target': tutorialMark && expectedMark === value ? 'mark' : null,
+        'aria-describedby': tutorialMark && expectedMark === value ? 'tutorial-instruction' : null,
         onclick: () => api.setMark(sector, code, value),
       },
       label,
@@ -101,6 +108,8 @@ const ACTION_HINT = {
 
 export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
   const { game, ui, notes } = state;
+  const expected = tutorialExpected(game);
+  const expectedCode = CODE[expected?.type || expected?.objectType] || expected?.code;
   const hasTheories = (game.knowledge.theories || []).length > 0;
   const sector = ui.selectedSector;
   const target = sector !== null && sector !== undefined ? game.knowledge.targets.find((t) => t.sector === sector) : null;
@@ -124,13 +133,16 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
     'div',
     { class: 'mark-strip' },
     h('span', { class: 'muted small' }, sector === null || sector === undefined ? '标注（先选扇区）：' : '标注：'),
-    ...stripCodes().map((code) => {
+    ...stripCodes(game.mode, sector).map((code) => {
       const markState = notes[`${sector}:${code}`] || 'maybe';
       const open = ui.mark && ui.mark.sector === sector && ui.mark.code === code;
+      const tutorialMark = game.tutorial?.interaction === 'mark' && expected?.sector === sector && expectedCode === code;
       return h(
         'button',
         {
-          class: `mark-chip mark-${markState}${open ? ' open' : ''}`,
+          class: `mark-chip mark-${markState}${open ? ' open' : ''}${tutorialMark ? ' tutorial-target' : ''}`,
+          'data-tutorial-target': tutorialMark ? 'object' : null,
+          'aria-describedby': tutorialMark ? 'tutorial-instruction' : null,
           disabled: sector === null || sector === undefined,
           title: `${LABEL[CODE_TO_TYPE[code]]}：${markState === 'yes' ? '确定存在' : markState === 'no' ? '不存在' : '可能存在'}（点击标注）`,
           onclick: () => api.openMark(sector, code),
@@ -168,7 +180,7 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
 
   return h(
     'section',
-    { class: 'card map-card' },
+    { class: 'card map-card', ...tutorialFocusProps(game, game.tutorial?.focus === 'timeline' ? 'timeline' : 'map') },
     h(
       'div',
       { class: 'card-head' },
@@ -268,20 +280,24 @@ function stat(label, value, sub) {
   );
 }
 
+function eventDeparture(sector, mode) {
+  return `天窗起点离开 ${sector} 号事件标记（${sector}→${mod(sector, mode.sectors) + 1} 号）`;
+}
+
 export function renderConsoleStatus({ state, api }) {
   const { game } = state;
   const start = game.visibleStart;
   const end = mod(start + game.mode.visible - 1, game.mode.sectors);
   const confSectors = game.conferenceSectors || [];
   const theorySectors = game.theorySectors || [];
-  const recordedConf = new Set((game.knowledge.conferences || []).map((c) => c.sector));
   const open = game.status === 'open' && (!game.phase || game.phase === 'play');
   const frozen = ['final', 'reveal', 'done', 'finished'].includes(game.phase || game.status);
-  const dueConference = open && game.events.conference && !recordedConf.has(game.arrowSector);
-  const researchOpen = researchPhase(game) || (!game.phase && game.theoryPhaseOpen ? game.theoryPhase : null);
-  const dueTheory = open && Boolean(researchOpen);
-  const conferenceOpen = open ? game.conference || null : null;
-  const turnDisabled = !open || Boolean(researchOpen) || Boolean(game.awaitingReview?.length) || turnBlocked(game);
+  const reviewOpen = Boolean(game.awaitingReview?.length);
+  const pendingEvents = pendingUiEvents(game);
+  const researchOpen = pendingEvents.theory && (game.research || game.theoryPhaseOpen) ? pendingEvents.theory : null;
+  const conferenceOpen = pendingEvents.conference && game.conference;
+  const dueConference = pendingEvents.conference && !conferenceOpen ? pendingEvents.conference : null;
+  const turnDisabled = !open || Boolean(researchOpen) || reviewOpen || turnBlocked(game);
 
   return h(
     'section',
@@ -302,7 +318,7 @@ export function renderConsoleStatus({ state, api }) {
       stat('扫描剩余', `${game.targetUses} / ${MAX_TARGET_USES}`, '剩余可用的扫描标记'),
       stat(
         '阶段',
-        frozen ? '终局' : researchOpen ? '学术研究' : conferenceOpen ? 'X行星会议' : dueConference ? '该开会了' : dueTheory ? '研究扇区' : '自由推理',
+        frozen ? '终局' : reviewOpen ? '同行评审' : researchOpen ? '学术研究' : conferenceOpen ? 'X行星会议' : dueConference ? '该开会了' : '自由推理',
         `会议 ${confSectors.join('、')} · 学术研究 ${theorySectors.join('、')}`,
       ),
     ),
@@ -311,22 +327,20 @@ export function renderConsoleStatus({ state, api }) {
           'div',
           { class: 'deduced-flag event-now' },
           game.phase
-            ? `学术研究阶段：时间轨越过了 ${researchOpen.sector} 号扇区，全桌先选要提交的篇数，再按"靠后的玩家先提交"依次提交。`
-            : `待处理 ${researchOpen.sector} 号学术研究阶段：可以提交理论，也可以直接完成本阶段。`,
+            ? `学术研究阶段：${eventDeparture(researchOpen.sector, game.mode)}，全桌先选篇数，再按累计耗时从少到多提交；同格先到者在后，先行动、先提交。`
+            : `${eventDeparture(researchOpen.sector, game.mode)}，触发学术研究阶段：可以提交理论，也可以直接完成本阶段。`,
         )
       : conferenceOpen
         ? h(
             'div',
             { class: 'deduced-flag event-now' },
-            `X行星会议：${conferenceOpen.byName ? `${conferenceOpen.byName}的棋子` : '有人的棋子'}越过了 ${conferenceOpen.sector} 号扇区——去官方 app 查看规律，然后填进右侧「X行星会议」栏。`,
+            `X行星会议：${eventDeparture(conferenceOpen.sector, game.mode)}——${game.playMode === 'builtin' ? '系统自动公布本次会议线索。' : '去官方 app 查看规律，然后填进右侧「X行星会议」栏。'}`,
           )
-        : (dueConference || dueTheory) &&
+        : dueConference &&
           h(
             'div',
-            { class: `deduced-flag${dueConference ? ' event-now' : ''}` },
-            dueConference
-              ? `箭头走到 ${game.arrowSector} 号扇区：X行星会议召开，请在右侧「X行星会议」栏记录 app 给出的规律。`
-              : `箭头走到 ${game.arrowSector} 号扇区：学术研究阶段，去「提交学术研究」选篇数并提交。`,
+            { class: 'deduced-flag event-now' },
+            `${eventDeparture(dueConference.sector, game.mode)}：X行星会议召开，请在右侧「X行星会议」栏记录 app 给出的规律。`,
           ),
     game.phase === 'play' && game.turnPlayerName
       ? h(
@@ -345,7 +359,7 @@ export function renderConsoleStatus({ state, api }) {
       : null,
     game.phase === 'lobby' ? h('div', { class: 'turn-banner' }, '开局前：等房主点「开始游戏」') : null,
     game.phase === 'setup'
-      ? h('div', { class: 'turn-banner' }, `开局准备：${game.playMode === 'builtin' ? '查看私有线索并确认准备' : '填写初始线索与 A–F 课题名称'}（已提交 ${game.readyCount || 0}/${game.playerCount || 0}）`)
+      ? h('div', { class: 'turn-banner' }, `开局准备：${game.playMode === 'builtin' ? `每人自动分发 ${game.initialClueCount ?? 4} 条初始线索，请确认准备` : `填写全桌统一的 ${game.initialClueCount ?? 4} 条初始线索，房主填写课题与会议标题`}（已提交 ${game.readyCount || 0}/${game.playerCount || 0}）`)
       : null,
     frozen ? h('div', { class: 'turn-banner' }, game.phase === 'final' ? `最后机会：等待 ${game.endgame?.cursorName || '其他玩家'}；普通行动已关闭` : game.status === 'finished' ? '全盘已揭示，本局已结束' : '等待填写官方 app 的完整答案，之后结算全部理论') : null,
     renderDisclosure(
@@ -360,7 +374,7 @@ export function renderConsoleStatus({ state, api }) {
         '撤销最后一条',
       ),
       ),
-      h('p', { class: 'small muted' }, `会议 ${confSectors.join('、')} 号；学术研究 ${theorySectors.join('、')} 号。${game.windowPlayerName ? `天窗跟随最靠后的 ${game.windowPlayerName}。` : '天窗跟随我的时间。'}同扇区时先到者先行动。`),
+      h('p', { class: 'small muted' }, `会议 ${confSectors.join('、')} 号；学术研究 ${theorySectors.join('、')} 号，均在天窗起点离开事件标记时触发。${game.windowPlayerName ? `天窗跟随累计耗时最少的 ${game.windowPlayerName}。` : '天窗跟随我的时间。'}累计耗时优先；同格先到者在后，先行动、先提交，后来者排在顺时针前方。`),
       h('p', { class: 'console-note small muted' }, game.playMode === 'builtin'
         ? '内置谜题：观测、会议、同行评审与定位由系统自动判定。查询结果仅本人可见，完整答案只在终局揭晓；不能撤销已获得的线索。'
         : state.remote
@@ -415,6 +429,18 @@ export const renderActionPanel = renderRecordPanel;
 export function renderRecordPanel({ state, api }) {
   const { game, ui } = state;
   const phase = game.phase || 'play';
+  const tutorial = game.tutorial;
+  if (tutorial?.completed && ['done', 'finished'].includes(phase)) return renderEndgame({ game, ui, api });
+  if (tutorial && (tutorial.completed || tutorial.interaction !== 'action' || tutorial.actor !== 'human')) {
+    return h('section', { class: 'card action-card tutorial-wait' },
+      h('h2', {}, tutorial.completed ? '教学已完成' : '教学进行中'),
+      h('p', { class: 'muted small' }, tutorial.completed
+        ? '可在教学指南中重新教学或退出，查看本局揭晓与计分。'
+        : tutorial.interaction === 'inspect' || tutorial.interaction === 'mark'
+          ? '请按教学指南在星图中完成查看或标注，无需选择其他行动。'
+          : '请使用教学指南中的按钮继续；本步不需要其他行动。'),
+    );
+  }
   if (phase === 'lobby') return lobbyCard({ game, api });
   if (phase === 'setup') return setupCard({ state, api });
   const endgame = renderEndgame({ game, ui, api });
@@ -423,7 +449,9 @@ export function renderRecordPanel({ state, api }) {
   const closed = game.status !== 'open';
   const research = researchPhase(game);
   const review = reviewPrompt({ game, api });
-  const action = ui.action || 'idle';
+  const expected = tutorialExpected(game);
+  const expectedAction = expected?.kind === 'target' ? 'scan' : expected?.kind;
+  const action = tutorial && ui.action !== expectedAction ? 'idle' : ui.action || 'idle';
   if (game.awaitingReview?.length) {
     return h(
       'section',
@@ -439,7 +467,7 @@ export function renderRecordPanel({ state, api }) {
       'section',
       { class: 'card action-card record-card' },
       h('h2', {}, '学术研究阶段'),
-      h('p', { class: 'muted small' }, `已到达或越过 ${game.theoryPhase.sector} 号阶段。本阶段已提交 ${used}/${game.theoryQuota} 篇；也可以不提交。`),
+      h('p', { class: 'muted small' }, `${eventDeparture(game.theoryPhase.sector, game.mode)}，触发本阶段。已提交 ${used}/${game.theoryQuota} 篇；也可以不提交。`),
       action === 'theory'
         ? theoryCard({ game, ui, api })
         : h('button', { class: 'action-tile', disabled: used >= game.theoryQuota, onclick: () => api.startAction('theory') }, '提交学术研究'),
@@ -453,7 +481,7 @@ export function renderRecordPanel({ state, api }) {
 
   return h(
     'section',
-    { class: 'card action-card record-card' },
+    { class: 'card action-card record-card', ...tutorialFocusProps(game, tutorial?.focus) },
     h('h2', {}, '行动', closed ? h('span', { class: 'muted small' }, '（本局已结束）') : null),
     review,
     research ? researchCard({ game, research, ui, api }) : null,
@@ -464,7 +492,7 @@ export function renderRecordPanel({ state, api }) {
           `等 ${game.turnPlayerName || '其他玩家'} 行动（他耗时最少；你可以标注星图、查看已有线索）`,
         )
       : null,
-    research
+    research || (tutorial && !['survey', 'scan', 'research'].includes(expectedAction))
       ? null
       : closed || action === 'idle'
         ? actionLauncher({ game, api, closed, blocked, waiting })
@@ -474,7 +502,7 @@ export function renderRecordPanel({ state, api }) {
     !research && action === 'research' ? researchClueCard({ state, game, ui, api }) : null,
     !research && action === 'theory' ? theoryCard({ game, ui, api }) : null,
     !research && action === 'idle' && !closed && game.playMode !== 'builtin' ? conferenceBlock({ state, game, ui, api }) : null,
-    research || action !== 'idle'
+    research || action !== 'idle' || (tutorial && expectedAction !== 'locate')
       ? null
       : h(
           'div',
@@ -485,6 +513,7 @@ export function renderRecordPanel({ state, api }) {
             {
               class: 'btn primary big',
               'data-modal-trigger': 'locate',
+              ...tutorialTargetProps('action', expectedAction === 'locate'),
               disabled: closed || blocked,
               onclick: () => api.openLocate(),
             },
@@ -528,6 +557,22 @@ function reviewPrompt({ game, api }) {
 }
 
 /** Before the game: the table gathers, the host starts. */
+function initialCluePicker({ value = 4, onPick, readOnly = false }) {
+  return h('div', { class: 'initial-clue-settings' },
+    h('h3', {}, '统一初始线索'),
+    h('p', { class: 'muted small' }, `每人 ${value} 条初始线索 · 房主统一设置，开局后锁定。`),
+    readOnly ? null : h('div', { class: 'chips initial-clue-counts', role: 'group', 'aria-label': '全桌初始线索数量' },
+      INITIAL_CLUE_COUNTS.map(count => h('button', {
+        type: 'button',
+        class: `chip chip-select${count === value ? ' active' : ''}`,
+        'data-initial-clue-count': count,
+        'aria-pressed': String(count === value),
+        onclick: () => onPick(count),
+      }, `${count} 条`)),
+    ),
+  );
+}
+
 function lobbyCard({ game, api }) {
   const players = game.players || [];
   const enough = (game.playerCount || players.length) >= (game.playMode === 'builtin' ? 1 : 2);
@@ -553,8 +598,9 @@ function lobbyCard({ game, api }) {
           ),
         ),
       ),
-      h('p', { class: 'muted small' }, `房间码 ${game.roomId}：让别人在自己的设备上打开本页 → 「联机」→「加入房间」。`),
+      h('p', { class: 'muted small' }, game.tutorial ? '固定双人教学：你与 Bot「领航员」，无需邀请其他玩家。' : `房间码 ${game.roomId}：让别人在自己的设备上打开本页 → 「联机」→「加入房间」。`),
     ),
+    initialCluePicker({ value: game.initialClueCount ?? 4, readOnly: !game.amHost || Boolean(game.tutorial), onPick: count => api.setInitialClueCount(count) }),
     h(
       'div',
       { class: 'action-block' },
@@ -563,7 +609,7 @@ function lobbyCard({ game, api }) {
         ? h(
             'p',
             { class: 'muted small' },
-            game.amHost ? (game.playMode === 'builtin' ? '可以单人开始，也可以先邀请朋友。开始后系统分发私有初始线索；开局后不再接受新玩家。' : '人齐了就可以开始。开始后每人先填初始线索与 A–F 课题名称，然后进入第一轮。') : '等房主点「开始游戏」。',
+            game.amHost ? (game.tutorial ? '教学固定使用标准棋盘与 4 条初始线索。' : game.playMode === 'builtin' ? '可以单人开始，也可以先邀请朋友。开始后系统按全桌统一数量自动分发私有初始线索，每人确认准备；开局后不再接受新玩家。' : '人齐了就可以开始。开始后每人填写指定数量的初始线索，由房主填写全桌课题名称，然后进入第一轮。') : '等房主点「开始游戏」。',
           )
         : h('p', { class: 'muted small' }, '至少需要 2 名玩家才能开始；单人玩请用「离开房间」回到单机记录台。'),
       h(
@@ -583,16 +629,23 @@ function lobbyCard({ game, api }) {
 function setupCard({ state, api }) {
   const { game, ui } = state;
   const mine = game.mySetup || { clues: [], noClues: false, topics: {}, ready: false };
+  const count = game.initialClueCount ?? 4;
   if (game.playMode === 'builtin') {
+    const claimed = mine.cluesClaimed === true;
+    const canReady = claimed && !mine.ready && !ui.actionBusy;
     return h(
       'section',
       { class: 'card action-card record-card builtin-setup' },
       h('h2', {}, '你的初始线索'),
-      h('p', { class: 'muted small' }, '系统已分发私有线索，只排除小行星、彗星、气体云或矮行星，不提供空域信息。准备后自动标记到星图，其他玩家看不到。'),
-      h('ul', { class: 'builtin-clues' }, (mine.clues || []).map((clue) => h('li', {}, `${clue.sector + 1} 号扇区没有${LABEL[clue.type]}。`))),
+      h('p', { class: 'muted small' }, `全桌统一 ${count} 条初始线索，由房主在开局前设置；开局后不能更改数量或重新抽取。`),
+      claimed
+        ? h('p', { class: 'pick-status' }, `已自动收到 ${count} 条初始线索。${count === 0 ? '没有初始排除线索，可以直接确认准备。' : '排除信息已同步到你的星图。'}`)
+        : h('p', { class: 'pick-status', role: 'status' }, '正在同步房间分发的初始线索，请稍候。'),
+      claimed && h('ul', { class: 'builtin-clues' }, (mine.clues || []).map((clue) => h('li', {}, `${clue.sector + 1} 号扇区没有${LABEL[clue.type]}。`))),
+      h('p', { class: 'muted small' }, '初始线索只排除小行星、彗星、气体云或矮行星，不提供空域信息；线索和标注仅你自己可见。'),
       h('p', { class: 'muted small' }, '研究 A–F 获取更多线索；会议线索会随时间轨推进自动公布。扫描显示空域时，仍有可能是 X行星。'),
       readyList(game),
-      h('button', { class: 'btn primary big', disabled: mine.ready || ui.actionBusy, onclick: () => api.submitSetup() }, mine.ready ? '已准备，等待其他玩家' : '我已准备，开始推理'),
+      h('button', { class: 'btn primary big', disabled: !canReady, onclick: () => { if (canReady) api.submitSetup(); } }, mine.ready ? game.tutorial ? '已准备，等待教学继续' : '已准备，等待其他玩家' : '我已准备，开始推理'),
     );
   }
   const draft = ui.setup || api.setupDraft();
@@ -617,6 +670,10 @@ function setupCard({ state, api }) {
   }
 
   const clues = draft.clues || [];
+  const clueTypes = sector => CLUE_TYPES.filter(type => type !== Obj.COMET || isCometSector(game.mode, sector));
+  const validClues = clues.filter(clue => Number.isInteger(clue.sector) && clue.sector >= 0 && clue.sector < game.mode.sectors && clueTypes(clue.sector).includes(clue.type));
+  const uniqueCount = new Set(validClues.map(clue => `${clue.sector}:${clue.type}`)).size;
+  const canSubmit = !ui.actionBusy && (count === 0 || (clues.length === count && uniqueCount === count));
   const clueRows = clues.map((clue, index) =>
     h(
       'div',
@@ -624,23 +681,28 @@ function setupCard({ state, api }) {
       h(
         'select',
         {
-          onchange: (e) => patch((s) => ({ clues: s.clues.map((c, i) => (i === index ? { ...c, sector: Number(e.target.value) } : c)) })),
+          'aria-label': `第 ${index + 1} 条线索的扇区`,
+          onchange: event => {
+            const sector = Number(event.target.value);
+            patch(current => ({ noClues: false, clues: current.clues.map((entry, clueIndex) => clueIndex === index ? { ...entry, sector, type: clueTypes(sector).includes(entry.type) ? entry.type : clueTypes(sector)[0] } : entry) }));
+          },
         },
-        Array.from({ length: game.mode.sectors }, (_, i) =>
-          h('option', { value: i, selected: i === clue.sector }, `${i + 1} 号`),
+        Array.from({ length: game.mode.sectors }, (unused, sector) =>
+          h('option', { value: sector, selected: sector === clue.sector }, `${sector + 1} 号`),
         ),
       ),
       h('span', { class: 'muted small' }, '没有'),
       h(
         'select',
         {
-          onchange: (e) => patch((s) => ({ clues: s.clues.map((c, i) => (i === index ? { ...c, type: e.target.value } : c)) })),
+          'aria-label': `第 ${index + 1} 条线索排除的天体`,
+          onchange: event => patch(current => ({ noClues: false, clues: current.clues.map((entry, clueIndex) => clueIndex === index ? { ...entry, type: event.target.value } : entry) })),
         },
-        CLUE_TYPES.map((type) => h('option', { value: type, selected: type === clue.type }, LABEL[type])),
+        clueTypes(clue.sector).map(type => h('option', { value: type, selected: type === clue.type }, LABEL[type])),
       ),
       h(
         'button',
-        { class: 'btn ghost small', onclick: () => patch((s) => ({ clues: s.clues.filter((_, i) => i !== index) })) },
+        { class: 'btn ghost small', 'aria-label': `删除第 ${index + 1} 条线索`, onclick: () => patch(current => ({ clues: current.clues.filter((entry, clueIndex) => clueIndex !== index) })) },
         '删除',
       ),
     ),
@@ -657,30 +719,26 @@ function setupCard({ state, api }) {
         'h3',
         {},
         '① 初始线索',
-        h('span', { class: 'muted small' }, ` app 开局给你的信息：某扇区没有某天体（最多 ${MAX_SETUP_CLUES} 条）`),
+        h('span', { class: 'muted small' }, ` 全桌统一 ${count} 条，请填写相同数量的不同排除线索`),
       ),
-      h(
-        'label',
-        { class: 'switch' },
-        h('input', {
-          type: 'checkbox',
-          checked: draft.noClues,
-          onchange: (e) => patch({ noClues: e.target.checked, clues: e.target.checked ? [] : clues }),
-        }),
-        '我没有任何初始线索',
-      ),
-      draft.noClues ? null : clueRows,
-      draft.noClues
+      count === 0 ? h('p', { class: 'muted small' }, '房主设置了 0 条初始线索，无需填写。') : clueRows,
+      count === 0
         ? null
         : h(
             'div',
             { class: 'clue-add' },
-            h('span', { class: 'muted small' }, `已填 ${clues.length}/${MAX_SETUP_CLUES}`),
-            clues.length >= MAX_SETUP_CLUES
+            h('span', { class: 'muted small', role: 'status' }, `有效线索 ${uniqueCount}/${count} 条${validClues.length > uniqueCount ? ' · 有重复项，请修改或删除' : ''}${validClues.length < clues.length ? ' · 有不合法的线索，请修改' : ''}`),
+            clues.length >= count
               ? null
               : h(
                   'button',
-                  { class: 'btn ghost small', onclick: () => patch((s) => ({ clues: [...s.clues, { sector: 0, type: 'comet' }] })) },
+                  { class: 'btn ghost small', onclick: () => patch(current => {
+                    const currentClues = current.clues || [];
+                    if (currentClues.length >= count) return {};
+                    const available = Array.from({ length: game.mode.sectors }, (unused, sector) => clueTypes(sector).map(type => ({ sector, type }))).flat();
+                    const next = available.find(candidate => !currentClues.some(entry => entry.sector === candidate.sector && entry.type === candidate.type));
+                    return next ? { noClues: false, clues: [...currentClues, next] } : {};
+                  }) },
                   '+ 添加一条线索',
                 ),
           ),
@@ -693,7 +751,11 @@ function setupCard({ state, api }) {
       { class: 'action-buttons' },
       h(
         'button',
-        { class: 'btn primary', onclick: () => api.submitSetup() },
+        { class: 'btn primary', disabled: !canSubmit, onclick: () => {
+          if (!canSubmit) return;
+          patch({ noClues: count === 0, ...(count === 0 ? { clues: [] } : {}) }, true);
+          api.submitSetup();
+        } },
         game.readyCount + 1 >= game.playerCount ? '完成，开始第一轮' : '完成，等其他人',
       ),
     ),
@@ -707,7 +769,8 @@ function setupCard({ state, api }) {
  */
 function sharedInfoBlock({ game, api, readOnly, onPatch, draft }) {
   const names = (draft && draft.topicNames) || game.topicNames || {};
-  const rules = (draft && draft.conferences) || game.conferenceRules || {};
+  const conferenceNames = (draft && draft.conferenceNames) || game.conferenceNames || {};
+  const rules = readOnly ? Object.fromEntries((game.knowledge.conferences || []).map(entry => [entry.sector, entry.text])) : (draft && draft.conferences) || game.conferenceRules || {};
   const confSectors = game.conferenceRuleSectors || game.conferenceSectors || [];
   const edit = (fn) => onPatch && onPatch(fn);
 
@@ -728,15 +791,32 @@ function sharedInfoBlock({ game, api, readOnly, onPatch, draft }) {
   );
 
   const confInputs = confSectors.map((sector) => {
+    const titleInput = h('input', {
+      class: 'text-input slim',
+      type: 'text',
+      disabled: readOnly,
+      'data-conference-name': sector,
+      'aria-label': `${sector} 号会议标题`,
+      placeholder: `X行星会议 · ${sector} 号`,
+      oninput: event => edit(current => ({ conferenceNames: { ...(current.conferenceNames || {}), [sector]: event.target.value } })),
+    });
+    titleInput.value = conferenceNames[sector] || '';
     const input = h('textarea', {
       class: 'text-input',
       rows: 2,
       disabled: readOnly,
+      'aria-label': `${sector} 号会议线索正文`,
       placeholder: `扇区 ${sector} 的 X行星会议规律`,
       oninput: (e) => edit((s) => ({ conferences: { ...(s.conferences || {}), [sector]: e.target.value } })),
     });
     input.value = rules[sector] || '';
-    return h('label', { class: 'conf-row' }, h('span', { class: 'row-tag' }, `扇区 ${sector}`), input);
+    return h('div', { class: 'conf-row' },
+      h('span', { class: 'row-tag' }, `扇区 ${sector}`),
+      h('div', { class: 'conf-fields' },
+        h('label', {}, h('span', { class: 'muted small' }, '公开标题'), titleInput),
+        h('label', {}, h('span', { class: 'muted small' }, '会议线索正文（召开后公开）'), input),
+      ),
+    );
   });
 
   return h(
@@ -752,7 +832,7 @@ function sharedInfoBlock({ game, api, readOnly, onPatch, draft }) {
     h(
       'h3',
       { class: 'shared-gap' },
-      '③ X行星会议线索',
+      '③ X行星会议',
       h('span', { class: 'muted small' }, confSectors.length > 1 ? ` 本局 2 场：${confSectors.join('、')} 号扇区` : ` 本局 1 场：${confSectors.join('、')} 号扇区`),
     ),
     confInputs,
@@ -760,8 +840,8 @@ function sharedInfoBlock({ game, api, readOnly, onPatch, draft }) {
       'p',
       { class: 'muted small' },
       readOnly
-        ? '房主填好后这里会自动出现；开完会也可以在会议栏里补记。'
-        : '会议线索全桌共享：现在就知道就现在填，开会时再填也可以（也可以在会议栏里补）。',
+        ? '标题全桌可见；会议召开后才公开线索正文，可在行动栏补记。'
+        : '标题从开局就公开，留空使用默认名称。线索正文与标题分开记录，会议召开后才公开；也可以开会时在行动栏补记。',
     ),
   );
 }
@@ -789,16 +869,15 @@ function readyList(game) {
 }
 
 function actionLauncher({ game, api, closed, blocked = false, waiting = null }) {
+  const expected = tutorialExpected(game);
+  const expectedKind = expected?.kind === 'target' ? 'scan' : expected?.kind;
   const tile = (kind, title, desc, disabled = false) =>
-    h(
+    game.tutorial && kind !== expectedKind ? null : h(
       'button',
-      { class: 'action-tile', disabled: closed || blocked || disabled, onclick: () => api.startAction(kind) },
+      { class: `action-tile${game.tutorial ? ' tutorial-target' : ''}`, 'data-tutorial-target': game.tutorial ? 'action' : null, 'aria-describedby': game.tutorial ? 'tutorial-instruction' : null, disabled: closed || blocked || disabled, onclick: () => api.startAction(kind) },
       h('span', { class: 'tile-title' }, title),
       h('span', { class: 'tile-desc small muted' }, blocked && waiting ? waiting : desc),
     );
-  const quota = game.theoryQuota || 1;
-  const used = game.theoryUsedThisPhase || 0;
-  const canPublish = game.phase === 'play' ? false : Boolean(game.theoryPhaseOpen) && used < quota;
   return h(
     'div',
     { class: 'action-block' },
@@ -809,21 +888,14 @@ function actionLauncher({ game, api, closed, blocked = false, waiting = null }) 
       tile('survey', '勘测', `范围数量 · ${surveyCost(3)}/${surveyCost(6)}/${surveyCost(9)} 个时间单位`),
       tile('scan', '扫描', `单个扇区 · ${durationLabel(COST.target)} · 剩 ${game.targetUses} 次`, game.targetUses <= 0),
       tile('research', '研究', `A–F 课题线索 · ${durationLabel(COST.research)}`, game.lastWasResearch),
-      tile(
-        'theory',
-        '提交学术研究',
-        '学术研究阶段开放 · 不耗时',
-        !canPublish,
-      ),
     ),
-    game.playMode === 'builtin' && h('button', { class: 'btn ghost wait-action', disabled: closed || blocked, onclick: () => api.consoleAction({ kind: 'wait' }) }, `等待 ${durationLabel(COST.wait)}`),
   );
 }
 
-function cardShell(title, hint, body, actions) {
+function cardShell(title, hint, body, actions, className = '') {
   return h(
     'div',
-    { class: 'action-block active-action' },
+    { class: `action-block active-action${className ? ` ${className}` : ''}` },
     h('h3', {}, title, h('span', { class: 'muted small' }, ` ${hint}`)),
     ...body,
     h('div', { class: 'action-buttons' }, ...actions),
@@ -832,14 +904,34 @@ function cardShell(title, hint, body, actions) {
 
 function confirmButtons(api, label, disabled) {
   return [
-    h('button', { class: 'btn primary', disabled, onclick: () => api.confirmAction() }, label),
+    h('button', { class: 'btn primary', disabled, onclick: () => { if (!disabled) api.confirmAction(); } }, label),
     h('button', { class: 'btn ghost', onclick: () => api.cancelAction() }, '取消'),
   ];
 }
 
 function surveyCard({ game, ui, api }) {
+  const expected = tutorialExpected(game);
   const picks = ui.pick || [];
   const range = api.pickedRange();
+  const visible = game.visible || visibleSectorsAt(game.time, game.mode);
+  const endpoints = visible.filter((sector) => ui.surveyType !== Obj.COMET || isCometSector(game.mode, sector));
+  const validRange = range && range.size <= game.mode.visible
+    && endpoints.includes(range.start)
+    && endpoints.includes(mod(range.start + range.size - 1, game.mode.sectors))
+    && Array.from({ length: range.size }, (unused, offset) => mod(range.start + offset, game.mode.sectors)).every((sector) => visible.includes(sector));
+  const endpointField = (label, index) => h('label', {}, label, h('select', {
+    'aria-label': `勘测${label}`,
+    ...tutorialTargetProps(index === 0 ? 'start' : 'end', expected?.kind === 'survey'),
+    disabled: index === 1 && !endpoints.includes(picks[0]),
+    onchange: (event) => {
+      const sector = event.target.value === '' ? null : Number(event.target.value);
+      if (sector !== null && !endpoints.includes(sector)) return;
+      if (index === 1 && !endpoints.includes(picks[0])) return;
+      api.setUi({ pick: index === 0 ? sector === null ? [] : [sector] : sector === null ? [picks[0]] : [picks[0], sector], selectedSector: sector });
+    },
+  },
+  h('option', { value: '', selected: !endpoints.includes(picks[index]) }, `请选择${label}`),
+  endpoints.map((sector) => h('option', { value: sector, selected: sector === picks[index] }, `${sector + 1} 号`))));
   const countInput = h('input', {
     class: 'num-input',
     type: 'number',
@@ -861,6 +953,8 @@ function surveyCard({ game, ui, api }) {
     '在星图上点起止扇区，自动算范围与耗时',
     [
       h('p', { class: 'pick-status' }, status),
+      h('div', { class: 'range-row' }, endpointField('起点', 0), endpointField('终点', 1)),
+      ui.surveyType === Obj.COMET ? h('p', { class: 'muted small' }, '彗星勘测的起点和终点必须是当前可见的质数编号扇区；中间可以经过其他扇区。') : null,
       h(
         'div',
         { class: 'chips' },
@@ -869,6 +963,7 @@ function surveyCard({ game, ui, api }) {
             'button',
             {
               class: `chip chip-select${ui.surveyType === type ? ' active' : ''}`,
+              ...tutorialTargetProps('type', expected?.kind === 'survey' && (expected.type || expected.surveyType) === type),
               style: ui.surveyType === type ? { borderColor: TYPE_COLOR[CODE[type]] } : {},
               onclick: () => api.setUi({ surveyType: type }),
             },
@@ -884,7 +979,7 @@ function surveyCard({ game, ui, api }) {
         h('span', { class: 'muted small' }, '个'),
       ),
     ],
-    confirmButtons(api, '确认勘测', !range),
+    confirmButtons(api, '确认勘测', !validRange || ui.actionBusy),
   );
 }
 
@@ -922,6 +1017,7 @@ function scanCard({ game, ui, api }) {
 
 function researchClueCard({ state, game, ui, api }) {
   const topics = game.topics || {};
+  const expected = tutorialExpected(game);
   const nameInput = h('input', {
     class: 'text-input',
     type: 'text',
@@ -951,6 +1047,7 @@ function researchClueCard({ state, game, ui, api }) {
             'button',
             {
               class: `topic${used ? ' done' : ''}${chosen ? ' chosen' : ''}`,
+              ...tutorialTargetProps('topic', expected?.kind === 'research' && expected.topic === id),
               disabled: used,
               title: used ? '已研究' : `课题 ${id}`,
               onclick: () => api.setUi({ researchTopic: id, topicName: (topics[id] && topics[id].name) || '' }),
@@ -977,17 +1074,43 @@ function researchClueCard({ state, game, ui, api }) {
 }
 
 /** The offline console publishes straight from the card; a room drives its own phase. */
+function theoryChoices({ game, ui, api, label }) {
+  const options = game.theoryOptions || [];
+  const expected = tutorialExpected(game);
+  const selected = options.find((option) => option.sector === ui.theorySector);
+  const types = selected?.types || [];
+  return {
+    sector: selected?.sector,
+    valid: types.includes(ui.theoryType),
+    field: h('label', {}, label, h('select', {
+      'aria-label': label,
+      ...tutorialTargetProps('sector', Number.isInteger(expected?.sector)),
+      onchange: (event) => {
+        const sector = Number(event.target.value);
+        if (event.target.value !== '' && options.some((option) => option.sector === sector)) api.setUi({ theorySector: sector });
+      },
+    },
+    selected ? null : h('option', { value: '', selected: true }, options.length ? '请选择扇区' : '没有可提交的扇区'),
+    options.map((option) => h('option', { value: option.sector, selected: option.sector === selected?.sector }, `${option.sector + 1} 号${expected?.sector === option.sector ? ' · 教学目标' : ''}`)))),
+    chips: h('div', { class: 'chips' }, types.map((type) => h('button', {
+      class: `chip chip-select${ui.theoryType === type ? ' active' : ''}`,
+      ...tutorialTargetProps('type', (expected?.objectType || expected?.type) === type),
+      style: ui.theoryType === type ? { borderColor: TYPE_COLOR[CODE[type]] } : {},
+      onclick: () => api.setUi({ theoryType: type }),
+    }, iconLabel(CODE[type], LABEL[type], { size: 15 })))),
+  };
+}
+
 function theoryCard({ game, ui, api }) {
   const schedule = game.theorySectors || [];
   const open = Boolean(game.theoryPhaseOpen);
   const quota = game.theoryQuota || 1;
   const used = game.theoryUsedThisPhase || 0;
-  const locked = game.theoryLockedSectors || [];
   const pending = (game.knowledge.theories || []).filter((t) => t.review === 'pending');
-  const sector = Number.isInteger(ui.theorySector) ? ui.theorySector : 0;
+  const choices = theoryChoices({ game, ui, api, label: '扇区' });
   return cardShell(
     '提交学术研究',
-    `到达或越过 ${schedule.join('、')} 号阶段后进行`,
+    `天窗起点离开 ${schedule.join('、')} 号事件标记后进行`,
     [
       open
         ? h('p', { class: 'pick-status' }, `正在处理 ${game.theoryPhase?.sector || game.arrowSector} 号阶段：你还能提交 ${Math.max(0, quota - used)} 篇。`)
@@ -999,18 +1122,7 @@ function theoryCard({ game, ui, api }) {
       h(
         'div',
         { class: 'range-row' },
-        h(
-          'label',
-          {},
-          '扇区',
-          h(
-            'select',
-            { onchange: (e) => api.setUi({ theorySector: Number(e.target.value) }) },
-            Array.from({ length: game.mode.sectors }, (_, i) =>
-              h('option', { value: i, selected: i === sector }, `${i + 1} 号${locked.includes(i) ? '（已公开）' : ''}`),
-            ),
-          ),
-        ),
+        choices.field,
         h(
           'span',
           { class: 'muted small' },
@@ -1019,42 +1131,24 @@ function theoryCard({ game, ui, api }) {
             : '还没有未评审的理论',
         ),
       ),
-      h(
-        'div',
-        { class: 'chips' },
-        THEORY_TYPES.map((type) =>
-          h(
-            'button',
-            {
-              class: `chip chip-select${ui.theoryType === type ? ' active' : ''}`,
-              style: ui.theoryType === type ? { borderColor: TYPE_COLOR[CODE[type]] } : {},
-              onclick: () => api.setUi({ theoryType: type }),
-            },
-            iconLabel(CODE[type], LABEL[type], { size: 15 }),
-          ),
-        ),
-      ),
+      choices.chips,
       h(
         'p',
         { class: 'muted small' },
         `新论文落在轨道 ${THEORY_TRACK[0]}；点击「完成本阶段」后整条轨道向内推进一格，同阶段论文一起到达评审格。`,
       ),
-      locked.includes(sector) ? h('p', { class: 'lobby-error' }, `${sector + 1} 号扇区的内容已经公开，不能再提交研究。`) : null,
     ],
-    confirmButtons(api, '确认提交', !open || used >= quota || locked.includes(sector)),
+    confirmButtons(api, '确认提交', !open || used >= quota || !choices.valid || ui.actionBusy),
+    'research-submission',
   );
 }
 
-/**
- * The research phase: first everybody secretly picks how many papers to publish, then
- * the players publish in turn, most time spent first. Only the sector is public.
- */
 function researchCard({ game, research, ui, api }) {
   const players = game.players || [];
-  const locked = game.theoryLockedSectors || [];
+  const expected = tutorialExpected(game);
   const mine = research.myCount;
   const declared = research.declaredCount;
-  const maxDeclare = research.maxDeclare ?? research.quota;
+  const maxDeclare = Math.min(research.maxDeclare ?? research.quota, (game.theoryOptions || []).length);
 
   if (mine === null) {
     return h(
@@ -1069,7 +1163,7 @@ function researchCard({ game, research, ui, api }) {
       h(
         'p',
         { class: 'muted small' },
-        `${game.mode.name}：这个阶段每人最多提交 ${research.quota} 篇。所有人选完后按耗时从少到多依次提交，同格先到者优先；选定后不能更改。`,
+        `${game.mode.name}：这个阶段每人最多提交 ${research.quota} 篇。所有人选完后按累计耗时从少到多依次提交；同格先到者在后，先行动、先提交。选定篇数后不能更改。`,
       ),
       maxDeclare < research.quota && h('p', { class: 'muted small' }, `按尚可提交的不同扇区计算，你本阶段最多可提交 ${maxDeclare} 篇；选择 0 篇仍会推进评审轨道。`),
       h(
@@ -1080,6 +1174,7 @@ function researchCard({ game, research, ui, api }) {
             'button',
             {
               class: `btn${count ? ' primary' : ' ghost'}`,
+              ...tutorialTargetProps('count', expected?.kind === 'research-declare' && expected.count === count),
               disabled: count > maxDeclare,
               onclick: () => {
                 if (count <= maxDeclare) api.consoleAction({ kind: 'research-declare', phaseId: research.id, count });
@@ -1113,13 +1208,12 @@ function researchCard({ game, research, ui, api }) {
           ? `等 ${research.cursorName || '别人'} 提交完，再轮到你（你还剩 ${research.left} 篇）`
           : `你的名额用完了，等其他人提交（现在轮到 ${research.cursorName || '别人'}）`,
       ),
-      h('p', { class: 'muted small' }, `提交顺序（靠后的玩家先提交；同扇区先到者优先）：${research.orderNames.join(' → ')}`),
+      h('p', { class: 'muted small' }, `提交顺序（累计耗时少者优先；同格先到者在后，先提交）：${research.orderNames.join(' → ')}`),
       research.picks.length ? picksList({ game, research, players }) : null,
     );
   }
 
-  const sector = Number.isInteger(ui.theorySector) ? ui.theorySector : 0;
-  const isLocked = locked.includes(sector);
+  const choices = theoryChoices({ game, ui, api, label: '提交到扇区' });
   const pending = (game.knowledge.theories || []).filter((t) => t.review === 'pending');
   return h(
     'div',
@@ -1130,47 +1224,21 @@ function researchCard({ game, research, ui, api }) {
       '轮到你提交学术研究',
       h('span', { class: 'muted small' }, ` 还剩 ${research.left} 篇 · 扇区 ${research.sector} 阶段`),
     ),
-    h('p', { class: 'muted small' }, `提交顺序（靠后的玩家先提交；同扇区先到者优先）：${research.orderNames.join(' → ')}`),
+    h('p', { class: 'muted small' }, `提交顺序（累计耗时少者优先；同格先到者在后，先提交）：${research.orderNames.join(' → ')}`),
     h(
       'div',
       { class: 'range-row' },
-      h(
-        'label',
-        {},
-        '提交到扇区',
-        h(
-          'select',
-          { onchange: (e) => api.setUi({ theorySector: Number(e.target.value) }) },
-          Array.from({ length: game.mode.sectors }, (_, i) =>
-            h('option', { value: i, selected: i === sector }, `${i + 1} 号${locked.includes(i) ? '（已公开）' : ''}`),
-          ),
-        ),
-      ),
+      choices.field,
       h(
         'span',
         { class: 'muted small' },
         pending.length
-          ? `已有 ${pending.length} 篇未评审：你这一篇会让它们各推进一格`
+          ? `已有 ${pending.length} 篇未评审：本阶段结束后统一推进一格`
           : '还没有未评审的理论',
       ),
     ),
-    h(
-      'div',
-      { class: 'chips' },
-      THEORY_TYPES.map((type) =>
-        h(
-          'button',
-          {
-            class: `chip chip-select${ui.theoryType === type ? ' active' : ''}`,
-            style: ui.theoryType === type ? { borderColor: TYPE_COLOR[CODE[type]] } : {},
-            onclick: () => api.setUi({ theoryType: type }),
-          },
-          iconLabel(CODE[type], LABEL[type], { size: 15 }),
-        ),
-      ),
-    ),
+    choices.chips,
     h('p', { class: 'muted small' }, '你提交的天体只有自己看得到；别人只会看到你在哪个扇区提交了研究。'),
-    isLocked ? h('p', { class: 'lobby-error' }, `${sector + 1} 号扇区的内容已经公开，不能再提交研究。`) : null,
     h(
       'div',
       { class: 'action-buttons' },
@@ -1178,8 +1246,10 @@ function researchCard({ game, research, ui, api }) {
         'button',
         {
           class: 'btn primary',
-          disabled: isLocked,
-          onclick: () => api.consoleAction({ kind: 'research-submit', phaseId: research.id, sector, objectType: ui.theoryType }),
+          disabled: !choices.valid || ui.actionBusy,
+          onclick: () => {
+            if (choices.valid && !ui.actionBusy) api.consoleAction({ kind: 'research-submit', phaseId: research.id, sector: choices.sector, objectType: ui.theoryType });
+          },
         },
         `确认提交（第 ${mine - research.left + 1}/${mine} 篇）`,
       ),
@@ -1209,12 +1279,13 @@ function picksList({ game, research, players }) {
 }
 
 function conferenceBlock({ state, game, ui, api }) {
-  const prompt = game.conference || null;
+  const pending = pendingUiEvents(game).conference;
+  const prompt = pending && game.conference;
   const sectors = game.conferenceSectors || [];
   const recorded = new Set((game.knowledge.conferences || []).map((c) => c.sector));
   const rules = game.conferenceRules || {};
   const missing = sectors.filter((s) => !recorded.has(s));
-  const target = prompt ? prompt.sector : missing[0];
+  const target = pending ? pending.sector : missing[0];
 
   if (target === undefined) {
     return renderDisclosure(
@@ -1223,8 +1294,8 @@ function conferenceBlock({ state, game, ui, api }) {
     );
   }
 
-  const due = game.arrowSector === target;
-  const known = prompt ? prompt.text : rules[target] || '';
+  const due = Boolean(pending);
+  const known = prompt ? prompt.text : !game.me || game.amHost ? rules[target] || '' : '';
   const input = h('textarea', {
     class: 'text-input',
     rows: 2,
@@ -1238,14 +1309,14 @@ function conferenceBlock({ state, game, ui, api }) {
       ? h(
           'p',
           { class: 'pick-status' },
-          `${prompt.byName ? `${prompt.byName}的棋子` : '有人的棋子'}越过了 ${prompt.sector} 号扇区：**去官方 app 查看这次 X行星会议公布给全桌的规律**，然后填在这里（全桌共享）。`,
+          `${eventDeparture(prompt.sector, game.mode)}：去官方 app 查看这次 X行星会议公布给全桌的规律，然后填在这里（全桌共享）。`,
         )
       : h(
           'p',
           { class: 'muted small' },
           due
-            ? '时间轨的箭头已经走到会议扇区，该开会了——把规律抄下来。'
-            : `还没记录：${missing.join('、')} 号扇区。箭头走到时（或实体版已经开完）都可以在这里补记。`,
+            ? `${eventDeparture(target, game.mode)}，该开会了——把规律抄下来。`
+            : `还没记录：${missing.join('、')} 号扇区。天窗起点离开对应事件标记时（或实体版已经开完）可以在这里补记。`,
         ),
     input,
     h(
@@ -1287,40 +1358,10 @@ export function renderKnowledgePanel({ state, api }) {
         ? h('p', { class: 'muted small' }, '还没有研究任何主题。')
         : h('ul', { class: 'clue-list' }, clues.map(clue => h('li', {}, h('span', { class: 'topic-tag' }, clue.topic), clue.text))),
     ),
-    h(
-      'div',
-      { class: 'clue-group' },
-      h('h3', {}, 'X行星会议线索'),
-      sharedConferenceList(game) ||
-        (game.knowledge.conferences.length === 0
-          ? h(
-              'p',
-              { class: 'muted small' },
-              `${game.playMode === 'builtin' ? '会议尚未召开，线索届时自动公布。' : '尚未记录会议线索。'}会议位于 ${conferenceSectors(game.mode).join('、')} 号扇区。`,
-            )
-          : h(
-              'ul',
-              { class: 'clue-list' },
-              game.knowledge.conferences.map((c) => h('li', {}, h('span', { class: 'topic-tag conf' }, `扇区 ${c.sector}`), c.text)),
-            )),
-    ),
     renderDisclosure(
       { state, api, id: 'rules', title: '基础规律', heading: 'h3', className: 'rule-reference' },
       h('ul', { class: 'rule-list' }, rules.map(rule => h('li', {}, rule))),
     ),
-  );
-}
-
-/** The host's table-wide conference notes, listed per sector (1 in standard, 2 in expert). */
-function sharedConferenceList(game) {
-  const rules = game.conferenceRules || {};
-  const sectors = game.conferenceRuleSectors || conferenceSectors(game.mode);
-  const list = sectors.filter((s) => rules[s]);
-  if (!list.length) return null;
-  return h(
-    'ul',
-    { class: 'clue-list' },
-    list.map((sector) => h('li', {}, h('span', { class: 'topic-tag conf' }, `扇区 ${sector}`), rules[sector])),
   );
 }
 
@@ -1333,51 +1374,35 @@ export function renderScorePanel({ state, api }) {
   if (!board || !board.rows.length) return null;
   const best = Math.max(...board.rows.map((r) => r.total));
   const winners = scoreWinners(board);
+  const objectTypes = SURVEY_TYPES.filter((objectType) => objectType !== Obj.EMPTY);
   return renderDisclosure(
     { state, api, id: 'score', title: '积分详情', meta: board.finished ? '本局已结束' : '实时统计', className: 'card score-card', open: board.finished },
-    h(
-      'table',
-      { class: 'score-table' },
-      h(
-        'thead',
-        {},
-        h(
-          'tr',
-          {},
-          h('th', {}, '玩家'),
-          h('th', { title: '正确的学术研究数量' }, '正确'),
-          h('th', { title: '理论分' }, '理论'),
-          h('th', { title: '第一个提交正确答案的扇区奖励' }, '首对'),
-          h('th', { title: '正确定位 X行星的得分' }, '定位'),
-          h('th', {}, '合计'),
-        ),
+    board.rows.map((row) => h('div', { class: 'score-table-wrap', role: 'region', 'aria-label': `${row.name}的积分明细`, tabindex: 0 },
+      h('table', { class: 'score-table', 'data-player': row.id },
+        h('caption', {}, h('span', { class: 'score-name' }, h('span', { class: 'dot', style: { background: row.color || 'var(--accent)' } }), row.name)),
+        h('thead', {}, h('tr', {},
+          objectTypes.map((objectType) => h('th', { scope: 'col' },
+            iconLabel(CODE[objectType], LABEL[objectType], { size: 16 }),
+            h('span', { class: 'score-unit' }, `${theoryPointsFor(game.mode, objectType)} 分/篇`),
+          )),
+          h('th', { scope: 'col' }, '首对奖励', h('span', { class: 'score-unit' }, '+1/扇区')),
+          h('th', { scope: 'col' }, '定位X行星'),
+          h('th', { scope: 'col' }, '合计'),
+        )),
+        h('tbody', {}, h('tr', { class: (board.finished ? winners.some((winner) => winner.id === row.id) : row.total === best && best > 0) ? 'best' : '' },
+          objectTypes.map((objectType) => h('td', {}, String((row.theories || [])
+            .filter((theory) => (CODE_TO_TYPE[theory.objectType] || theory.objectType) === objectType)
+            .reduce((total, theory) => total + (theory.points || 0), 0)))),
+          h('td', {}, String(row.leaderBonus || 0)),
+          h('td', {}, String(row.locatePoints || 0)),
+          h('td', { class: 'score-total' }, String(row.total)),
+        )),
       ),
-      h(
-        'tbody',
-        {},
-        ...board.rows.map((row) =>
-          h(
-            'tr',
-            { class: (board.finished ? winners.some((winner) => winner.id === row.id) : row.total === best && best > 0) ? 'best' : '' },
-            h(
-              'th',
-              { class: 'score-name' },
-              h('span', { class: 'dot', style: { background: row.color || '#5eead4' } }),
-              row.name,
-            ),
-            h('td', {}, String(row.correctTheories)),
-            h('td', {}, String(row.theoryPoints)),
-            h('td', {}, row.leaderBonus ? `+${row.leaderBonus}` : '—'),
-            h('td', {}, row.located ? `${row.locatePoints}${row.id === board.firstFinderId ? '（首个）' : ''}` : '—'),
-            h('td', { class: 'score-total' }, String(row.total)),
-          ),
-        ),
-      ),
-    ),
+    )),
     h(
       'p',
       { class: 'muted small' },
-      `理论分：${board.theoryPoints}；每个最早阶段提交正确理论的扇区 +${board.leaderBonus}（同阶段共享）；第一个正确定位 X行星 +${board.locateFirst}，最后机会定位正确按冻结时落后格数每格 +${board.locatePerSector}。同分依次比较定位分、首对奖励，仍同分则并列。`,
+      `理论分：${objectTypes.map((objectType) => `${LABEL[objectType]} ${theoryPointsFor(game.mode, objectType)}`).join(' · ')}；每个最早阶段提交正确理论的扇区 +${board.leaderBonus}（同阶段共享）；第一个正确定位 X行星 +${board.locateFirst}，已计入定位列，不再重复加分。最后机会定位正确按冻结时落后格数每格 +${board.locatePerSector}。同分依次比较定位分、首对奖励，仍同分则并列。`,
     ),
   );
 }
@@ -1430,7 +1455,8 @@ export function renderToast({ state }) {
 function playModePicker({ value, onPick }) {
   const options = [
     { id: 'record', title: '记录模式', detail: '配合实体版／官方 app，手动记录结果。支持 12／18 扇区。' },
-    { id: 'builtin', title: '内置谜题', detail: '标准 12 扇区原创谜题，系统出题、查询、评审与结算。' },
+    { id: 'builtin', title: '内置谜题', detail: '标准 12 扇区／专家 18 扇区原创谜题，系统出题、查询、评审与结算。' },
+    { id: 'tutorial', title: '双人教学', detail: '你与 Bot「领航员」逐步练习，从认识星图到定位与结算。' },
   ];
   return h('div', { class: 'play-mode-picker', role: 'group', 'aria-label': '游戏模式' }, options.map((option) =>
     h('label', { class: `play-mode-option${option.id === value ? ' selected' : ''}` },
@@ -1472,6 +1498,7 @@ export function renderModal({ state, api }) {
   const { ui, game } = state;
   const modal = ui.modal;
   if (!modal) return null;
+  if (modal.kind === 'locate' && game.tutorial && (game.tutorial.interaction !== 'action' || tutorialExpected(game)?.kind !== 'locate')) return null;
 
   const close = () => api.setUi({ modal: null });
   let title = '';
@@ -1493,25 +1520,24 @@ export function renderModal({ state, api }) {
         h('li', {}, `扫描：得知一个扇区的观测结果（X行星会显示为「空域」）。全场只有 ${MAX_TARGET_USES} 次，每次耗时 ${durationLabel(COST.target)}。`),
         h('li', {}, `研究：获得一条本局专属规律，耗时 ${durationLabel(COST.research)}，自己的相邻两次行动不能都是研究；每个主题只能研究一次。`),
         h('li', {}, `定位：提交 X行星扇区与左右邻居，耗时 ${durationLabel(COST.locate)}。答错只损失时间。`),
-        h('li', {}, `等待：本网页版新增，耗时 ${durationLabel(COST.wait)}，棋子前进一格（原版没有这个行动）。`),
       ),
       h('h3', {}, '时间与可见天区'),
       h(
         'p',
         {},
-        `时间以「时间单位」计，每单位让行动者的棋子前进一格。当前位置显示「第几圈／第几格」，从第 1 圈／第 1 格开始：标准棋盘 12 格一圈，专家棋盘 18 格一圈，不对应月份或年份。当前棋盘 ${game.mode.sectors} 格，每圈 ${game.mode.sectors} 个时间单位，同时可见 ${game.mode.visible} 个连续扇区。天窗跟随全桌耗时最少的玩家，地球位于可见窗口中线；勘测与扫描必须在可见范围内。`,
+        `时间以「时间单位」计，每单位让行动者的棋子前进一格。当前位置显示「第几圈／第几格」，从第 1 圈／第 1 格开始：标准棋盘 12 格一圈，专家棋盘 18 格一圈，不对应月份或年份。当前棋盘 ${game.mode.sectors} 格，每圈 ${game.mode.sectors} 个时间单位，同时可见 ${game.mode.visible} 个连续扇区。天窗跟随全桌累计耗时最少的玩家，跨圈也按总耗时比较；同格先到者在后，先行动、先提交，后来者站在顺时针前方。地球位于可见窗口中线；勘测与扫描必须在可见范围内，彗星勘测起止点还必须是质数编号扇区。`,
       ),
       h('h3', {}, 'X行星会议'),
       h(
         'p',
         {},
-        `会议挂在时间轨的 ${conferenceSectors(game.mode).join('、')} 号扇区上（标准模式 1 次、专家模式 2 次）。天窗箭头经过时召开。内置谜题自动公布会议线索；记录模式把官方 app 给出的规律抄进会议栏。`,
+        `会议挂在时间轨的 ${conferenceSectors(game.mode).join('、')} 号扇区上（标准模式 1 次、专家模式 2 次）。天窗起点离开事件标记时召开：${conferenceSectors(game.mode).map((sector) => `${sector}→${mod(sector, game.mode.sectors) + 1} 号（首圈时间 ${sector}）`).join('、')}，不是进入标记时。内置谜题自动公布会议线索；记录模式把官方 app 给出的规律抄进会议栏。`,
       ),
       h('h3', {}, '学术研究 / 同行评审'),
       h(
         'p',
         {},
-        `论文阶段可以在尚未公开的扇区发表理论；不能重复自己的同一主张，也不能在同一阶段向同一扇区提交不同天体。每个论文阶段结束时所有未评审论文推进一格：${THEORY_TRACK.join(' → ')}，零提交也照常推进。到达 1 时按扇区顺序评审：内置谜题自动判定，记录模式填写官方 app 结果。错误主张也公开，每篇错误论文只处罚 1 个时间单位。`,
+        `天窗起点离开论文事件标记时触发阶段：${theorySectors(game.mode).map((sector) => `${sector}→${mod(sector, game.mode.sectors) + 1} 号（首圈时间 ${sector}）`).join('、')}。可以在尚未公开正确答案的扇区发表理论；不能重复自己的同一主张，也不能在同一阶段向同一扇区提交不同天体，之后的阶段可以在未揭晓扇区尝试不同天体。每个论文阶段结束时所有未评审论文推进一格：${THEORY_TRACK.join(' → ')}，零提交也照常推进。到达 1 时按扇区顺序评审：内置谜题自动判定，记录模式填写官方 app 结果。错误主张也公开，每篇错误论文只处罚 1 个时间单位。`,
       ),
       h('h3', {}, '最后机会与揭示'),
       h('p', {}, '首次正确定位后冻结天窗。落后 1–3 格的玩家可提交最多 1 篇理论，落后 4–5 格可提交最多 2 篇；也可改为定位或放弃，均不移动棋子。全部完成后，内置谜题自动揭晓棋盘；记录模式由房主填写官方 app 答案。剩余理论统一结算，不再罚时。内置单人是独立解谜，不含官方单人机器人。'),
@@ -1524,6 +1550,8 @@ export function renderModal({ state, api }) {
     const cur = ui.locate || { sector: 0, left: 'asteroid', right: 'asteroid', correct: true };
     const final = game.phase === 'final';
     const cost = final ? 0 : COST.locate;
+    const expected = tutorialExpected(game);
+    const guidance = expected ? { 'aria-describedby': 'tutorial-locate-instruction' } : {};
     body = h(
       'div',
       { class: 'modal-body' },
@@ -1536,6 +1564,7 @@ export function renderModal({ state, api }) {
           ? '这是你唯一的最后机会，不再消耗时间或移动棋子。请记录官方 app 的判定；提交后不能再改为发表理论。答案在全盘揭示前保密。'
           : `记录你向官方 app 提交的答案与判定，消耗 ${durationLabel(cost)}。正确后进入最后机会／揭示阶段，错误则继续游戏；答案在全盘揭示前保密。`,
       ),
+      expected ? h('p', { class: 'tutorial-focus-label', id: 'tutorial-locate-instruction' }, `教学目标：${expected.sector + 1} 号 · 左邻：${labelOf(expected.left)} · 右邻：${labelOf(expected.right)}`) : null,
       h(
         'div',
         { class: 'locate-grid' },
@@ -1545,7 +1574,7 @@ export function renderModal({ state, api }) {
           'X行星扇区',
           h(
             'select',
-            { onchange: (e) => api.setUi({ locate: { ...cur, sector: Number(e.target.value) } }) },
+            { ...guidance, 'aria-label': 'X行星扇区', 'data-tutorial-target': expected ? 'locate-sector' : null, onchange: event => api.setUi({ locate: { ...cur, sector: Number(event.target.value) } }) },
             Array.from({ length: n }, (_, i) => h('option', { value: i, selected: i === cur.sector }, `${i + 1} 号`)),
           ),
         ),
@@ -1555,7 +1584,7 @@ export function renderModal({ state, api }) {
           '左邻居（顺时针前一格）',
           h(
             'select',
-            { onchange: (e) => api.setUi({ locate: { ...cur, left: e.target.value } }) },
+            { ...guidance, 'aria-label': '左邻居', 'data-tutorial-target': expected ? 'left' : null, onchange: event => api.setUi({ locate: { ...cur, left: event.target.value } }) },
             types.map((t) => h('option', { value: t, selected: t === cur.left }, LABEL[t])),
           ),
         ),
@@ -1565,7 +1594,7 @@ export function renderModal({ state, api }) {
           '右邻居（顺时针后一格）',
           h(
             'select',
-            { onchange: (e) => api.setUi({ locate: { ...cur, right: e.target.value } }) },
+            { ...guidance, 'aria-label': '右邻居', 'data-tutorial-target': expected ? 'right' : null, onchange: event => api.setUi({ locate: { ...cur, right: event.target.value } }) },
             types.map((t) => h('option', { value: t, selected: t === cur.right }, LABEL[t])),
           ),
         ),
@@ -1654,12 +1683,14 @@ export function renderModal({ state, api }) {
         { class: 'muted' },
         '先选择游玩方式。内置谜题可以独立完成一整局；记录模式用于同步实体版或官方 app。',
       ),
-      playModePicker({ value: playMode, onPick: (nextMode) => api.setUi({ playMode: nextMode, ...(nextMode === 'builtin' ? { modeId: 'standard' } : {}) }) }),
-      playMode === 'builtin'
-        ? h('div', { class: 'builtin-mode-note' }, h('strong', {}, '标准 12 扇区 · 单人解谜'), h('p', { class: 'muted small' }, '初始线索 → 观测／研究 → 论文评审 → 定位 → 自动揭晓。需要本地服务保持运行；尚不包含专家棋盘或机器人。多人请到「联机」创建内置谜题房间。不会覆盖你的本地记录存档。'))
+      playModePicker({ value: playMode, onPick: nextMode => api.setUi({ playMode: nextMode, ...(nextMode === 'tutorial' ? { modeId: 'standard', initialClueCount: 4 } : {}) }) }),
+      playMode === 'tutorial'
+        ? h('div', { class: 'builtin-mode-note' }, h('strong', {}, '标准 12 扇区 · 固定 4 条初始线索'), h('p', { class: 'muted small' }, '固定一名真人与 Bot「领航员」。按教学指南完成真实行动，手动观看 Bot 演示，直到定位与结算；退出后恢复原房间与笔记。需要本地服务保持运行。'))
         : h('div', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '新一局用哪块棋盘'), modePicker({ value: picked.id, onPick: (id) => api.setUi({ modeId: id }) })),
+      playMode === 'builtin' && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
+      playMode === 'builtin' && h('div', { class: 'builtin-mode-note' }, h('strong', {}, `${picked.name} ${picked.sectors} 扇区 · 单人解谜`), h('p', { class: 'muted small' }, '初始线索 → 观测／研究 → 论文评审 → 定位 → 自动揭晓。需要本地服务保持运行；多人可到「联机」创建内置谜题房间。不会覆盖你的本地记录存档。')),
       playMode === 'record' && h('p', { class: 'muted small' }, '开始新记录局会清空本地记录与手写笔记，时间回到第 1 圈／第 1 格。'),
-      state.remote && h('p', { class: 'muted small' }, '开始新局会离开当前房间视图，但不会删除房间或影响其他玩家。'),
+      state.remote && playMode !== 'tutorial' && h('p', { class: 'muted small' }, '开始新局会离开当前房间视图，但不会删除房间或影响其他玩家。'),
       lobby.error && h('p', { class: 'lobby-error' }, lobby.error),
     );
     actions = [
@@ -1671,12 +1702,12 @@ export function renderModal({ state, api }) {
           'data-modal-trigger': 'new-game',
           disabled: lobby.busy,
           onclick: () => {
-            if (playMode === 'builtin') return api.startBuiltin();
+            if (playMode === 'builtin' || playMode === 'tutorial') return api.startBuiltin();
             api.newSession(picked.id);
             close();
           },
         },
-        lobby.busy ? '正在创建谜题…' : playMode === 'builtin' ? '开始内置谜题' : '开始',
+        lobby.busy ? '正在创建谜题…' : playMode === 'tutorial' ? '开始双人教学' : playMode === 'builtin' ? '开始内置谜题' : '开始',
       ),
     ];
   } else if (modal.kind === 'lobby') {
@@ -1720,13 +1751,14 @@ export function renderModal({ state, api }) {
     syncJoin(lobby);
 
     if (online) {
-      title = '房间';
+      title = game.tutorial ? '双人教学' : '房间';
       body = h(
         'div',
         { class: 'modal-body' },
-        h('p', {}, `房间码：`, h('b', { class: 'room-code' }, state.remote.roomId)),
+        !game.tutorial && h('p', {}, `房间码：`, h('b', { class: 'room-code' }, state.remote.roomId)),
         h('p', { class: 'muted small' }, `棋盘：${game.mode.name}（${game.mode.sectors} 个扇区）· ${eventSummary(game.mode)}`),
-        h('p', { class: 'muted small' }, '把这 6 位码念给同桌的人，他们在自己的设备上打开本页、点「联机」→「加入房间」即可。'),
+        h('p', { class: 'muted small' }, game.tutorial ? '你与 Bot「领航员」的固定双人教学，不接受其他玩家加入。' : '把这 6 位码念给同桌的人，他们在自己的设备上打开本页、点「联机」→「加入房间」即可。'),
+        initialCluePicker({ value: game.initialClueCount ?? 4, readOnly: !game.amHost || game.phase !== 'lobby' || Boolean(game.tutorial), onPick: count => api.setInitialClueCount(count) }),
         h(
           'div',
           { class: 'player-bar' },
@@ -1746,7 +1778,7 @@ export function renderModal({ state, api }) {
           ? h(
               'div',
               { class: 'shared-edit' },
-              h('h3', {}, '全桌共享信息', h('span', { class: 'muted small' }, ' A–F 课题名与会议线索，房主可以随时改')),
+              h('h3', {}, '全桌共享信息', h('span', { class: 'muted small' }, ' A–F 课题名、会议标题与线索正文，由房主填写')),
               sharedInfoBlock({ game, api, readOnly: false, draft: ui.tableInfo, onPatch: (fn) => api.patchTableInfo(fn, true) }),
               h(
                 'div',
@@ -1758,33 +1790,37 @@ export function renderModal({ state, api }) {
       );
       actions = [
         h('button', { class: 'btn ghost', onclick: close }, '关闭'),
-        h('button', { class: 'btn', onclick: () => api.leaveRoom() }, '离开房间（回到单机）'),
+        game.tutorial ? h('button', { class: 'btn', onclick: () => api.exitTutorial() }, '退出教学') : h('button', { class: 'btn', onclick: () => api.leaveRoom() }, '离开房间（回到单机）'),
       ];
     } else {
-      title = '联机 · 同一张桌子上玩';
+      const playMode = ui.playMode || 'record';
+      const tutorial = playMode === 'tutorial';
+      title = tutorial ? '双人教学' : '联机 · 同一张桌子上玩';
       body = h(
         'div',
         { class: 'modal-body' },
-        h('p', { class: 'muted' }, '一台设备开房间，其他人用房间码加入：时间轨与天窗共享，观测结果各自保密。'),
+        h('p', { class: 'muted' }, tutorial ? '固定一名真人与 Bot「领航员」，逐步完成观测、论文、会议与定位。' : '一台设备开房间，其他人用房间码加入：时间轨与天窗共享，观测结果各自保密。'),
         h('label', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '你的名字'), nameInput),
-        playModePicker({ value: ui.playMode || 'record', onPick: (playMode) => api.setUi({ playMode, ...(playMode === 'builtin' ? { modeId: 'standard' } : {}) }) }),
-        ui.playMode === 'builtin'
-          ? h('p', { class: 'builtin-mode-note small' }, '标准 12 扇区 · 可单人开始或邀请最多 6 人。开局后锁定玩家；系统自动处理谜题与结算。')
+        playModePicker({ value: playMode, onPick: nextMode => api.setUi({ playMode: nextMode, ...(nextMode === 'tutorial' ? { modeId: 'standard', initialClueCount: 4 } : {}) }) }),
+        tutorial
+          ? h('p', { class: 'builtin-mode-note small' }, '标准 12 扇区 · 固定 4 条初始线索。教学期间按步骤操作，退出后恢复原房间与笔记。')
           : h('div', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '棋盘（房主选，全桌一致）'), modePicker({ value: ui.modeId, onPick: (id) => api.setUi({ modeId: id }) })),
+        !tutorial && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
+        playMode === 'builtin' && h('p', { class: 'builtin-mode-note small' }, `支持标准／专家棋盘 · 1–${BUILTIN_MAX_PLAYERS} 人（含房主），可单人开始。开局后锁定玩家；系统自动分发初始线索并处理谜题与结算。`),
         h(
           'div',
           { class: 'lobby-actions' },
-          h('button', { class: 'btn primary', disabled: lobby.busy, onclick: () => api.createRoom() }, lobby.busy ? '处理中…' : '创建房间'),
+          h('button', { class: 'btn primary', disabled: lobby.busy, onclick: () => tutorial ? api.startBuiltin() : api.createRoom() }, lobby.busy ? '处理中…' : tutorial ? '开始双人教学' : '创建房间'),
         ),
-        h('hr', { class: 'lobby-sep' }),
-        h(
+        !tutorial && h('hr', { class: 'lobby-sep' }),
+        !tutorial && h(
           'label',
           { class: 'lobby-field' },
           h('span', { class: 'muted small' }, '房间码（6 位，回车即可加入）'),
           codeInput,
         ),
-        h('div', { class: 'lobby-actions' }, joinButton),
-        h('p', { class: 'muted small' }, '房主给你的 6 位房间码，大小写都行、粘贴时带了空格或横线也没关系；填好按钮就会亮，回车同样可以加入。'),
+        !tutorial && h('div', { class: 'lobby-actions' }, joinButton),
+        !tutorial && h('p', { class: 'muted small' }, '房主给你的 6 位房间码，大小写都行、粘贴时带了空格或横线也没关系；填好按钮就会亮，回车同样可以加入。'),
         lobby.error ? h('p', { class: 'lobby-error' }, lobby.error) : null,
         h('p', { class: 'muted small' }, '房间保存在服务器内存里：服务器重启后房间会消失，需要重新开一个。'),
       );

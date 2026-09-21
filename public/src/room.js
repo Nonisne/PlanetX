@@ -13,11 +13,14 @@
 //   * survey counts, scan results, research subject names and clue texts
 //   * the object a theory claims, until a peer review reveals that sector
 import {
+  BUILTIN_MAX_PLAYERS,
+  INITIAL_CLUE_COUNTS,
   MAX_TARGET_USES,
   MODES,
   arcSectors,
   conferenceSectors,
   eventsAt,
+  isCometSector,
   modeById,
   mod,
   theorySectors,
@@ -41,7 +44,7 @@ import {
   recordWait,
   revealObjects,
   theoriesAwaitingReview,
-  theoryLockedSectors,
+  theoryOptionsFor,
   theoryQuota,
   timeOf,
   undoLast,
@@ -50,7 +53,7 @@ import {
 } from './console.js';
 import { scoreBoard } from './score.js';
 import { crossedEvents } from './phases.js';
-import { Obj, INITIAL_CLUE_TYPES, THEORY_TYPES, apparentType } from './types.js';
+import { Obj, INITIAL_CLUE_TYPES, apparentType } from './types.js';
 
 /** Object types an initial clue may rule out. */
 export const CLUE_TYPES = INITIAL_CLUE_TYPES;
@@ -115,11 +118,11 @@ function makeToken() {
   return `${Date.now().toString(36)}-${makeId(16)}`;
 }
 
-export function createRoom({ modeId = 'standard', hostName = '主持人', playMode = 'record', puzzle = null } = {}) {
+export function createRoom({ modeId = 'standard', hostName = '主持人', playMode = 'record', puzzle = null, initialClueCount = 4 } = {}) {
   // an unknown mode must never reach the console (it would have no `mode` at all)
   const mode = modeById(modeId);
   if (!['record', 'builtin'].includes(playMode)) throw new Error('请选择记录模式或内置谜题模式');
-  if (playMode === 'builtin' && mode.id !== 'standard') throw new Error('内置谜题目前支持标准 12 扇区棋盘');
+  if (!INITIAL_CLUE_COUNTS.includes(initialClueCount)) throw new Error('初始线索数量只能选择 0、4、8、12 条');
   if (playMode === 'builtin' && (!puzzle || puzzle.objects?.length !== mode.sectors || !puzzle.topics || !puzzle.startingClues)) {
     throw new Error('内置谜题尚未生成，请重新创建房间');
   }
@@ -128,12 +131,14 @@ export function createRoom({ modeId = 'standard', hostName = '主持人', playMo
     createdAt: Date.now(),
     modeId: mode.id,
     playMode,
+    initialClueCount,
     puzzle: playMode === 'builtin' ? puzzle : null,
     session: { ...createConsole({ modeId: mode.id }), topics: null, roomManaged: true },
     players: [],
     playerTopics: {},
     // filled in by the host during setup and shared by the whole table
     topicNames: emptyTopicNames(),
+    conferenceNames: Object.fromEntries(conferenceSectors(mode).map((sector) => [sector, `X行星会议 · ${sector} 号`])),
     conferenceRules: {},
     listeners: new Set(),
     // lobby -> setup (initial clues + A–F subject names) -> play -> done
@@ -149,14 +154,16 @@ export function createRoom({ modeId = 'standard', hostName = '主持人', playMo
   room.hostId = host.id;
   if (room.playMode === 'builtin') {
     room.topicNames = Object.fromEntries(TOPIC_IDS.map((topic) => [topic, puzzle.topics[topic].name]));
+    room.conferenceNames = readConferenceNames(room, puzzle.conferenceNames || {}).names;
     mirrorTopicNames(room);
   }
   return room;
 }
 
 export function addPlayer(room, name) {
+  if (room.tutorialState) throw new Error('教学房间固定为 1 名真人和 1 个 Bot，不能加入其他玩家');
   if (room.playMode === 'builtin' && room.phase !== 'lobby') throw new Error('内置谜题已开始，不能中途加入');
-  if (room.playMode === 'builtin' && room.players.length >= 6) throw new Error('内置谜题最多支持 6 名玩家');
+  if (room.playMode === 'builtin' && room.players.length >= BUILTIN_MAX_PLAYERS) throw new Error(`内置谜题最多支持 ${BUILTIN_MAX_PLAYERS} 名玩家`);
   const used = new Set(room.players.map((p) => p.color));
   const player = {
     id: makeId(4),
@@ -170,7 +177,7 @@ export function addPlayer(room, name) {
   room.playerTopics[player.id] = emptyTopics();
   if (room.phase === 'setup') {
     // somebody joined after the host started: they still get a setup card
-    room.setup[player.id] = { clues: [], noClues: false, topics: { ...emptyTopics() }, ready: false };
+    room.setup[player.id] = { ...setupDefaults(), initialClueCount: room.initialClueCount, noClues: room.initialClueCount === 0 };
   }
   return player;
 }
@@ -234,7 +241,7 @@ export function pawnOf(room, playerId) {
 const TURN_ACTIONS = new Set(['survey', 'target', 'research', 'wait']);
 
 export function setupDefaults() {
-  return { clues: [], noClues: false, topics: { ...emptyTopics() }, ready: false };
+  return { clues: [], noClues: false, initialClueCount: null, cluesClaimed: false, topics: { ...emptyTopics() }, ready: false };
 }
 
 /** Which setup cards are still missing. */
@@ -286,6 +293,8 @@ export function viewFor(room, playerId) {
   view.roomId = room.id;
   view.modeId = room.modeId;
   view.playMode = room.playMode || 'record';
+  if (room.tutorialView) view.tutorial = structuredClone(room.tutorialView);
+  view.initialClueCount = room.initialClueCount;
   view.me = playerId;
   view.phase = room.phase;
   view.hostId = room.hostId || null;
@@ -298,6 +307,8 @@ export function viewFor(room, playerId) {
   view.canStart = playerId === room.hostId && room.phase === 'lobby' && room.players.length >= (room.playMode === 'builtin' ? 1 : 2);
   view.mySetup = me ? room.setup[playerId] || null : null;
   view.topicNames = { ...room.topicNames };
+  view.conferenceNames = { ...room.conferenceNames };
+  view.conferenceSectors = conferenceSectorsOf(room);
   view.conferenceRules = { ...room.conferenceRules };
   view.conferenceRuleSectors = conferenceSectorsOf(room);
   view.players = room.players.map((p) => {
@@ -330,6 +341,7 @@ export function viewFor(room, playerId) {
   // the round table and the score table speak for the whole table, so they are rebuilt
   // from this player's (redacted) log with everybody's names attached
   const mineState = stateFor(room, playerId);
+  view.theoryOptions = theoryOptionsFor(mineState, { phaseId: room.research?.id || room.endgame?.publicationPhase || null });
   view.rounds = actionRounds(mineState, view.players);
   view.scores = scoreBoard(mineState, view.players);
 
@@ -422,15 +434,28 @@ function readTopicNames(raw) {
 
 /** The shared conference notes: one per conference sector of this board (1 or 2). */
 function readConferenceRules(room, raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '会议线索格式不合法' };
   const allowed = conferenceSectorsOf(room);
   const rules = {};
   for (const [key, value] of Object.entries(raw || {})) {
     const sector = Number(key);
     if (!allowed.includes(sector)) continue; // a note for a sector this board does not use
+    if (value != null && typeof value !== 'string') return { ok: false, error: '会议线索应填写文字' };
     const text = String(value == null ? '' : value).trim().slice(0, MAX_CONFERENCE_NOTE);
     if (text) rules[sector] = text;
   }
   return { ok: true, rules };
+}
+
+function readConferenceNames(room, raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '会议标题格式不合法' };
+  const names = {};
+  for (const sector of conferenceSectorsOf(room)) {
+    const value = raw[sector];
+    if (value != null && typeof value !== 'string') return { ok: false, error: '会议标题应填写文字' };
+    names[sector] = String(value || '').trim().slice(0, MAX_TOPIC_NAME) || `X行星会议 · ${sector} 号`;
+  }
+  return { ok: true, names };
 }
 
 /**
@@ -439,7 +464,7 @@ function readConferenceRules(room, raw) {
  * actions are validated by the same console engine the offline mode uses, with
  * `actorId` set so per-player rules are enforced for that player only.
  */
-const RECORD_ONLY_ACTIONS = new Set(['review', 'conference', 'undo', 'nudge', 'reveal-objects', 'set-topic-names', 'set-conference-rules', 'skip-turn']);
+const RECORD_ONLY_ACTIONS = new Set(['review', 'conference', 'undo', 'nudge', 'reveal-objects', 'set-topic-names', 'set-conference-rules', 'set-conference-names', 'skip-turn']);
 
 function resolveBuiltinAction(room, action) {
   const objects = room.puzzle.objects;
@@ -463,22 +488,22 @@ function resolveBuiltinAction(room, action) {
 }
 
 function settleBuiltin(room) {
-  if (room.conference && room.phase === 'play') {
+  while (room.phase === 'play') {
+    const awaiting = theoriesAwaitingReview(room.session);
+    if (awaiting.length) {
+      const theory = awaiting.sort((first, second) => first.sector - second.sector || first.id - second.id)[0];
+      const reviewed = reviewTheory(room, room.hostId, { id: theory.id, review: room.puzzle.objects[theory.sector] === theory.objectType ? 'correct' : 'wrong' });
+      if (!reviewed.ok) return reviewed;
+      continue;
+    }
+    if (!room.conference || room.research) break;
     const sector = room.conference.sector;
     const text = room.puzzle.conferences[sector];
     const recorded = act(room, playerById(room, room.conference.byId) || room.players[0], { kind: 'conference', sector, text }, { fn: recordConference });
     if (!recorded.ok) return recorded;
     room.conferenceRules[sector] = text;
     room.conference = null;
-  }
-  while (room.phase === 'play' && theoriesAwaitingReview(room.session).length) {
-    const theory = theoriesAwaitingReview(room.session).sort((first, second) => first.sector - second.sector || first.id - second.id)[0];
-    const reviewed = reviewTheory(room, room.hostId, { id: theory.id, review: room.puzzle.objects[theory.sector] === theory.objectType ? 'correct' : 'wrong' });
-    if (!reviewed.ok) return reviewed;
-    if (room.conference) {
-      const settled = settleBuiltin(room);
-      if (!settled.ok) return settled;
-    }
+    nextResearch(room);
   }
   if (room.phase === 'reveal') {
     const revealed = revealObjects(room.session, room.puzzle.objects);
@@ -518,21 +543,44 @@ function applyAction(room, playerId, action) {
   }
   if (room.phase === 'done') return { ok: false, error: '本局已结束' };
 
+  if (kind === 'set-initial-clue-count') {
+    if (!isHost) return { ok: false, error: '只有房主可以决定全体玩家的初始线索数量' };
+    if (room.phase !== 'lobby') return { ok: false, error: '初始线索数量在开始游戏后不能更改' };
+    if (!INITIAL_CLUE_COUNTS.includes(action.count)) return { ok: false, error: '初始线索数量只能选择 0、4、8、12 条' };
+    room.initialClueCount = action.count;
+    return { ok: true, count: room.initialClueCount };
+  }
+
   // ---- lobby ----
   if (kind === 'start-game') {
     if (!isHost) return { ok: false, error: '只有房主可以开始游戏' };
     if (room.phase !== 'lobby') return { ok: false, error: '游戏已经开始过了' };
     if (room.players.length < 2 && room.playMode !== 'builtin') return { ok: false, error: '至少需要 2 名玩家才能开始（单人请用单机记录台）' };
-    room.phase = 'setup';
-    for (const [index, participant] of room.players.entries()) {
-      const card = setupDefaults();
+    const cards = {};
+    for (const [seat, participant] of room.players.entries()) {
+      const card = { ...setupDefaults(), initialClueCount: room.initialClueCount, noClues: room.initialClueCount === 0 };
       if (room.playMode === 'builtin') {
-        card.clues = room.puzzle.startingClues[index].map((clue) => ({ sector: clue.sector, type: clue.objectType }));
+        const pool = room.puzzle.startingClues[seat];
+        if (!Array.isArray(pool) || pool.length < room.initialClueCount) return { ok: false, error: '本局初始线索不足，请重新创建房间' };
+        card.clues = pool.slice(0, room.initialClueCount).map((clue) => ({ sector: clue.sector, type: clue.objectType }));
+        card.cluesClaimed = true;
         card.topics = mergedTopics(room, participant.id);
       }
-      room.setup[participant.id] = card;
+      cards[participant.id] = card;
     }
+    room.setup = cards;
+    room.phase = 'setup';
     return { ok: true, phase: room.phase };
+  }
+
+  if (kind === 'claim-initial-clues') {
+    if (room.playMode !== 'builtin' || room.phase !== 'setup') return { ok: false, error: '仅在内置谜题开局时领取初始线索' };
+    const count = action.count;
+    if (!INITIAL_CLUE_COUNTS.includes(count)) return { ok: false, error: '初始线索数量只能选择 0、4、8、12 条' };
+    const card = room.setup[playerId];
+    return card?.cluesClaimed && count === room.initialClueCount
+      ? { ok: true, count }
+      : { ok: false, error: '初始线索由房主统一决定并自动分发，不能更改数量或重新领取' };
   }
 
   // ---- setup: initial clues + the shared A–F names + the conference notes ----
@@ -547,13 +595,13 @@ function applyAction(room, playerId, action) {
 
     const card = room.setup[playerId] || setupDefaults();
     if (room.playMode === 'builtin') {
+      if (!card.cluesClaimed) return { ok: false, error: '系统尚未分发初始线索，请刷新后重试' };
       card.ready = true;
       room.setup[playerId] = card;
       if (readyCount(room) === room.players.length) room.phase = 'play';
       return { ok: true, phase: room.phase, ready: readyCount(room) };
     }
     const rawClues = action.noClues ? [] : Array.isArray(action.clues) ? action.clues : [];
-    if (rawClues.length > MAX_SETUP_CLUES) return { ok: false, error: `初始线索最多填 ${MAX_SETUP_CLUES} 条` };
     const clues = [];
     for (const clue of rawClues) {
       const sector = Number(clue && clue.sector);
@@ -562,36 +610,42 @@ function applyAction(room, playerId, action) {
         return { ok: false, error: '初始线索的扇区编号不合法' };
       }
       if (!CLUE_TYPES.includes(type)) return { ok: false, error: '初始线索的天体只能是：小行星／彗星／气体云／矮行星' };
+      if (type === Obj.COMET && !isCometSector(room.session.mode, sector)) return { ok: false, error: '该扇区按基础规则就不可能存在彗星，不能作为初始线索' };
       if (clues.some((c) => c.sector === sector && c.type === type)) continue;
       clues.push({ sector, type });
     }
 
+    if (clues.length > MAX_SETUP_CLUES) return { ok: false, error: `初始线索最多填 ${MAX_SETUP_CLUES} 条` };
+    if (clues.length !== room.initialClueCount) return { ok: false, error: `房主规定每人填写 ${room.initialClueCount} 条不同的初始线索` };
+
+    const names = isHost && action.topics ? readTopicNames(action.topics) : { ok: true, names: room.topicNames };
+    const rules = isHost && action.conferences !== undefined ? readConferenceRules(room, action.conferences) : { ok: true, rules: room.conferenceRules };
+    const conferenceNames = isHost && action.conferenceNames !== undefined ? readConferenceNames(room, action.conferenceNames) : { ok: true, names: room.conferenceNames };
+    for (const checked of [names, rules, conferenceNames]) if (!checked.ok) return checked;
+
     // the six subject names are printed on everybody's sheet, so only the host types them
     if (isHost && action.topics) {
-      const names = readTopicNames(action.topics);
-      if (!names.ok) return names;
       room.topicNames = names.names;
       mirrorTopicNames(room);
     }
     // the conference notes are shared knowledge too, but they only exist in 1 or 2 places
-    if (isHost && action.conferences) {
-      const rules = readConferenceRules(room, action.conferences);
-      if (!rules.ok) return rules;
+    if (isHost && action.conferences !== undefined) {
       room.conferenceRules = rules.rules;
     }
+    if (isHost && action.conferenceNames !== undefined) room.conferenceNames = conferenceNames.names;
 
     const topics = {};
     for (const id of TOPIC_IDS) {
       topics[id] = { name: room.topicNames[id] || '', clue: (card.topics[id] && card.topics[id].clue) || '' };
     }
-    room.setup[playerId] = { clues, noClues: Boolean(action.noClues), topics, ready: true };
+    room.setup[playerId] = { clues, noClues: room.initialClueCount === 0, initialClueCount: room.initialClueCount, cluesClaimed: true, topics, ready: true };
     room.playerTopics[playerId] = topics;
     if (readyCount(room) === room.players.length) room.phase = 'play';
     return { ok: true, phase: room.phase, ready: readyCount(room) };
   }
 
   // ---- the host may correct the table-wide setup information later on ----
-  if (kind === 'set-topic-names' || kind === 'set-conference-rules') {
+  if (kind === 'set-topic-names' || kind === 'set-conference-rules' || kind === 'set-conference-names') {
     if (!isHost) return { ok: false, error: '只有房主可以修改全桌共享的开局信息' };
     if (room.phase !== 'setup' && room.phase !== 'play') return { ok: false, error: '开局信息只能在对局中修改' };
     if (kind === 'set-topic-names') {
@@ -600,6 +654,12 @@ function applyAction(room, playerId, action) {
       room.topicNames = names.names;
       mirrorTopicNames(room);
       return { ok: true, names: room.topicNames };
+    }
+    if (kind === 'set-conference-names') {
+      const names = readConferenceNames(room, action.names || {});
+      if (!names.ok) return names;
+      room.conferenceNames = names.names;
+      return { ok: true, names: room.conferenceNames };
     }
     const rules = readConferenceRules(room, action.rules || {});
     if (!rules.ok) return rules;
@@ -636,7 +696,10 @@ function applyAction(room, playerId, action) {
   if (kind === 'conference') {
     const res = act(room, player, action, { fn: recordConference });
     // writing the clue down answers the prompt the crossing opened
-    if (res.ok && room.conference && Number(room.conference.sector) === Number(action.sector)) room.conference = null;
+    if (res.ok && room.conference && Number(room.conference.sector) === Number(action.sector)) {
+      room.conference = null;
+      nextResearch(room);
+    }
     return res;
   }
 
@@ -730,6 +793,7 @@ function beginEndgame(room, finder, windowTime, entry) {
   room.endgame = { firstFinderId: finder.id, firstFinderName: finder.name, frozenTimes, windowTime, publicationPhase: `final:${entry.id}`, players };
   room.research = null;
   room.pendingResearch = null;
+  room.pendingConferences = null;
   room.conference = null;
   advanceEndgame(room);
 }
@@ -826,20 +890,19 @@ function windowEvents(room, before, after, byId) {
   if (after <= before) return;
   for (const event of crossedEvents(room.session.mode, before, after)) {
     if (event.kind === 'theory') queueResearch(room, event);
+    else queueConference(room, event, byId);
   }
-  const conference = crossedConferenceSector(room.session.mode, before, after);
-  if (conference) queueConference(room, conference, byId);
+  nextResearch(room);
 }
 
 /**
  * The conference prompt: opened when the window walks over a conference sector that has
  * not been recorded yet. It never blocks the table — it just asks for the app's rule.
  */
-function queueConference(room, sector, playerId) {
-  if (room.conference) return room.conference; // one prompt at a time
-  if (room.session.entries.some((e) => e.type === 'conference' && e.sector === sector)) return null; // already written down
-  room.conference = { sector, byId: playerId };
-  return room.conference;
+function queueConference(room, event, playerId) {
+  if (room.conference?.sector === event.sector || room.session.entries.some((entry) => entry.type === 'conference' && entry.sector === event.sector)) return;
+  const pending = room.pendingConferences || (room.pendingConferences = []);
+  if (!pending.some((queued) => queued.sector === event.sector)) pending.push({ ...event, byId: playerId });
 }
 
 /**
@@ -849,7 +912,6 @@ function queueConference(room, sector, playerId) {
 function queueResearch(room, event) {
   const pending = room.pendingResearch || (room.pendingResearch = []);
   if (room.research?.id !== event.id && !pending.some((queued) => queued.id === event.id)) pending.push(event);
-  return nextResearch(room);
 }
 
 function openResearchWindow(room, event) {
@@ -881,7 +943,14 @@ function closeResearch(room) {
 
 function nextResearch(room) {
   if (room.research || theoriesAwaitingReview(room.session).length) return room.research;
+  if (room.playMode === 'builtin' && room.conference) return null;
   const pending = room.pendingResearch || [];
+  const conferences = room.pendingConferences || [];
+  if (!room.conference && conferences.length && (!pending.length || conferences[0].time < pending[0].time)) {
+    room.conference = conferences.shift();
+    if (!conferences.length) room.pendingConferences = null;
+    if (room.playMode === 'builtin') return null;
+  }
   const next = pending.shift();
   if (!pending.length) room.pendingResearch = null;
   if (next !== undefined) openResearchWindow(room, next);
@@ -889,17 +958,8 @@ function nextResearch(room) {
 }
 
 function declarationCapacity(room, playerId) {
-  const phase = room.research;
-  const locked = theoryLockedSectors(room.session);
-  const ownTheories = room.session.entries.filter((entry) => entry.type === 'theory' && (!entry.actorId || entry.actorId === playerId));
-  let capacity = 0;
-  for (let sector = 0; sector < room.session.mode.sectors && capacity < phase.quota; sector++) {
-    if (locked.has(sector)) continue;
-    const previous = ownTheories.filter((entry) => entry.sector === sector);
-    if (previous.some((entry) => entry.publicationPhase === phase.id)) continue;
-    if (THEORY_TYPES.some((objectType) => !previous.some((entry) => entry.objectType === objectType))) capacity++;
-  }
-  return capacity;
+  const options = theoryOptionsFor(stateFor(room, playerId), { phaseId: room.research.id });
+  return Math.min(room.research.quota, options.length);
 }
 
 function declareResearch(room, playerId, count) {
@@ -966,7 +1026,7 @@ function publishTheory(room, playerId, action) {
   if (!phase.order.length) return { ok: false, error: '先等所有人选好要提交的篇数' };
   if (phase.cursorId !== playerId) {
     const who = playerById(room, phase.cursorId);
-    return { ok: false, error: `按"靠后的先提交"，现在轮到 ${who ? who.name : '别人'}` };
+    return { ok: false, error: `落后者先提交；同格先到者在后。现在轮到 ${who ? who.name : '别人'}` };
   }
   if ((phase.left[playerId] || 0) <= 0) return { ok: false, error: '你这个阶段的名额已经用完了' };
   const player = playerById(room, playerId);
@@ -974,7 +1034,7 @@ function publishTheory(room, playerId, action) {
   // track steps forward when the phase closes, not on each paper
   const res = act(room, player, { kind: 'theory', sector: action.sector, type: action.objectType }, {
     fn: recordTheory,
-    engineOptions: { enforceSchedule: false, phaseId: phase.id },
+    engineOptions: { enforceSchedule: false, phaseId: phase.id, stationSector: phase.sector },
   });
   if (!res.ok) return res;
   const entry = res.entry;

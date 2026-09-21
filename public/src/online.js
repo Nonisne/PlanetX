@@ -24,14 +24,22 @@ export async function listModes() {
   return res.modes || [];
 }
 
-export async function createRoom({ name, modeId = 'standard', playMode = 'record' }) {
-  if (playMode === 'builtin') {
-    const capabilities = await request('/modes');
-    if (!capabilities.playModes?.includes('builtin')) throw new Error('当前服务尚未支持内置谜题。请在现有对局结束后重启本地服务，再创建新局。');
+export async function createRoom({ name, modeId = 'standard', playMode = 'record', initialClueCount = 4 }) {
+  if (playMode === 'tutorial') {
+    modeId = 'standard';
+    initialClueCount = 4;
   }
-  const res = await request('/rooms', { method: 'POST', body: { name, modeId, playMode } });
+  if (playMode === 'builtin' || playMode === 'tutorial') {
+    const capabilities = await request('/modes');
+    const label = playMode === 'tutorial' ? '教学模式' : '内置谜题';
+    if (!capabilities.playModes?.includes(playMode)) throw new Error(`当前服务尚未支持${label}。请在现有对局结束后重启本地服务，再创建新局。`);
+    if (playMode === 'builtin' && !capabilities.builtinBoards?.includes(modeId)) throw new Error('当前服务尚未支持所选的内置棋盘。请结束现有对局并重启本地服务后再试。');
+    if (!capabilities.initialClueCounts?.includes(initialClueCount)) throw new Error('当前服务尚未支持房主统一分发初始线索。请在现有对局结束后重启本地服务。');
+  }
+  const res = await request('/rooms', { method: 'POST', body: { name, modeId, playMode, initialClueCount } });
   if (!res.token) throw new Error(res.error || '创建房间失败');
   if (playMode === 'builtin' && res.view?.playMode !== 'builtin') throw new Error('服务未创建内置谜题，请更新并重启本地服务后再试。');
+  if (playMode === 'tutorial' && (res.view?.playMode !== 'builtin' || !res.view?.tutorial)) throw new Error('服务未创建教学局，请更新并重启本地服务后再试。');
   return res;
 }
 
@@ -93,6 +101,7 @@ export function openStream(room, { onView, onStatus } = {}) {
 }
 
 const ROOM_KEY = 'planetx.room.v1';
+const TUTORIAL_RETURN_KEY = 'planetx.tutorial-return.v1';
 
 // The room identity lives in sessionStorage on purpose: it survives a reload, but two
 // tabs / windows of the same browser are two different players (which is exactly what
@@ -150,5 +159,32 @@ export function clearRoom() {
     if (persistent) persistent.removeItem(ROOM_KEY);
   } catch {
     /* storage unavailable */
+  }
+}
+
+export function saveTutorialReturn(room) {
+  if (loadTutorialReturn()) return;
+  try {
+    tabStorage()?.setItem(TUTORIAL_RETURN_KEY, JSON.stringify({ room: room ? { roomId: room.roomId, playerId: room.playerId, token: room.token } : null }));
+  } catch {
+    return;
+  }
+}
+
+export function loadTutorialReturn() {
+  try {
+    const raw = tabStorage()?.getItem(TUTORIAL_RETURN_KEY);
+    const value = raw ? JSON.parse(raw) : null;
+    return value && (value.room === null || (value.room?.roomId && value.room?.token)) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearTutorialReturn() {
+  try {
+    tabStorage()?.removeItem(TUTORIAL_RETURN_KEY);
+  } catch {
+    return;
   }
 }

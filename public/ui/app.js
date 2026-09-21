@@ -4,8 +4,8 @@
 // the calendar, the rotating sky window, the star map, the record sheet and the
 // time-track events (X planet conferences and theory phases).
 import { h, mount } from './dom.js';
-import { Obj, CODE, LABEL, SURVEY_TYPES } from '../src/types.js';
-import { arcSectors, mod, visibleSectorsAt } from '../src/rules.js';
+import { Obj, CODE, LABEL, SURVEY_TYPES, INITIAL_CLUE_TYPES } from '../src/types.js';
+import { arcSectors, isCometSector, mod, visibleSectorsAt } from '../src/rules.js';
 import {
   completeTheoryPhase,
   consoleSummary,
@@ -24,8 +24,9 @@ import {
   undoLast,
 } from '../src/console.js';
 import { renderBoard } from './board.js';
-import { renderTheoriesPanel, renderTopicsPanel } from './notesheet.js';
-import { clearRoom, createRoom, fetchView, joinRoom, loadRoom, openStream, saveRoom, sendAction } from '../src/online.js';
+import { renderConferencesPanel, renderTheoriesPanel, renderTopicsPanel } from './notesheet.js';
+import { renderTutorialGuide } from './tutorial.js';
+import { clearRoom, clearTutorialReturn, createRoom, fetchView, joinRoom, loadRoom, loadTutorialReturn, openStream, saveRoom, saveTutorialReturn, sendAction } from '../src/online.js';
 import {
   renderActionPanel,
   renderHeader,
@@ -95,6 +96,7 @@ export function createApp(root) {
     remote: null,
     stream: null,
     netStatus: 'offline',
+    tutorialReturn: loadTutorialReturn(),
     ui: {
       selectedSector: null,
       surveyType: Obj.ASTEROID,
@@ -116,6 +118,7 @@ export function createApp(root) {
       mark: null,
       toast: null,
       setup: null,
+      initialClueCount: 4,
       // the host's room-dialog draft of the table-wide setup information
       tableInfo: null,
       panels: {},
@@ -126,6 +129,7 @@ export function createApp(root) {
       actionBusy: false,
     },
   };
+  let lobbyRequestId = 0;
 
   /**
    * Views travel as JSON, and `researched` is a Set locally: a Set serialises to `{}`,
@@ -139,8 +143,72 @@ export function createApp(root) {
     return view;
   }
 
+  function syncInitialClues(game) {
+    if (!state.remote || game.me !== state.remote.playerId || !game.mySetup?.cluesClaimed) return;
+    const keys = [...new Set((game.mySetup.clues || [])
+      .filter((clue) => Number.isInteger(clue.sector) && clue.sector >= 0 && clue.sector < game.mode.sectors && INITIAL_CLUE_TYPES.includes(clue.type) && (clue.type !== Obj.COMET || isCometSector(game.mode, clue.sector)))
+      .map((clue) => `${clue.sector}:${CODE[clue.type]}`))].sort();
+    const signature = JSON.stringify(keys);
+    const cached = state.remote.initialClueSync || loadNotes(`${notesKey(state.remote)}.initial-clues`);
+    const previous = cached && typeof cached === 'object' && !Array.isArray(cached) ? cached : {};
+    state.remote.initialClueSync = previous;
+    const owned = new Set(Array.isArray(previous.owned) ? previous.owned : []);
+    let restored = false;
+    for (const key of owned) {
+      if (keys.includes(key) && state.notes[key] === undefined) {
+        state.notes[key] = 'no';
+        restored = true;
+      }
+    }
+    if (previous.signature === signature) {
+      if (restored) persist();
+      return;
+    }
+    let priorKeys = [];
+    try { priorKeys = JSON.parse(previous.signature || '[]'); } catch { priorKeys = []; }
+    for (const key of owned) {
+      if (keys.includes(key)) continue;
+      if (state.notes[key] === 'no') delete state.notes[key];
+      owned.delete(key);
+    }
+    for (const key of keys) {
+      if (Array.isArray(priorKeys) && priorKeys.includes(key)) continue;
+      state.notes[key] = 'no';
+      owned.add(key);
+    }
+    state.remote.initialClueSync = { signature, owned: [...owned] };
+    persist();
+  }
+
+  function writeNote(key, markState) {
+    const sync = state.remote?.initialClueSync;
+    if (sync?.owned) sync.owned = sync.owned.filter((ownedKey) => ownedKey !== key);
+    if (markState === 'yes' || markState === 'no') state.notes[key] = markState;
+    else delete state.notes[key];
+  }
+
+  function syncTutorialMark(game) {
+    const remote = state.remote;
+    if (!remote || !game.tutorial || game.me !== remote.playerId) return;
+    if (remote.pendingTutorialMark === undefined) remote.pendingTutorialMark = loadNotes(`${notesKey(remote)}.tutorial-mark`);
+    const pending = remote.pendingTutorialMark;
+    if (!pending || typeof pending.stepId !== 'string' || !pending.stepId) return;
+    if (!Number.isInteger(pending.revision) || !Number.isInteger(game.revision) || game.revision <= pending.revision) return;
+    if (game.tutorial.stepId === pending.stepId || !Number.isInteger(pending.sector) || pending.sector < 0 || pending.sector >= game.mode.sectors) return;
+    if (!Object.values(CODE).includes(pending.code) || !['yes', 'no', 'maybe'].includes(pending.markState)) return;
+    writeNote(`${pending.sector}:${pending.code}`, pending.markState);
+    remote.pendingTutorialMark = null;
+    persist();
+  }
+
   function view() {
     state.game = state.remote ? adoptRemote(state.remote.view) : consoleView(session);
+    syncInitialClues(state.game);
+    syncTutorialMark(state.game);
+    const options = state.game.theoryOptions || [];
+    const selected = options.find((option) => option.sector === state.ui.theorySector) || options[0];
+    state.ui.theorySector = selected?.sector ?? null;
+    if (!selected?.types.includes(state.ui.theoryType)) state.ui.theoryType = selected?.types[0] ?? null;
     return state.game;
   }
 
@@ -167,10 +235,11 @@ export function createApp(root) {
             draftNames: state.ui.setup && state.ui.setup.topicNames,
             onReview: recordTheoryReview,
           }),
+          renderConferencesPanel({ state, api }),
           renderTheoriesPanel({ state, api, game: state.game, onReview: recordTheoryReview }),
         ),
         h('div', { class: 'col-map' }, renderMapPanel({ state, api, boardEl, onClearNotes: clearNotes })),
-        h('aside', { class: 'col-actions', 'aria-label': '当前行动' }, renderActionPanel({ state, api })),
+        h('aside', { class: 'col-actions', 'aria-label': '当前行动' }, renderTutorialGuide({ game: state.game, api }), renderActionPanel({ state, api })),
       ),
       h('section', { class: 'workspace-secondary', 'aria-label': '行动历史与积分' }, renderLogPanel({ state, api }), renderScorePanel({ state, api })),
       renderToast({ state }),
@@ -187,6 +256,12 @@ export function createApp(root) {
     if (state.remote) {
       try {
         localStorage.setItem(notesKey(state.remote), JSON.stringify(state.notes));
+        if (state.remote.initialClueSync) localStorage.setItem(`${notesKey(state.remote)}.initial-clues`, JSON.stringify(state.remote.initialClueSync));
+        if (state.remote.pendingTutorialMark !== undefined) {
+          const pendingKey = `${notesKey(state.remote)}.tutorial-mark`;
+          if (state.remote.pendingTutorialMark) localStorage.setItem(pendingKey, JSON.stringify(state.remote.pendingTutorialMark));
+          else localStorage.removeItem(pendingKey);
+        }
       } catch {
         /* storage unavailable */
       }
@@ -223,6 +298,14 @@ export function createApp(root) {
     const current = state.remote.view;
     if (Number.isInteger(current?.revision) && Number.isInteger(next?.revision) && next.revision < current.revision) return false;
     state.remote.view = adoptRemote(next);
+    if (current?.tutorial?.stepId !== next?.tutorial?.stepId && next?.tutorial) {
+      state.ui.action = 'idle';
+      state.ui.pick = [];
+      state.ui.modal = null;
+      state.ui.mark = null;
+      state.ui.locate = null;
+      state.ui.researchTopic = null;
+    }
     return true;
   }
 
@@ -254,6 +337,8 @@ export function createApp(root) {
           if (action.review === 'correct') toast('评审正确：该扇区的内容对全桌公开，之后不能再研究它', 'ok');
           else if (action.review === 'wrong') toast('评审错误：你的棋子被罚前进 1 个时间单位', 'bad');
           else toast('已记录', 'ok');
+        } else if (kind === 'claim-initial-clues') {
+          toast(`已领取 ${res.view.mySetup.initialClueCount} 条初始线索，并同步到星图`, 'clue');
         } else if (kind === 'setup') {
           if (res.view.phase === 'play') toast('所有人都准备好了，第一轮开始！', 'clue');
           else if (res.view.playMode === 'builtin') toast('已准备，等待其他玩家确认私有线索', 'clue');
@@ -261,12 +346,16 @@ export function createApp(root) {
           else toast('已提交，等其他人填写', 'clue');
         } else if (kind === 'setup-reopen') {
           toast('可以重新填写了（其他人在等你）', 'clue');
-        } else if (kind === 'set-topic-names' || kind === 'set-conference-rules') {
+        } else if (kind === 'set-topic-names' || kind === 'set-conference-rules' || kind === 'set-conference-names') {
           toast('全桌共享的开局信息已更新', 'ok');
         } else if (kind === 'start-game') {
-          toast(res.view.playMode === 'builtin' ? '谜题已准备：查看你的初始线索并确认准备' : '开局准备：每人先填初始线索与 A–F 课题名称', 'clue');
+          toast(res.view.playMode === 'builtin' ? `已为每人分发 ${res.view.initialClueCount} 条初始线索并标记到星图，请确认准备` : `开局准备：每人填写 ${res.view.initialClueCount} 条初始线索，房主填写课题与会议标题`, 'clue');
+        } else if (kind === 'set-initial-clue-count') {
+          toast(`全体玩家的初始线索已统一为 ${res.view.initialClueCount} 条`, 'ok');
         } else if (kind === 'skip-turn') {
           toast(`已跳到 ${res.view.turnPlayerName || '下一位'}`, 'ok');
+        } else if (kind?.startsWith('tutorial-')) {
+          toast(res.view.tutorial.completed ? '教学完成，可以查看本局得分' : res.view.tutorial.title, 'clue');
         } else toast('已记录', 'ok');
       } else if (res.error) {
         toast(res.error, 'bad');
@@ -280,6 +369,7 @@ export function createApp(root) {
   async function remoteAction(action) {
     const remote = state.remote;
     if (!remote || remote.actionPending) return { ok: false, error: '请等待当前行动完成' };
+    if (remote.view.tutorial) action = { ...action, stepId: action.stepId ?? remote.view.tutorial.stepId };
     remote.actionPending = true;
     state.ui.actionBusy = true;
     render();
@@ -362,20 +452,30 @@ export function createApp(root) {
     state.ui.revealObjects = [];
     state.ui.locate = null;
     state.ui.setup = null;
+    state.ui.initialClueCount = state.remote.view.initialClueCount ?? 4;
     state.ui.action = 'idle';
     state.ui.actionBusy = false;
     state.ui.pick = [];
-    state.ui.playMode = state.remote.view.playMode || 'record';
+    state.ui.mark = null;
+    state.ui.selectedSector = null;
+    state.ui.playMode = state.remote.view.tutorial ? 'tutorial' : state.remote.view.playMode || 'record';
     attachStream();
     render();
   }
 
-  async function doCreateRoom() {
-    const lobby = state.ui.lobby;
-    state.ui.lobby = { ...lobby, busy: true, error: null };
+  function beginLobbyRequest() {
+    lobbyRequestId += 1;
+    state.ui.lobby = { ...state.ui.lobby, busy: true, error: null };
     render();
+    return lobbyRequestId;
+  }
+
+  async function doCreateRoom() {
+    if (state.ui.playMode === 'tutorial') return startTutorial();
+    const lobby = state.ui.lobby;
+    beginLobbyRequest();
     try {
-      const room = await createRoom({ name: lobby.name, modeId: state.ui.modeId || 'standard', playMode: state.ui.playMode || 'record' });
+      const room = await createRoom({ name: lobby.name, modeId: state.ui.modeId || 'standard', playMode: state.ui.playMode || 'record', initialClueCount: state.ui.initialClueCount });
       await enterRoom(room);
       toast(`房间 ${room.roomId} 已创建，把房间码发给同桌的人`, 'clue');
     } catch (err) {
@@ -385,11 +485,11 @@ export function createApp(root) {
   }
 
   async function startBuiltin() {
+    if (state.ui.playMode === 'tutorial') return startTutorial();
     if (state.ui.lobby.busy) return { ok: false };
-    state.ui.lobby = { ...state.ui.lobby, busy: true, error: null };
-    render();
+    beginLobbyRequest();
     try {
-      const room = await createRoom({ name: state.ui.lobby.name || '我', modeId: 'standard', playMode: 'builtin' });
+      const room = await createRoom({ name: state.ui.lobby.name || '我', modeId: state.ui.modeId || 'standard', playMode: 'builtin', initialClueCount: state.ui.initialClueCount });
       await enterRoom(room);
       return await startGame();
     } catch (error) {
@@ -399,10 +499,88 @@ export function createApp(root) {
     }
   }
 
+  async function startTutorial() {
+    if (state.ui.lobby.busy || state.remote?.actionPending) return { ok: false, error: '请等待当前操作完成后再开始教学' };
+    const previousRemote = state.remote;
+    const wasTutorial = Boolean(previousRemote?.view.tutorial);
+    const returnState = previousRemote
+      ? { room: { roomId: previousRemote.roomId, playerId: previousRemote.playerId, token: previousRemote.token } }
+      : state.tutorialReturn || loadTutorialReturn() || { room: loadRoom() };
+    persist();
+    const requestId = beginLobbyRequest();
+    const isCurrentRequest = () => requestId === lobbyRequestId && state.remote === previousRemote;
+    try {
+      const room = await createRoom({ name: state.ui.lobby.name || '我', playMode: 'tutorial' });
+      if (!isCurrentRequest()) return { ok: false, error: '当前房间已变化' };
+      if (!wasTutorial) {
+        state.tutorialReturn = returnState;
+        clearTutorialReturn();
+        saveTutorialReturn(returnState.room);
+      }
+      await enterRoom(room);
+      toast('教学局已准备好：跟着右侧引导逐步操作', 'clue');
+      return { ok: true };
+    } catch (error) {
+      if (!isCurrentRequest()) return { ok: false, error: '当前房间已变化' };
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: error.message || '无法开始教学' };
+      toast(state.ui.lobby.error, 'bad');
+      render();
+      return { ok: false, error: state.ui.lobby.error };
+    } finally {
+      if (requestId === lobbyRequestId) {
+        state.ui.lobby = { ...state.ui.lobby, busy: false };
+        render();
+      }
+    }
+  }
+
+  function tutorialNext(stepId = state.game.tutorial?.stepId) {
+    return remoteAction({ kind: 'tutorial-next', stepId });
+  }
+
+  function restartTutorial() {
+    if (!state.remote?.view.tutorial) return { ok: false, error: '当前不是教学局' };
+    return startTutorial();
+  }
+
+  async function exitTutorial() {
+    const remote = state.remote;
+    if (!remote?.view.tutorial) return { ok: false, error: '当前不是教学局' };
+    if (remote.actionPending || state.ui.lobby.busy) return { ok: false, error: '请等待当前操作完成后退出教学' };
+    const previous = state.tutorialReturn || loadTutorialReturn() || { room: null };
+    beginLobbyRequest();
+    let expired = false;
+    try {
+      if (previous.room) {
+        let view;
+        try {
+          view = await fetchView(previous.room);
+        } catch (error) {
+          if (![401, 403, 404, 410].includes(error.status)) throw error;
+          expired = true;
+        }
+        if (state.remote !== remote) return { ok: false, error: '当前房间已变化' };
+        if (view) await enterRoom(previous.room, view);
+        else await detachRoom();
+      } else {
+        await detachRoom();
+      }
+      clearTutorialReturn();
+      state.tutorialReturn = null;
+      toast(expired ? '原房间已过期，已返回单机记录台；原私人笔记仍保留' : previous.room ? '已返回原来的普通对局' : '已返回原来的单机记录台', expired ? 'bad' : 'ok');
+      return { ok: true };
+    } catch (error) {
+      toast('暂时无法恢复原房间，教学与返回身份都已保留，请稍后重试', 'bad');
+      return { ok: false, error: error.message };
+    } finally {
+      state.ui.lobby = { ...state.ui.lobby, busy: false };
+      render();
+    }
+  }
+
   async function doJoinRoom() {
     const lobby = state.ui.lobby;
-    state.ui.lobby = { ...lobby, busy: true, error: null };
-    render();
+    beginLobbyRequest();
     try {
       const room = await joinRoom(lobby.code, lobby.name);
       await enterRoom(room);
@@ -414,10 +592,17 @@ export function createApp(root) {
   }
 
   async function leaveRoom() {
+    if (state.remote?.view.tutorial) return exitTutorial();
+    return detachRoom();
+  }
+
+  async function detachRoom() {
+    lobbyRequestId += 1;
     clearHistoryResults();
     if (state.stream) state.stream.close();
     state.stream = null;
     state.remote = null;
+    state.ui.lobby = { ...state.ui.lobby, busy: false, error: null };
     state.ui.actionBusy = false;
     state.netStatus = 'offline';
     clearRoom();
@@ -427,6 +612,10 @@ export function createApp(root) {
     state.ui.finalTheories = [];
     state.ui.revealObjects = [];
     state.ui.locate = null;
+    state.ui.mark = null;
+    state.ui.pick = [];
+    state.ui.action = 'idle';
+    state.ui.playMode = 'record';
     render();
   }
 
@@ -435,8 +624,16 @@ export function createApp(root) {
     return remoteAction({ kind: 'start-game' });
   }
 
+  function claimInitialClues(count = state.ui.initialClueCount) {
+    return remoteAction({ kind: 'claim-initial-clues', count });
+  }
+
+  function setInitialClueCount(count) {
+    return remoteAction({ kind: 'set-initial-clue-count', count });
+  }
+
   /** Submit my initial clues — plus, for the host, the table-wide subjects and notes. */
-  function submitSetup() {
+  async function submitSetup() {
     const ui = state.ui;
     const mine = state.game.mySetup || {};
     const draft = (state.game.playMode !== 'builtin' && ui.setup) || {
@@ -444,20 +641,18 @@ export function createApp(root) {
       noClues: Boolean(mine.noClues),
       topicNames: { ...(state.game.topicNames || {}) },
       conferences: { ...(state.game.conferenceRules || {}) },
+      conferenceNames: { ...(state.game.conferenceNames || {}) },
     };
-    // the initial clues are private facts, so they also go into my own record sheet
-    if (!draft.noClues) {
-      for (const clue of draft.clues || []) {
-        if (Number.isInteger(clue.sector) && CODE[clue.type]) state.notes[`${clue.sector}:${CODE[clue.type]}`] = 'no';
-      }
-    }
+    const submittedDraft = state.ui.setup;
     const action = state.game.playMode === 'builtin' ? { kind: 'setup' } : { kind: 'setup', clues: draft.clues, noClues: draft.noClues };
     if (state.game.amHost && state.game.playMode !== 'builtin') {
       action.topics = draft.topicNames || {};
       action.conferences = draft.conferences || {};
+      action.conferenceNames = draft.conferenceNames || state.game.conferenceNames || {};
     }
-    const res = remoteAction(action);
-    state.ui.setup = null;
+    const res = await remoteAction(action);
+    if (res.ok && state.ui.setup === submittedDraft) state.ui.setup = null;
+    render();
     return res;
   }
 
@@ -478,6 +673,8 @@ export function createApp(root) {
     if (!named.ok) return named;
     const recorded = await remoteAction({ kind: 'set-conference-rules', rules });
     if (!recorded.ok) return recorded;
+    const headings = await remoteAction({ kind: 'set-conference-names', names: info.conferenceNames || state.game.conferenceNames || {} });
+    if (!headings.ok) return headings;
     state.ui.tableInfo = null;
     render();
     return { ok: true };
@@ -497,13 +694,14 @@ export function createApp(root) {
       noClues: Boolean(mine.noClues),
       topicNames: { ...(g.topicNames || {}) },
       conferences: { ...(g.conferenceRules || {}) },
+      conferenceNames: { ...(g.conferenceNames || {}) },
     };
   }
 
   /** The room dialog's draft of the same table-wide information. */
   function tableDraft() {
     const g = state.game || {};
-    return { topicNames: { ...(g.topicNames || {}) }, conferences: { ...(g.conferenceRules || {}) } };
+    return { topicNames: { ...(g.topicNames || {}) }, conferences: { ...(g.conferenceRules || {}) }, conferenceNames: { ...(g.conferenceNames || {}) } };
   }
 
   /**
@@ -530,7 +728,7 @@ export function createApp(root) {
     if (!saved) return false;
     const isCurrentRestore = () => {
       const current = loadRoom();
-      return !state.remote && current?.roomId === saved.roomId && current?.token === saved.token;
+      return !state.remote && !state.ui.lobby.busy && current?.roomId === saved.roomId && current?.token === saved.token;
     };
     try {
       const view = await fetchView(saved);
@@ -548,6 +746,11 @@ export function createApp(root) {
 
   function setUi(patch) {
     Object.assign(state.ui, patch);
+    if (patch.surveyType === Obj.COMET && state.ui.action === 'survey') {
+      const game = view();
+      state.ui.pick = (state.ui.pick || []).filter((sector) => isCometSector(game.mode, sector) && visibleOf(game).includes(sector));
+      state.ui.selectedSector = state.ui.pick.at(-1) ?? null;
+    }
     render();
   }
 
@@ -652,10 +855,9 @@ export function createApp(root) {
     state.ui.pick = [];
     state.ui.selectedSector = null;
     if (kind === 'theory') {
-      const v = view();
-      const locked = new Set(v.theoryLockedSectors || []);
-      const free = v.theorySectors.find((sector) => !locked.has(sector) && !v.knowledge.theories.some((t) => t.sector === sector));
-      state.ui.theorySector = free !== undefined ? free : v.arrowSector - 1;
+      const option = view().theoryOptions?.[0];
+      state.ui.theorySector = option?.sector ?? null;
+      state.ui.theoryType = option?.types[0] ?? null;
     }
     render();
   }
@@ -677,11 +879,11 @@ export function createApp(root) {
     // what the app told you is a fact: write it straight into the record sheet
     if (kind === 'scan') {
       if (state.game.playMode === 'builtin' && payload.apparent === Obj.EMPTY) {
-        for (const objectType of SURVEY_TYPES.filter((type) => type !== Obj.EMPTY)) state.notes[`${payload.sector}:${CODE[objectType]}`] = 'no';
-      } else if (CODE[payload.apparent]) state.notes[`${payload.sector}:${CODE[payload.apparent]}`] = 'yes';
+        for (const objectType of SURVEY_TYPES.filter((type) => type !== Obj.EMPTY)) writeNote(`${payload.sector}:${CODE[objectType]}`, 'no');
+      } else if (CODE[payload.apparent]) writeNote(`${payload.sector}:${CODE[payload.apparent]}`, 'yes');
     } else if (kind === 'survey' && payload.size === 1) {
       if (!(state.game.playMode === 'builtin' && payload.type === Obj.EMPTY && payload.count === 1)) {
-        state.notes[`${payload.start}:${CODE[payload.type]}`] = payload.count === 1 ? 'yes' : 'no';
+        writeNote(`${payload.start}:${CODE[payload.type]}`, payload.count === 1 ? 'yes' : 'no');
       }
     }
     state.ui.action = 'idle';
@@ -764,10 +966,19 @@ export function createApp(root) {
     state.ui.mark = null; // clicking the map itself dismisses the marking popover
     const visible = visibleOf(state.game);
 
+    if (state.game.tutorial?.interaction === 'inspect') {
+      state.ui.selectedSector = sector;
+      return remoteAction({ kind: 'tutorial-inspect', sector });
+    }
+
     // You may only survey or scan inside the visible sky, so a hidden sector is refused
     // here and again by the engine (which is what actually validates the record).
     if ((state.ui.action === 'survey' || state.ui.action === 'scan') && !visible.includes(sector)) {
       toast(`只能选天窗内的扇区：当前可见 ${visible.map((s) => s + 1).join('、')} 号`, 'bad');
+      return;
+    }
+    if (state.ui.action === 'survey' && state.ui.surveyType === Obj.COMET && !isCometSector(state.game.mode, sector)) {
+      toast('彗星勘测的起点和终点只能选择可见的质数编号扇区', 'bad');
       return;
     }
 
@@ -790,9 +1001,8 @@ export function createApp(root) {
   function toggleNote(sector, code) {
     const key = `${sector}:${code}`;
     const cur = state.notes[key];
-    if (!cur) state.notes[key] = 'yes';
-    else if (cur === 'yes') state.notes[key] = 'no';
-    else delete state.notes[key];
+    if (state.game.tutorial) return setMark(sector, code, !cur ? 'yes' : cur === 'yes' ? 'no' : 'maybe');
+    writeNote(key, !cur ? 'yes' : cur === 'yes' ? 'no' : 'maybe');
     persist();
     render();
   }
@@ -805,21 +1015,41 @@ export function createApp(root) {
   }
 
   /** state: 'yes' (确定存在) | 'no' (不存在) | 'maybe' (可能存在, clears the mark). */
-  function setMark(sector, code, markState) {
+  async function setMark(sector, code, markState) {
+    if (state.game.tutorial && !state.game.tutorial.completed) {
+      if (state.game.tutorial.interaction !== 'mark') {
+        const error = '请先完成当前教学步骤，得到足够证据后再标记推理结果';
+        toast(error, 'bad');
+        return { ok: false, error };
+      }
+      const remote = state.remote;
+      const guide = state.game.tutorial;
+      if (remote && !remote.actionPending && guide.expected?.sector === sector && guide.expected.code === code && guide.expected.markState === markState) {
+        remote.pendingTutorialMark = { stepId: guide.stepId, revision: state.game.revision, sector, code, markState };
+        persist();
+      }
+      const result = await remoteAction({ kind: 'tutorial-mark', stepId: guide.stepId, sector, code, markState });
+      if (!result.ok || state.remote !== remote) return result;
+      if (remote.pendingTutorialMark === null) return result;
+      remote.pendingTutorialMark = null;
+    }
     const key = `${sector}:${code}`;
-    if (markState === 'yes' || markState === 'no') state.notes[key] = markState;
-    else delete state.notes[key];
+    writeNote(key, markState);
     persist();
     render();
+    return { ok: true };
   }
 
   function clearNotes() {
     state.notes = {};
+    if (state.remote?.initialClueSync) state.remote.initialClueSync.owned = [];
+    if (state.remote) state.remote.pendingTutorialMark = null;
     persist();
     render();
   }
 
   function newSession(modeId) {
+    if (state.remote?.view.tutorial) return exitTutorial();
     if (state.remote) leaveRoom();
     clearHistoryResults();
     Object.assign(session, createConsole({ modeId: modeId || session.mode.id }), { seq: 1 });
@@ -855,6 +1085,10 @@ export function createApp(root) {
     consoleAction,
     newSession,
     startBuiltin,
+    startTutorial,
+    tutorialNext,
+    restartTutorial,
+    exitTutorial,
     openLocate,
     openMark,
     setMark,
@@ -869,6 +1103,8 @@ export function createApp(root) {
     joinRoom: doJoinRoom,
     leaveRoom,
     startGame,
+    claimInitialClues,
+    setInitialClueCount,
     submitSetup,
     reopenSetup,
     saveTableInfo,

@@ -224,41 +224,54 @@ h3 {
   margin-top: 4px;
 }
 
-/* the score table has to fit its column: short headers, wrapping cells */
 .score-card {
   overflow-x: auto;
 }
 
-/* five narrow statistic columns, the rest goes to the name */
+.score-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px 0 12px;
+}
+
+.score-table-wrap + .score-table-wrap {
+  border-top: 1px solid var(--line-soft);
+}
+
 .score-table {
   table-layout: fixed;
-  font-size: 11.5px;
+  min-width: 560px;
+  font-size: 12px;
 }
 
 .score-table th,
 .score-table td {
-  padding: 3px 4px;
+  padding: 9px 7px;
   white-space: normal;
   word-break: break-word;
+  text-align: center;
 }
 
 .score-table thead th {
-  font-size: 10.5px;
+  font-size: 12px;
   white-space: normal;
   text-align: center;
 }
 
-.score-table th:first-child,
-.score-table td:first-child {
+.score-table caption {
+  padding-bottom: 8px;
   text-align: left;
 }
 
-.score-table thead th:not(:first-child) {
-  width: 13%;
+.score-unit {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 
-.score-table td:not(:first-child) {
-  text-align: center;
+.score-table td {
   font-variant-numeric: tabular-nums;
 }
 
@@ -358,6 +371,10 @@ h3 {
 
 .wedge.hidden {
   opacity: 0.55;
+}
+
+.wedge.unavailable {
+  cursor: not-allowed;
 }
 
 .wedge.visible {
@@ -1219,6 +1236,80 @@ select {
   background: rgba(245, 185, 66, 0.08);
 }
 
+.theories-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.theories-table th,
+.theories-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.theories-table th:first-child {
+  width: 48px;
+  white-space: nowrap;
+}
+
+.theories-table thead {
+  color: var(--muted);
+}
+
+.theory-paper {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 0;
+}
+
+.theory-paper + .theory-paper {
+  border-top: 1px dashed var(--line-soft);
+}
+
+.theory-paper.awaiting {
+  background: rgba(245, 185, 66, 0.08);
+  border-radius: 6px;
+}
+
+.theory-author,
+.theory-object {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.theory-author {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.theory-author .dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+}
+
+.theory-object {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.theory-paper .review {
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: 11px;
+}
+
 .review-call {
   padding: 7px 9px;
   border-radius: 8px;
@@ -1320,11 +1411,158 @@ select {
 }
 
 /* the research phase card and its running list of submissions */
-.research-open {
+.research-open,
+.record-card .research-open {
   border: 1px solid rgba(167, 139, 250, 0.45);
   border-radius: 12px;
-  padding: 10px;
+  padding: 16px;
   background: rgba(167, 139, 250, 0.07);
+}
+
+.record-card .research-submission {
+  padding: 16px !important;
+}
+
+.initial-clue-counts {
+  margin: 12px 0;
+  gap: 8px;
+}
+
+.initial-clue-counts .chip {
+  min-width: 54px;
+  min-height: 44px;
+  justify-content: center;
+}
+
+.initial-clue-settings {
+  margin: 14px 0;
+  min-width: 0;
+}
+
+.tutorial-guide {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border-color: var(--accent);
+}
+
+.tutorial-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tutorial-chapter {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tutorial-progress {
+  height: 5px;
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--line);
+}
+
+.tutorial-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.tutorial-instruction {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.tutorial-instruction p + p,
+.tutorial-targets {
+  margin-top: 8px;
+}
+
+.tutorial-focus-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tutorial-targets {
+  padding-left: 20px;
+}
+
+.tutorial-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.tutorial-navigation .btn {
+  flex: 1 1 120px;
+  min-width: 0;
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+}
+
+button.tutorial-target,
+button[data-tutorial-target],
+select[data-tutorial-target],
+[data-tutorial-focus]:not(.tutorial-guide):not(.starmap) {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+}
+
+.starmap .wedge.tutorial-target {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: 6 3;
+}
+
+.starmap .poss-icon.tutorial-target .icon-hit {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: rgba(94, 234, 212, 0.12);
+}
+
+.starmap [data-tutorial-target]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.conferences-card h2 {
+  margin-bottom: 12px;
+}
+
+.conference-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.conference-row {
+  min-width: 0;
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+}
+
+.conference-row + .conference-row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.conference-title {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.conference-row p {
+  margin-top: 6px;
+  line-height: 1.7;
 }
 
 .picks-list {
@@ -1468,6 +1706,11 @@ select {
 .play-mode-option .small {
   margin-top: 5px;
   line-height: 1.6;
+}
+
+.play-mode-option > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .builtin-mode-note {
@@ -1643,6 +1886,23 @@ select {
 .conf-row textarea {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.conf-fields {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.conf-fields label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.conf-fields .text-input {
+  width: 100%;
 }
 
 .topic-name-row .row-tag,
@@ -2701,7 +2961,7 @@ select:focus {
     min-height: 38px;
   }
   .score-table {
-    min-width: 330px;
+    min-width: 560px;
   }
   .score-card > .disclosure-content {
     overflow-x: auto;
@@ -2713,6 +2973,28 @@ select:focus {
   }
   .map-note-actions {
     justify-content: space-between;
+  }
+}
+
+@media (max-width: 390px) {
+  .tutorial-navigation .btn {
+    flex-basis: 100%;
+  }
+  .initial-clue-counts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .initial-clue-counts .chip {
+    min-width: 0;
+  }
+  .conf-row {
+    flex-direction: column;
+  }
+  .conf-fields {
+    width: 100%;
+  }
+  .clue-row {
+    flex-wrap: wrap;
   }
 }
 

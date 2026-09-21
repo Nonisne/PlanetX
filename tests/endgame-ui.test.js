@@ -75,12 +75,14 @@ function fire(element, eventName, value) {
 }
 
 function gameFixture(overrides = {}) {
+  const sectors = overrides.mode?.sectors || 12;
   return {
     phase: 'final',
     status: 'open',
     mode: { sectors: 12 },
     me: 'second',
     amHost: false,
+    theoryOptions: Array.from({ length: sectors }, (unused, sector) => ({ sector, types: THEORY_TYPES.filter((objectType) => objectType !== Obj.COMET || [2, 3, 5, 7, 11, 13, 17].includes(sector + 1)) })),
     ...overrides,
     endgame: {
       firstFinderName: '星河',
@@ -204,10 +206,11 @@ test('new theory fields start blank and incomplete theories cannot submit', () =
   assert.deepEqual(view.patches, [{ finalTheories: [{ sector: '', objectType: '' }] }]);
   assert.equal(select(view.root, '理论 1 扇区').value, '');
   assert.equal(select(view.root, '理论 1 天体').value, '');
-  assert.deepEqual(select(view.root, '理论 1 天体').children.map((option) => option.attributes.value), ['', ...THEORY_TYPES]);
+  assert.deepEqual(select(view.root, '理论 1 天体').children.map((option) => option.attributes.value), ['']);
+  assert.equal(select(view.root, '理论 1 天体').disabled, true);
   assert.equal(button(view.root, '提交最终理论').disabled, true);
   fire(button(view.root, '提交最终理论'), 'click');
-  fire(select(view.root, '理论 1 扇区'), 'change', '0');
+  fire(select(view.root, '理论 1 扇区'), 'change', '1');
   assert.equal(button(view.root, '提交最终理论').disabled, true);
   fire(button(view.root, '提交最终理论'), 'click');
   assert.deepEqual(view.actions, []);
@@ -218,14 +221,14 @@ test('new theory fields start blank and incomplete theories cannot submit', () =
 test('two theories retain independent drafts and submit exactly one zero-based payload', () => {
   const view = harness();
   fire(select(view.root, '最终理论数量'), 'change', '2');
-  fire(select(view.root, '理论 1 扇区'), 'change', '0');
+  fire(select(view.root, '理论 1 扇区'), 'change', '1');
   fire(select(view.root, '理论 1 天体'), 'change', Obj.COMET);
   fire(select(view.root, '理论 2 扇区'), 'change', '11');
   fire(select(view.root, '理论 2 天体'), 'change', Obj.GAS_CLOUD);
-  const theories = [{ sector: 0, objectType: Obj.COMET }, { sector: 11, objectType: Obj.GAS_CLOUD }];
+  const theories = [{ sector: 1, objectType: Obj.COMET }, { sector: 11, objectType: Obj.GAS_CLOUD }];
   assert.deepEqual(view.ui.finalTheories, theories);
   assert.equal(button(view.root, '提交最终理论').disabled, false);
-  assert.equal(select(view.root, '理论 1 扇区').value, '0');
+  assert.equal(select(view.root, '理论 1 扇区').value, '1');
   assert.equal(select(view.root, '理论 2 扇区').value, '11');
   assert.deepEqual(view.actions, []);
   fire(button(view.root, '提交最终理论'), 'click');
@@ -235,7 +238,7 @@ test('two theories retain independent drafts and submit exactly one zero-based p
 });
 
 test('theory drafts update through setUi without mutating the supplied UI or game', () => {
-  const theory = Object.freeze({ sector: 3, objectType: Obj.ASTEROID });
+  const theory = Object.freeze({ sector: 2, objectType: Obj.ASTEROID });
   const draft = Object.freeze([theory]);
   const ui = Object.freeze({ finalTheories: draft, anotherDraft: 'keep me' });
   const game = gameFixture();
@@ -243,14 +246,14 @@ test('theory drafts update through setUi without mutating the supplied UI or gam
   const view = harness(game, ui);
   assert.deepEqual(view.patches, []);
   fire(select(view.root, '理论 1 天体'), 'change', Obj.COMET);
-  assert.deepEqual(view.patches, [{ finalTheories: [{ sector: 3, objectType: Obj.COMET }] }]);
+  assert.deepEqual(view.patches, [{ finalTheories: [{ sector: 2, objectType: Obj.COMET }] }]);
   assert.equal(theory.objectType, Obj.ASTEROID);
   assert.equal(view.ui.anotherDraft, 'keep me');
   assert.deepEqual(game, originalGame);
   fire(select(view.root, '最终理论数量'), 'change', '2');
-  assert.deepEqual(view.ui.finalTheories, [{ sector: 3, objectType: Obj.COMET }, { sector: '', objectType: '' }]);
+  assert.deepEqual(view.ui.finalTheories, [{ sector: 2, objectType: Obj.COMET }, { sector: '', objectType: '' }]);
   fire(select(view.root, '最终理论数量'), 'change', '1');
-  assert.deepEqual(view.ui.finalTheories, [{ sector: 3, objectType: Obj.COMET }]);
+  assert.deepEqual(view.ui.finalTheories, [{ sector: 2, objectType: Obj.COMET }]);
 });
 
 test('theory sector choices cover the full 12-sector or 18-sector board', () => {
@@ -263,6 +266,52 @@ test('theory sector choices cover the full 12-sector or 18-sector board', () => 
     assert.equal(field.children[sectors].attributes.value, String(sectors - 1));
     assert.match(field.children[sectors].textContent, new RegExp(`${sectors} 号`));
   }
+});
+
+test('final theory choices use only server-provided sectors and each sector’s ordinary object types', () => {
+  const view = harness(gameFixture({ theoryOptions: [{ sector: 1, types: [Obj.GAS_CLOUD] }, { sector: 4, types: [Obj.COMET, Obj.DWARF_PLANET] }] }));
+  fire(select(view.root, '最终理论数量'), 'change', '1');
+  assert.deepEqual(select(view.root, '理论 1 扇区').children.map((option) => option.attributes.value), ['', '1', '4']);
+  assert.ok(select(view.root, '理论 1 扇区').children.every((option) => !option.disabled));
+  assert.doesNotMatch(select(view.root, '理论 1 扇区').textContent, /已公开/);
+  fire(select(view.root, '理论 1 扇区'), 'change', '1');
+  assert.deepEqual(select(view.root, '理论 1 天体').children.map((option) => option.attributes.value), ['', Obj.GAS_CLOUD]);
+  fire(select(view.root, '理论 1 天体'), 'change', Obj.GAS_CLOUD);
+  assert.equal(button(view.root, '提交最终理论').disabled, false);
+  fire(select(view.root, '理论 1 扇区'), 'change', '4');
+  assert.equal(view.ui.finalTheories[0].objectType, '', 'changing sector clears an ineligible object instead of silently submitting it');
+  assert.deepEqual(select(view.root, '理论 1 天体').children.map((option) => option.attributes.value), ['', Obj.COMET, Obj.DWARF_PLANET]);
+  assert.equal(button(view.root, '提交最终理论').disabled, true);
+});
+
+test('final theory row count is capped by available distinct sectors, including no remaining sectors', () => {
+  for (const available of [[], [{ sector: 1, types: [Obj.ASTEROID] }]]) {
+    const view = harness(gameFixture({ theoryOptions: available }));
+    assert.deepEqual(select(view.root, '最终理论数量').children.map((option) => Number(option.attributes.value)), Array.from({ length: available.length + 1 }, (unused, count) => count));
+    fire(select(view.root, '最终理论数量'), 'change', '2');
+    assert.deepEqual(view.patches, [], 'a stale count cannot exceed available sectors');
+    fire(button(view.root, '提交最终理论'), 'click');
+    assert.deepEqual(view.actions, [{ kind: 'final-theories', theories: [] }]);
+  }
+});
+
+test('final theory rows omit sectors used by another draft and reject duplicates or stale server options', () => {
+  const game = gameFixture({ theoryOptions: [{ sector: 1, types: [Obj.ASTEROID, Obj.COMET] }, { sector: 4, types: [Obj.GAS_CLOUD] }] });
+  const view = harness(game, { finalTheories: [{ sector: 1, objectType: Obj.COMET }, { sector: '', objectType: '' }] });
+  assert.deepEqual(select(view.root, '理论 2 扇区').children.map((option) => option.attributes.value), ['', '4']);
+  for (const finalTheories of [
+    [{ sector: 1, objectType: Obj.COMET }, { sector: 1, objectType: Obj.ASTEROID }],
+    [{ sector: 4, objectType: Obj.COMET }],
+    [{ sector: 8, objectType: Obj.ASTEROID }],
+  ]) {
+    const invalid = harness(game, { finalTheories });
+    assert.equal(button(invalid.root, '提交最终理论').disabled, true);
+    fire(button(invalid.root, '提交最终理论'), 'click');
+    assert.deepEqual(invalid.actions, []);
+  }
+  const stale = harness(gameFixture({ theoryOptions: [] }), { finalTheories: [{ sector: 1, objectType: Obj.COMET }] });
+  assert.equal(button(stale.root, '提交最终理论').disabled, true);
+  assert.deepEqual(select(stale.root, '理论 1 扇区').children.map((option) => option.attributes.value), ['']);
 });
 
 test('solo final status renders the same final controls', () => {
@@ -450,7 +499,7 @@ test('finished views without scores or revealed objects show a compact result', 
 
 test('phase and permission transitions replace controls without mutating or submitting UI drafts', () => {
   const ui = Object.freeze({
-    finalTheories: Object.freeze([Object.freeze({ sector: 0, objectType: Obj.COMET })]),
+    finalTheories: Object.freeze([Object.freeze({ sector: 1, objectType: Obj.COMET })]),
     revealObjects: Object.freeze([Obj.PLANET_X, ...Array(11).fill(Obj.EMPTY)]),
   });
   const view = harness(gameFixture(), ui);

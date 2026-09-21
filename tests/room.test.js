@@ -24,8 +24,8 @@ import {
 } from '../public/src/room.js';
 
 /** A room with two players sitting in the lobby. */
-function lobby(modeId = 'standard') {
-  const room = createRoom({ modeId, hostName: '阿甲' });
+function lobby(modeId = 'standard', initialClueCount = 0) {
+  const room = createRoom({ modeId, hostName: '阿甲', initialClueCount });
   const host = room.players[0];
   const guest = addPlayer(room, '阿乙');
   return { room, host, guest };
@@ -145,14 +145,15 @@ test('a lone host cannot start: the table needs two players', () => {
 // ---- setup: initial clues + A–F subject names ------------------------------
 
 test('setup collects initial clues and the six subject names', () => {
-  const { room, host, guest } = lobby();
+  const { room, host, guest } = lobby('standard', 4);
+  const clues = [{ sector: 1, type: Obj.COMET }, { sector: 7, type: Obj.GAS_CLOUD }, { sector: 2, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }];
   applyRoomAction(room, host.id, { kind: 'start-game' });
   assert.equal(room.phase, 'setup');
   assert.equal(readyCount(room), 0);
 
   const res = applyRoomAction(room, host.id, {
     kind: 'setup',
-    clues: [{ sector: 3, type: Obj.COMET }, { sector: 7, type: Obj.GAS_CLOUD }],
+    clues,
     topics: { A: '小行星带', B: '彗星轨道' },
   });
   assert.equal(res.ok, true);
@@ -163,7 +164,7 @@ test('setup collects initial clues and the six subject names', () => {
   assert.equal(view.phase, 'setup');
   assert.equal(view.readyCount, 1);
   assert.equal(view.mySetup.ready, true);
-  assert.deepEqual(view.mySetup.clues, [{ sector: 3, type: Obj.COMET }, { sector: 7, type: Obj.GAS_CLOUD }]);
+  assert.deepEqual(view.mySetup.clues, clues);
   assert.equal(view.mySetup.topics.A.name, '小行星带');
   assert.equal(view.mySetup.topics.C.name, '', 'unnamed subjects stay blank');
   // the other player does not see my starting information
@@ -172,7 +173,7 @@ test('setup collects initial clues and the six subject names', () => {
   assert.equal(guestView.mySetup.clues.length, 0);
   assert.equal(guestView.players.find((p) => p.id === host.id).ready, true, 'but the ready flag is public');
 
-  assert.equal(applyRoomAction(room, guest.id, { kind: 'setup', noClues: true }).ok, true);
+  assert.equal(applyRoomAction(room, guest.id, { kind: 'setup', clues }).ok, true);
   assert.equal(room.phase, 'play', 'everyone ready -> first round');
   assert.equal(currentPlayer(room).id, host.id, 'everybody starts at month 0, so the host (first in) opens');
   assert.equal(viewFor(room, host.id).turnPlayerName, '阿甲');
@@ -180,7 +181,7 @@ test('setup collects initial clues and the six subject names', () => {
 });
 
 test('setup validates the initial clues', () => {
-  const { room, host } = lobby();
+  const { room, host } = lobby('standard', 12);
   applyRoomAction(room, host.id, { kind: 'start-game' });
   const bad = [
     [{ sector: 99, type: Obj.COMET }, /扇区/],
@@ -189,13 +190,12 @@ test('setup validates the initial clues', () => {
     [{ sector: 1, type: Obj.COMET }, /最多填 12 条/, MAX_SETUP_CLUES + 1],
   ];
   for (const [clue, pattern, count] of bad) {
-    const clues = count ? Array.from({ length: count }, (_, i) => ({ sector: i % 12, type: 'comet' })) : [clue];
+    const clues = count ? Array.from({ length: count }, (unused, index) => ({ sector: index % 12, type: index < 12 ? Obj.ASTEROID : Obj.GAS_CLOUD })) : [clue];
     const res = applyRoomAction(room, host.id, { kind: 'setup', clues, topics: {} });
     assert.equal(res.ok, false, JSON.stringify(clue));
     assert.match(res.error, pattern);
   }
-  // a full dozen is fine, duplicates collapse, and "no clues" is a valid answer
-  const twelve = Array.from({ length: MAX_SETUP_CLUES }, (_, i) => ({ sector: i, type: 'comet' }));
+  const twelve = Array.from({ length: MAX_SETUP_CLUES }, (_, sector) => ({ sector, type: Obj.ASTEROID }));
   const full = applyRoomAction(room, host.id, { kind: 'setup', clues: twelve, topics: {} });
   assert.equal(full.ok, true, full.error);
   assert.equal(room.setup[host.id].clues.length, MAX_SETUP_CLUES, 'all twelve are kept');
@@ -204,10 +204,11 @@ test('setup validates the initial clues', () => {
     clues: [{ sector: 1, type: Obj.COMET }, { sector: 1, type: Obj.COMET }],
     topics: {},
   });
-  assert.equal(ok.ok, true);
-  assert.equal(room.setup[host.id].clues.length, 1);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'setup', noClues: true, topics: {} }).ok, true);
-  assert.equal(room.setup[host.id].clues.length, 0);
+  assert.equal(ok.ok, false);
+  assert.match(ok.error, /12 条不同/);
+  assert.equal(room.setup[host.id].clues.length, 12);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'setup', noClues: true, topics: {} }).ok, false);
+  assert.equal(room.setup[host.id].clues.length, 12);
   assert.equal(CLUE_TYPES.includes(Obj.EMPTY), false);
 });
 
@@ -215,7 +216,7 @@ test('setup only accepts ordinary-object exclusions on both board sizes', () => 
   const objectTypes = [Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET];
   assert.deepEqual(CLUE_TYPES, objectTypes);
   for (const modeId of ['standard', 'expert']) {
-    const { room, host } = lobby(modeId);
+    const { room, host } = lobby(modeId, 4);
     assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, true);
     const snapshot = structuredClone(room.setup[host.id]);
     for (const type of [Obj.EMPTY, Obj.PLANET_X]) {
@@ -402,6 +403,9 @@ test('research restrictions survive another player and free records until an own
   assert.deepEqual(room.session, before);
   accepted(room, host.id, { kind: 'wait' });
   accepted(room, guest.id, { kind: 'wait' });
+  assert.equal(room.research, null);
+  accepted(room, host.id, { kind: 'wait' });
+  accepted(room, guest.id, { kind: 'wait' });
   assert.equal(room.research.sector, 3);
   resolveResearch(room);
   assert.equal(viewFor(room, host.id).lastWasResearch, false);
@@ -454,9 +458,13 @@ test('the shared window opens a research phase when it passes a research sector'
   assert.equal(windowTimeOf(room), 1, 'the window only moves when the laggard moves');
   assert.equal(room.research, null);
 
-  applyRoomAction(room, guest.id, { kind: 'wait' }); // both 2 -> window 1 -> 2 crosses sector 3
+  applyRoomAction(room, guest.id, { kind: 'wait' });
+  assert.equal(room.research, null, 'entering sector 3 does not trigger the phase');
+  applyRoomAction(room, host.id, { kind: 'wait' });
+  assert.equal(room.research, null);
+  applyRoomAction(room, guest.id, { kind: 'wait' });
   assert.ok(room.research, 'the window passed sector 3');
-  assert.equal(room.research.id, 'theory:2');
+  assert.equal(room.research.id, 'theory:3');
   assert.equal(viewFor(room, host.id).research.id, room.research.id);
   assert.equal(viewFor(room, host.id).research.sector, 3);
   assert.equal(viewFor(room, host.id).research.quota, 1, 'a standard board allows one paper per phase');
@@ -493,7 +501,7 @@ test('publishing runs from the player furthest behind, and the claimed object st
   const phase = walkToTheorySector(room, guest.id);
   assert.ok(phase, 'a research phase is open');
   const times = viewFor(room, host.id).players.map((p) => `${p.name}:${p.time}`);
-  assert.deepEqual(times, ['阿甲:4', '阿乙:2'], 'the guest crossed the sector while waiting');
+  assert.deepEqual(times, ['阿甲:4', '阿乙:3'], 'the guest left the marker while waiting');
 
   applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: phase.id, count: 1 });
   applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: phase.id, count: 1 });
@@ -525,7 +533,7 @@ test('publishing runs from the player furthest behind, and the claimed object st
 });
 
 test('an expert table hands out two papers per phase, a standard one hands out one', () => {
-  const room = createRoom({ modeId: 'expert', hostName: '甲' });
+  const room = createRoom({ modeId: 'expert', hostName: '甲', initialClueCount: 0 });
   const host = room.players[0];
   const guest = addPlayer(room, '乙');
   applyRoomAction(room, host.id, { kind: 'start-game' });
@@ -577,7 +585,7 @@ test('expert declaration capacity counts distinct available sectors, not remaini
   assert.equal(viewFor(room, host.id).research.maxDeclare, 1);
   accepted(room, host.id, { kind: 'research-declare', phaseId, count: 1 });
   accepted(room, guest.id, { kind: 'research-declare', phaseId, count: 1 });
-  publishNext(room, 17, Obj.COMET);
+  publishNext(room, 17, Obj.ASTEROID);
   assert.equal(viewFor(room, host.id).research.maxDeclare, 0);
   assert.equal(viewFor(room, guest.id).research.maxDeclare, 1);
   assert.equal(viewFor(room, guest.id).research.picks[0].objectType, undefined);
@@ -684,7 +692,7 @@ test('a wrong peer review costs the author a month', () => {
   act(room, guest.id, { kind: 'wait' });
   walkToTheorySector(room, host.id);
   for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
-  const first = publishNext(room, 9, Obj.COMET);
+  const first = publishNext(room, 10, Obj.COMET);
   publishNext(room, 11, Obj.DWARF_PLANET);
   const authorId = first.entry.actorId;
   for (let phase = 0; phase < 2; phase++) {
@@ -745,7 +753,7 @@ test('ordered reviews expose one sector at a time and batch wrong matching paper
   assert.equal(hostLower.reviewInferred, true);
   assert.equal(hostLower.review, 'wrong');
   assert.equal(guestLower.review, 'wrong');
-  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [9, 9]);
+  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [10, 10]);
   assert.deepEqual(turnOrder(room).map((player) => player.id), [host.id, guest.id], 'batch penalties preserve player order despite the guest reporting first');
   for (const player of [host, guest]) {
     const view = viewFor(room, player.id);
@@ -760,7 +768,7 @@ test('ordered reviews expose one sector at a time and batch wrong matching paper
   accepted(room, host.id, { kind: 'review', id: hostHigher.id, review: 'correct' });
   assert.equal(guestHigher.review, 'correct');
   assert.deepEqual(viewFor(room, host.id).awaitingReview, []);
-  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [9, 9]);
+  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [10, 10]);
   accepted(room, host.id, { kind: 'wait' });
 });
 
@@ -773,9 +781,13 @@ test('the same sector: the earlier arrival acts first and publishes first', () =
 
   applyRoomAction(room, host.id, { kind: 'wait' }); // host 2, guest 1 -> the window waits
   assert.equal(room.research, null, 'the window has not reached a research sector yet');
-  applyRoomAction(room, guest.id, { kind: 'wait' }); // both 2 -> the window passes sector 3
+  applyRoomAction(room, guest.id, { kind: 'wait' });
+  assert.equal(room.research, null, 'arriving at sector 3 does not open a phase');
+  applyRoomAction(room, host.id, { kind: 'wait' });
+  assert.equal(room.research, null, 'the window stays while another pawn is behind');
+  applyRoomAction(room, guest.id, { kind: 'wait' });
   assert.ok(room.research, 'a phase opened');
-  assert.deepEqual(viewFor(room, host.id).players.map((p) => p.time), [2, 2], 'both pawns are level');
+  assert.deepEqual(viewFor(room, host.id).players.map((p) => p.time), [3, 3], 'both pawns are level');
   assert.equal(viewFor(room, host.id).players[0].sector, viewFor(room, host.id).players[1].sector, 'same sector');
   assert.deepEqual(turnOrder(room).map((p) => p.name), ['阿甲', '阿乙'], 'the earlier arrival acts first');
   assert.deepEqual(researchOrder(room).map((p) => p.name), ['阿甲', '阿乙'], 'and publishes first as well');
@@ -784,22 +796,45 @@ test('the same sector: the earlier arrival acts first and publishes first', () =
   assert.deepEqual(viewFor(room, host.id).research.orderNames, ['阿甲', '阿乙'], 'the phase follows that order');
 });
 
+test('arrival priority beats join order when moving onto an occupied sector', () => {
+  const { room, host, guest } = playing();
+  assert.equal(applyRoomAction(room, host.id, { kind: 'wait' }).ok, true);
+  assert.equal(applyRoomAction(room, guest.id, { kind: 'target', sector: 0, apparent: Obj.ASTEROID }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'survey', type: Obj.ASTEROID, start: 1, size: 6, count: 2 }).ok, true);
+  const view = viewFor(room, host.id);
+  assert.deepEqual(view.players.map((player) => player.time), [4, 4]);
+  assert.ok(view.players[0].arrival > view.players[1].arrival);
+  assert.deepEqual(view.turnOrder, [guest.id, host.id]);
+  assert.equal(currentPlayer(room).id, guest.id);
+  const phaseId = room.research.id;
+  for (const player of room.players) assert.equal(applyRoomAction(room, player.id, { kind: 'research-declare', phaseId, count: 1 }).ok, true);
+  assert.deepEqual(viewFor(room, host.id).research.order, [guest.id, host.id]);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.ASTEROID }).ok, false);
+  const first = applyRoomAction(room, guest.id, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.ASTEROID });
+  assert.equal(first.ok, true, first.error);
+  assert.equal(first.entry.stationSector, 3);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.ASTEROID }).ok, true);
+  assert.equal(currentPlayer(room).id, guest.id);
+});
+
 test('window arithmetic: which sectors the shared dial passed over', () => {
   assert.equal(crossedTheorySector(MODES.standard, 0, 1), 0, 'month 1 points at sector 2');
-  assert.equal(crossedTheorySector(MODES.standard, 1, 2), 3, 'month 2 points at sector 3');
+  assert.equal(crossedTheorySector(MODES.standard, 1, 2), 0, 'entering sector 3 is not a crossing');
   assert.equal(crossedTheorySector(MODES.standard, 0, 3), 3, 'a three month move crosses it once');
-  assert.equal(crossedTheorySector(MODES.standard, 2, 3), 0, 'walking away from it does not count');
-  assert.equal(crossedTheorySector(MODES.standard, 10, 11), 12);
-  assert.equal(crossedTheorySector(MODES.standard, 11, 12), 0, 'month 12 wraps to sector 1');
-  assert.equal(crossedTheorySector(MODES.expert, 4, 5), 6, 'expert research sectors sit every third one');
-  assert.equal(crossedTheorySector(MODES.expert, 16, 17), 18);
-  assert.equal(crossedTheorySector(MODES.expert, 5, 6), 0, 'sector 7 is an expert conference, not a research phase');
+  assert.equal(crossedTheorySector(MODES.standard, 2, 3), 3, 'leaving the marker triggers it');
+  assert.equal(crossedTheorySector(MODES.standard, 10, 11), 0);
+  assert.equal(crossedTheorySector(MODES.standard, 11, 12), 12, 'wrapping leaves sector 12');
+  assert.equal(crossedTheorySector(MODES.expert, 4, 5), 0);
+  assert.equal(crossedTheorySector(MODES.expert, 16, 17), 0);
+  assert.equal(crossedTheorySector(MODES.expert, 5, 6), 6);
 
   // conferences use the same arithmetic on their own schedule
-  assert.equal(crossedConferenceSector(MODES.standard, 8, 9), 10);
-  assert.equal(crossedConferenceSector(MODES.standard, 9, 10), 0);
-  assert.equal(crossedConferenceSector(MODES.expert, 5, 6), 7);
-  assert.equal(crossedConferenceSector(MODES.expert, 14, 15), 16);
+  assert.equal(crossedConferenceSector(MODES.standard, 8, 9), 0);
+  assert.equal(crossedConferenceSector(MODES.standard, 9, 10), 10);
+  assert.equal(crossedConferenceSector(MODES.expert, 5, 6), 0);
+  assert.equal(crossedConferenceSector(MODES.expert, 6, 7), 7);
+  assert.equal(crossedConferenceSector(MODES.expert, 14, 15), 0);
+  assert.equal(crossedConferenceSector(MODES.expert, 15, 16), 16);
   assert.deepEqual(crossedTheorySectors(MODES.standard, 0, 12), [3, 6, 9, 12], 'a full lap passes all four');
 });
 
@@ -814,22 +849,22 @@ test('a wrong peer review moves the loser, and that month can move the window', 
   assert.equal(paper.slot, 2);
   assert.equal(applyRoomAction(room, host.id, { kind: 'wait' }).ok, true);
   assert.equal(applyRoomAction(room, guest.id, { kind: 'wait' }).ok, true);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'target', sector: 6, apparent: Obj.EMPTY }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'target', sector: 7, apparent: Obj.EMPTY }).ok, true);
   assert.equal(applyRoomAction(room, guest.id, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.COMET, correct: false }).ok, true);
   assert.equal(room.research.sector, 9);
   resolveResearch(room);
   assert.equal(paper.slot, 1);
-  assert.equal(windowTimeOf(room), 10, 'the host sets the window');
-  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [10, 11]);
+  assert.equal(windowTimeOf(room), 11, 'the host sets the window');
+  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [11, 12]);
   assert.equal(room.research, null);
 
   assert.equal(applyRoomAction(room, host.id, { kind: 'review', id: paper.id, review: 'wrong' }).ok, true);
   assert.equal(
     viewFor(room, host.id).players.find((p) => p.name === '阿甲').time,
-    11,
+    12,
     'the penalty month landed on the author',
   );
-  assert.equal(windowTimeOf(room), 11, 'and the window moved with them');
+  assert.equal(windowTimeOf(room), 12, 'and the window moved with them');
   assert.ok(room.research, 'so it passed sector 12 and a phase opens');
   assert.equal(room.research.sector, 12);
 });
@@ -845,10 +880,10 @@ test('a penalty that leaves the window where it was triggers nothing', () => {
     resolveResearch(room);
   }
   assert.equal(paper.slot, 1);
-  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [8, 8]);
+  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [9, 9]);
   assert.equal(applyRoomAction(room, host.id, { kind: 'review', id: paper.id, review: 'wrong' }).ok, true);
-  assert.equal(viewFor(room, host.id).players.find((player) => player.id === host.id).time, 9, 'the host moved');
-  assert.equal(windowTimeOf(room), 8, 'but the window still follows the guest');
+  assert.equal(viewFor(room, host.id).players.find((player) => player.id === host.id).time, 10, 'the host moved');
+  assert.equal(windowTimeOf(room), 9, 'but the window still follows the guest');
   assert.equal(room.research, null, 'so no research phase was set off');
   assert.equal(room.conference, null);
 });
@@ -857,7 +892,7 @@ test('one research phase puts every paper of that round on the same track space'
   const { room, host, guest } = playing();
   walkToTheorySector(room, currentPlayer(room).id);
   for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
-  publishNext(room, 3, Obj.COMET);
+  publishNext(room, 2, Obj.COMET);
   publishNext(room, 5, Obj.DWARF_PLANET);
   const slots = () => room.session.entries.filter((e) => e.type === 'theory').map((e) => e.slot);
   assert.deepEqual(slots(), [3, 3], 'the phase closed, so both papers stepped forward together');
@@ -920,9 +955,9 @@ test('zero-submission phases advance papers and queued phases wait for every pen
   assert.equal(room.phase, 'play', 'failed locates continue normal play');
   assert.equal(room.research.sector, 9);
   const reviewPhaseId = room.research.id;
-  assert.equal(reviewPhaseId, 'theory:8');
+  assert.equal(reviewPhaseId, 'theory:9');
   assert.deepEqual(room.pendingResearch.map((event) => event.sector), [12]);
-  assert.deepEqual(room.pendingResearch[0], { kind: 'theory', id: 'theory:11', time: 11, sector: 12 });
+  assert.deepEqual(room.pendingResearch[0], { kind: 'theory', id: 'theory:12', time: 12, sector: 12 });
   resolveResearch(room);
   assert.equal(room.research, null, 'the next crossed phase cannot open before reviews finish');
   assert.deepEqual([first.slot, second.slot], [1, 1]);
@@ -948,9 +983,9 @@ test('zero-submission phases advance papers and queued phases wait for every pen
   assert.deepEqual(viewFor(room, host.id).awaitingReview, [second.id]);
   accepted(room, second.actorId, { kind: 'review', id: second.id, review: 'correct' });
   assert.equal(room.research.sector, 12);
-  assert.equal(viewFor(room, host.id).research.id, 'theory:11');
+  assert.equal(viewFor(room, host.id).research.id, 'theory:12');
   assert.deepEqual(viewFor(room, host.id).awaitingReview, []);
-  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [11, 11]);
+  assert.deepEqual(viewFor(room, host.id).players.map((player) => player.time), [12, 12]);
   resolveResearch(room);
   assert.equal(room.pendingResearch, null);
 });
@@ -962,7 +997,7 @@ test('correct papers published in one phase share the leader bonus despite diffe
   const first = publishNext(room, 2, Obj.COMET).entry;
   const second = publishNext(room, 2, Obj.COMET).entry;
   assert.notEqual(first.id, second.id);
-  assert.equal(first.publicationPhase, 'theory:2');
+  assert.equal(first.publicationPhase, 'theory:3');
   assert.equal(first.publicationPhase, second.publicationPhase);
   for (let phase = 0; phase < 2; phase++) {
     walkToTheorySector(room, host.id);
@@ -1007,7 +1042,7 @@ test('crossing a conference sector asks the table to look at the app', () => {
 });
 
 test('a pre-filled conference note is offered when the crossing happens', () => {
-  const room = createRoom({ hostName: '阿甲' });
+  const room = createRoom({ hostName: '阿甲', initialClueCount: 0 });
   const host = room.players[0];
   addPlayer(room, '阿乙');
   applyRoomAction(room, host.id, { kind: 'start-game' });
@@ -1030,7 +1065,7 @@ test('conferences are public, and only on the marked sectors', () => {
 });
 
 test('the A–F subject names are the table’s, and only the host writes them', () => {
-  const room = createRoom({ hostName: '阿甲' });
+  const room = createRoom({ hostName: '阿甲', initialClueCount: 0 });
   const host = room.players[0];
   const guest = addPlayer(room, '阿乙');
   applyRoomAction(room, host.id, { kind: 'start-game' });
@@ -1062,7 +1097,7 @@ test('the A–F subject names are the table’s, and only the host writes them',
   assert.equal(viewFor(room, guest.id).topics.A.name, '彗星轨道', 'the correction reaches the table');
 
   // the first player to research an unnamed subject names it for everybody
-  const fresh = createRoom({ hostName: '丙' });
+  const fresh = createRoom({ hostName: '丙', initialClueCount: 0 });
   const other = addPlayer(fresh, '丁');
   applyRoomAction(fresh, fresh.hostId, { kind: 'start-game' });
   for (const p of fresh.players) applyRoomAction(fresh, p.id, { kind: 'setup', noClues: true });
@@ -1076,7 +1111,7 @@ test('the A–F subject names are the table’s, and only the host writes them',
 });
 
 test('an expert table asks for two conference notes, a standard one for a single note', () => {
-  const expert = createRoom({ modeId: 'expert', hostName: '阿甲' });
+  const expert = createRoom({ modeId: 'expert', hostName: '阿甲', initialClueCount: 0 });
   addPlayer(expert, '阿乙');
   applyRoomAction(expert, expert.hostId, { kind: 'start-game' });
   const view = viewFor(expert, expert.hostId);
@@ -1091,27 +1126,29 @@ test('an expert table asks for two conference notes, a standard one for a single
 });
 
 test('a setup card can be filled in again while the table is still waiting', () => {
-  const { room, host, guest } = lobby();
+  const { room, host, guest } = lobby('standard', 4);
+  const clues = [{ sector: 1, type: Obj.COMET }, { sector: 7, type: Obj.GAS_CLOUD }, { sector: 2, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }];
   applyRoomAction(room, host.id, { kind: 'start-game' });
-  applyRoomAction(room, host.id, { kind: 'setup', clues: [{ sector: 3, type: Obj.COMET }], noClues: false });
+  applyRoomAction(room, host.id, { kind: 'setup', clues, noClues: false });
   assert.equal(readyCount(room), 1);
   assert.equal(viewFor(room, host.id).mySetup.ready, true);
 
   assert.equal(applyRoomAction(room, host.id, { kind: 'setup-reopen' }).ok, true);
   assert.equal(viewFor(room, host.id).mySetup.ready, false, 'the card is editable again');
   assert.equal(readyCount(room), 0);
-  assert.deepEqual(viewFor(room, host.id).mySetup.clues, [{ sector: 3, type: Obj.COMET }], 'what was typed is kept');
+  assert.deepEqual(viewFor(room, host.id).mySetup.clues, clues, 'what was typed is kept');
   assert.equal(applyRoomAction(room, guest.id, { kind: 'setup-reopen' }).ok, true, 'anybody may reopen their own card');
 
   // and the card can be submitted again
-  assert.equal(applyRoomAction(room, host.id, { kind: 'setup', clues: [], noClues: true }).ok, true);
-  assert.equal(applyRoomAction(room, guest.id, { kind: 'setup', noClues: true }).ok, true);
+  const revised = clues.map((clue) => ({ ...clue, type: Obj.GAS_CLOUD }));
+  assert.equal(applyRoomAction(room, host.id, { kind: 'setup', clues: revised }).ok, true);
+  assert.equal(applyRoomAction(room, guest.id, { kind: 'setup', clues }).ok, true);
   assert.equal(room.phase, 'play');
   assert.equal(applyRoomAction(room, host.id, { kind: 'setup-reopen' }).ok, false, 'no card to reopen once the round started');
 });
 
 test('the room plays the board the host picked', () => {
-  const expert = createRoom({ modeId: 'expert', hostName: '阿甲' });
+  const expert = createRoom({ modeId: 'expert', hostName: '阿甲', initialClueCount: 0 });
   addPlayer(expert, '阿乙');
   assert.equal(expert.modeId, 'expert');
   assert.equal(viewFor(expert, expert.hostId).mode.sectors, 18);

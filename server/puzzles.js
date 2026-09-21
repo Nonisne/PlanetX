@@ -1,5 +1,6 @@
-import { Obj, LABEL, INITIAL_CLUE_TYPES, SURVEY_TYPES, apparentType } from '../public/src/types.js';
-import { buildResearchFeatures, researchFeatureValue, researchTopicName, researchClueText } from './research.js';
+import { Obj, INITIAL_CLUE_TYPES, apparentType } from '../public/src/types.js';
+import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, researchTopicName, conferenceTopicName, researchClueText } from './research.js';
+import { EXPERT_COMET_SECTORS, validateExpertBoard, createExpertDefinition, countExpertSolutions } from './expert-puzzles.js';
 
 const SECTOR_COUNT = 12;
 const COMET_SECTORS = new Set([1, 2, 4, 6, 10]);
@@ -21,6 +22,7 @@ const puzzleConstraints = new WeakMap();
 let cachedEngine;
 
 export function validateBoard(objects) {
+  if (Array.isArray(objects) && objects.length === 18) return validateExpertBoard(objects);
   if (!Array.isArray(objects) || objects.length !== SECTOR_COUNT) return false;
   for (const [objectType, count] of Object.entries(OBJECT_COUNTS)) {
     if (objects.filter((object) => object === objectType).length !== count) return false;
@@ -86,60 +88,30 @@ function enumerateBoards() {
   return candidates;
 }
 
-function arcMask(start, length) {
-  let mask = 0;
-  for (let offset = 0; offset < length; offset += 1) mask |= 1 << ((start + offset) % SECTOR_COUNT);
-  return mask;
-}
-
-function featureValue(feature, masks) {
-  if (feature.kind === 'band' || feature.kind === 'relation') {
-    return researchFeatureValue(feature, masks, SECTOR_COUNT);
-  }
-  if (feature.kind === 'arc' || feature.kind === 'x-candidates') {
-    return POPCOUNTS[masks[feature.objectType] & feature.mask];
-  }
-  if (feature.kind === 'x-neighbors') {
-    return POPCOUNTS[adjacentMask(masks[Obj.PLANET_X]) & masks[feature.objectType]];
-  }
-  if (feature.kind !== 'x-distance') throw new Error('Unknown puzzle feature kind.');
-  let reachable = masks[Obj.PLANET_X];
-  for (let distance = 1; distance <= SECTOR_COUNT / 2; distance += 1) {
-    reachable |= adjacentMask(reachable);
-    if (reachable & masks[feature.objectType]) return distance;
-  }
-  throw new Error('Invalid distance constraint.');
-}
-
 function engine() {
   if (cachedEngine) return cachedEngine;
   const candidates = enumerateBoards();
   const research = buildResearchFeatures(SECTOR_COUNT, OBJECT_COUNTS);
-  const conference = [];
-  for (let length = 3; length <= 6; length += 1) {
-    for (let start = 0; start < SECTOR_COUNT; start += 1) {
-      conference.push({ kind: 'arc', objectType: Obj.PLANET_X, start, length, mask: arcMask(start, length) });
-    }
-  }
-  for (const objectType of SURVEY_TYPES) {
-    conference.push({ kind: 'x-neighbors', objectType }, { kind: 'x-distance', objectType });
-  }
-  for (let first = 0; first < SECTOR_COUNT; first += 1) {
-    for (let second = first + 1; second < SECTOR_COUNT; second += 1) {
-      conference.push({ kind: 'x-candidates', objectType: Obj.PLANET_X, first, second, mask: (1 << first) | (1 << second) });
-    }
-  }
+  const conference = buildConferenceFeatures(SECTOR_COUNT);
   for (const feature of [...research, ...conference]) {
-    feature.values = Uint8Array.from(candidates, (candidate) => featureValue(feature, candidate.masks));
+    feature.values = Uint8Array.from(candidates, (candidate) => researchFeatureValue(feature, candidate.masks, SECTOR_COUNT));
   }
   const informativeResearch = research.filter((feature) => feature.values.includes(0) && feature.values.includes(1));
+  const informativeConferences = conference.filter((feature) => feature.values.includes(0) && feature.values.includes(1));
   const observationGroups = new Map();
   for (const [index, candidate] of candidates.entries()) {
     const key = candidate.objects.map(apparentType).join(',');
     if (!observationGroups.has(key)) observationGroups.set(key, []);
     observationGroups.get(key).push(index);
   }
-  cachedEngine = { candidates, research: informativeResearch, conference, observationGroups, indices: candidates.map((candidate, index) => index) };
+  const eligible = [];
+  for (const [answerIndex, candidate] of candidates.entries()) {
+    const observationPeers = observationGroups.get(candidate.objects.map(apparentType).join(','));
+    const conferenceOptions = informativeConferences.filter((feature) => feature.values[answerIndex] === 1
+      && observationPeers.every((index) => index === answerIndex || feature.values[index] === 0));
+    if (conferenceOptions.length) eligible.push({ answerIndex, conferenceOptions });
+  }
+  cachedEngine = { candidates, research: informativeResearch, eligible, indices: candidates.map((candidate, index) => index) };
   return cachedEngine;
 }
 
@@ -180,41 +152,10 @@ function chooseResearch(features, indices, answerIndex, desiredCount, used, rand
   return selected;
 }
 
-function clueLabel(objectType) {
-  return objectType === Obj.EMPTY ? '真正空域的扇区' : LABEL[objectType];
-}
-
-function clueText({ feature, value }) {
-  const label = clueLabel(feature.objectType);
-  if (feature.kind === 'arc') {
-    return `从第 ${feature.start + 1} 扇区起顺时针连续 ${feature.length} 个扇区中，${label}恰有 ${value} 个。`;
-  }
-  if (feature.kind === 'x-neighbors') {
-    return `X行星相邻的两个扇区中，${label}恰有 ${value} 个。`;
-  }
-  if (feature.kind === 'x-candidates') {
-    return `X行星位于第 ${feature.first + 1} 或第 ${feature.second + 1} 扇区。`;
-  }
-  return `X行星与最近的${label}之间的最短环形距离为 ${value}（相邻为 1）。`;
-}
-
-export function createPuzzle({ modeId = 'standard', random = Math.random } = {}) {
-  if (modeId !== 'standard') throw new RangeError('Only standard mode is supported by the built-in puzzle engine.');
+function createStandardPuzzle(random) {
   const catalogue = engine();
-  const answerIndex = randomIndex(catalogue.candidates.length, random);
-  const observedKey = catalogue.candidates[answerIndex].objects.map(apparentType).join(',');
-  const observationPeers = catalogue.observationGroups.get(observedKey);
-  const conferenceOptions = [];
-  for (const feature of catalogue.conference) {
-    const value = feature.values[answerIndex];
-    if ((feature.kind === 'arc' || feature.kind === 'x-candidates') && value !== 1) continue;
-    const constraint = { feature, value };
-    if (matchingIndices(observationPeers, constraint).length !== 1) continue;
-    const count = matchingIndices(catalogue.indices, constraint).length;
-    if (count > 1 && count < catalogue.indices.length) conferenceOptions.push(constraint);
-  }
-  if (!conferenceOptions.length) throw new Error('No conference can distinguish the observable boards.');
-  const conference = conferenceOptions[randomIndex(conferenceOptions.length, random)];
+  const { answerIndex, conferenceOptions } = catalogue.eligible[randomIndex(catalogue.eligible.length, random)];
+  const conference = { feature: conferenceOptions[randomIndex(conferenceOptions.length, random)], value: 1 };
   let remaining = matchingIndices(catalogue.indices, conference);
   const used = new Set();
   const availableBands = catalogue.research.filter((feature) => feature.kind === 'band' && feature.values[answerIndex] === 1);
@@ -240,22 +181,37 @@ export function createPuzzle({ modeId = 'standard', random = Math.random } = {})
     [research[index], research[selected]] = [research[selected], research[index]];
   }
   if (!remaining.includes(answerIndex)) throw new Error('Puzzle clue consistency verification failed.');
+  return assemblePuzzle('standard', catalogue.candidates[answerIndex].objects, research, { 10: conference });
+}
+
+function assemblePuzzle(modeId, objects, research, conferences) {
   const puzzle = {
-    objects: catalogue.candidates[answerIndex].objects.slice(),
+    modeId,
+    objects: objects.slice(),
     topics: Object.fromEntries(TOPIC_IDS.map((topicId, index) => [topicId, {
       name: researchTopicName(research[index][0].feature),
       clue: researchClueText(research[index][0].feature),
     }])),
-    conferences: { 10: clueText(conference) },
+    conferences: Object.fromEntries(Object.entries(conferences).map(([sector, constraint]) => [sector, researchClueText(constraint.feature)])),
+    conferenceNames: Object.fromEntries(Object.entries(conferences).map(([sector, constraint]) => [sector, conferenceTopicName(constraint.feature)])),
   };
-  puzzleConstraints.set(puzzle, { research, conference });
+  puzzleConstraints.set(puzzle, { modeId, sectorCount: objects.length, research, conferences: Object.values(conferences) });
   return puzzle;
 }
 
+export function createPuzzle({ modeId = 'standard', random = Math.random, maxAttempts } = {}) {
+  if (modeId !== 'standard' && modeId !== 'expert') throw new RangeError('modeId must be standard or expert.');
+  if (typeof random !== 'function') throw new TypeError('random must be a function.');
+  if (modeId === 'standard') return createStandardPuzzle(random);
+  const { objects, research, conferences } = createExpertDefinition((length) => randomIndex(length, random), { maxAttempts });
+  return assemblePuzzle(modeId, objects, research, conferences);
+}
+
 export function initialCluesFor(puzzle, { count = 4, random = Math.random } = {}) {
-  if (!validateBoard(puzzle?.objects)) throw new TypeError('Initial clues require a valid standard board.');
+  if (!validateBoard(puzzle?.objects)) throw new TypeError('Initial clues require a valid standard board or expert board.');
+  const cometSectors = puzzle.objects.length === 18 ? new Set(EXPERT_COMET_SECTORS) : COMET_SECTORS;
   const exclusions = puzzle.objects.flatMap((object, sector) => INITIAL_CLUE_TYPES
-    .filter((objectType) => objectType !== apparentType(object))
+    .filter((objectType) => objectType !== apparentType(object) && (objectType !== Obj.COMET || cometSectors.has(sector)))
     .map((objectType) => ({ sector, objectType })));
   if (!Number.isInteger(count) || count < 0 || count > exclusions.length) {
     throw new RangeError(`count must be an integer from 0 to ${exclusions.length}.`);
@@ -276,15 +232,15 @@ function selectedConstraints(puzzle, { topicIds = TOPIC_IDS, includeConference =
   }
   if (typeof includeConference !== 'boolean') throw new TypeError('includeConference must be a boolean.');
   const selected = [...new Set(topicIds)].flatMap((topicId) => constraints.research[TOPIC_IDS.indexOf(topicId)]);
-  if (includeConference) selected.push(constraints.conference);
+  if (includeConference) selected.push(...constraints.conferences);
   return selected;
 }
 
-function checkedInitialClues({ initialClues = [] } = {}) {
+function checkedInitialClues({ initialClues = [] } = {}, sectorCount = SECTOR_COUNT) {
   if (!Array.isArray(initialClues)) throw new TypeError('initialClues must be an array of exclusions.');
   for (const clue of initialClues) {
-    if (!Number.isInteger(clue?.sector) || clue.sector < 0 || clue.sector >= SECTOR_COUNT || !INITIAL_CLUE_TYPES.includes(clue.objectType)) {
-      throw new RangeError('initialClues require zero-based sectors 0–11 and ordinary objectType keys.');
+    if (!Number.isInteger(clue?.sector) || clue.sector < 0 || clue.sector >= sectorCount || !INITIAL_CLUE_TYPES.includes(clue.objectType)) {
+      throw new RangeError(`initialClues require zero-based sectors 0–${sectorCount - 1} and ordinary objectType keys.`);
     }
   }
   return initialClues;
@@ -296,19 +252,22 @@ function matchesExclusions(objects, initialClues) {
 
 export function matchingClues(objects, puzzle, options = {}) {
   const constraints = selectedConstraints(puzzle, options);
-  const initialClues = checkedInitialClues(options);
-  if (!validateBoard(objects)) return false;
+  const { sectorCount } = puzzleConstraints.get(puzzle);
+  const initialClues = checkedInitialClues(options, sectorCount);
+  if (!validateBoard(objects) || objects.length !== sectorCount) return false;
   if (!matchesExclusions(objects, initialClues)) return false;
   const masks = Object.fromEntries(Object.keys(OBJECT_COUNTS).map((objectType) => [objectType, 0]));
   objects.forEach((objectType, sector) => { masks[objectType] |= 1 << sector; });
-  return constraints.every((constraint) => featureValue(constraint.feature, masks) === constraint.value);
+  return constraints.every((constraint) => researchFeatureValue(constraint.feature, masks, sectorCount) === constraint.value);
 }
 
 export function countSolutions(puzzle, options = {}) {
   const { limit = Infinity } = options;
   if (limit !== Infinity && (!Number.isInteger(limit) || limit < 1)) throw new RangeError('limit must be a positive integer or Infinity.');
   const constraints = selectedConstraints(puzzle, options);
-  const initialClues = checkedInitialClues(options);
+  const { modeId, sectorCount } = puzzleConstraints.get(puzzle);
+  const initialClues = checkedInitialClues(options, sectorCount);
+  if (modeId === 'expert') return countExpertSolutions(constraints, initialClues, options);
   const catalogue = engine();
   let count = 0;
   for (const index of catalogue.indices) {

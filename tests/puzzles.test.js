@@ -84,7 +84,6 @@ const CLUE_TYPES = {
   彗星: Obj.COMET,
   气体云: Obj.GAS_CLOUD,
   矮行星: Obj.DWARF_PLANET,
-  真正空域的扇区: Obj.EMPTY,
   X行星: Obj.PLANET_X,
 };
 
@@ -107,8 +106,8 @@ function completeObservationExclusions(puzzle) {
 function interpretedRelation(subjectLabel, neighborLabel, relation, quantifier, range) {
   const objectType = readClueType(subjectLabel);
   const neighborType = readClueType(neighborLabel);
-  assert.ok(INITIAL_OBJECT_TYPES.includes(objectType));
-  assert.ok(INITIAL_OBJECT_TYPES.includes(neighborType));
+  assert.ok([...INITIAL_OBJECT_TYPES, Obj.PLANET_X].includes(objectType));
+  assert.ok([...INITIAL_OBJECT_TYPES, Obj.PLANET_X].includes(neighborType));
   assert.notEqual(objectType, neighborType);
   if (relation === 'within') assert.ok(range >= 2 && range < SECTOR_COUNT / 2);
   return {
@@ -132,7 +131,15 @@ function interpretedRelation(subjectLabel, neighborLabel, relation, quantifier, 
 
 function parseClueText(clue) {
   return clue.split('。').map((sentence) => sentence.trim()).filter(Boolean).map((sentence) => {
-    let fields = sentence.match(/^所有(.+)都位于一段不超过 (\d+) 个连续扇区内$/u);
+    let fields = sentence.match(/^X行星(不与任何|与至少一个)(.+)(相邻|正对)$/u);
+    if (fields) {
+      return interpretedRelation('X行星', fields[2], fields[3] === '相邻' ? 'adjacent' : 'opposite', fields[1] === '不与任何' ? 'none' : 'some');
+    }
+    fields = sentence.match(/^X行星(不在任何|位于至少一个)(.+)的 (\d+) 个扇区以内$/u);
+    if (fields) {
+      return interpretedRelation('X行星', fields[2], 'within', fields[1] === '不在任何' ? 'none' : 'some', Number(fields[3]));
+    }
+    fields = sentence.match(/^所有(.+)都位于一段不超过 (\d+) 个连续扇区内$/u);
     if (fields) {
       const objectType = readClueType(fields[1]);
       const length = Number(fields[2]);
@@ -151,74 +158,72 @@ function parseClueText(clue) {
     }
     for (const [quantifier, pattern] of [
       ['none', /^没有任何(.+)与(.+)(相邻|正对)$/u],
-      ['some', /^至少有一个(.+)与某个(.+)(相邻|正对)$/u],
-      ['all', /^每个(.+)都与至少一个(.+)(相邻|正对)$/u],
+      ['some', /^至少有一个(.+)与(?:某个)?(.+)(相邻|正对)$/u],
+      ['all', /^每个(.+)都与(?:至少一个)?(.+)(相邻|正对)$/u],
     ]) {
       fields = sentence.match(pattern);
       if (fields) return interpretedRelation(fields[1], fields[2], fields[3] === '相邻' ? 'adjacent' : 'opposite', quantifier);
     }
     for (const [quantifier, pattern] of [
       ['none', /^没有任何(.+)位于(.+)的 (\d+) 个扇区以内$/u],
-      ['some', /^至少有一个(.+)位于某个(.+)的 (\d+) 个扇区以内$/u],
-      ['all', /^每个(.+)都位于至少一个(.+)的 (\d+) 个扇区以内$/u],
+      ['some', /^至少有一个(.+)位于(?:某个)?(.+)的 (\d+) 个扇区以内$/u],
+      ['all', /^每个(.+)都位于(?:至少一个)?(.+)的 (\d+) 个扇区以内$/u],
     ]) {
       fields = sentence.match(pattern);
       if (fields) return interpretedRelation(fields[1], fields[2], 'within', quantifier, Number(fields[3]));
     }
-    fields = sentence.match(/^从第 (\d+) 扇区起顺时针连续 (\d+) 个扇区中，(.+)恰有 (\d+) 个$/u);
-    if (fields) {
-      const start = Number(fields[1]) - 1;
-      const length = Number(fields[2]);
-      const objectType = readClueType(fields[3]);
-      const count = Number(fields[4]);
-      assert.ok(start >= 0 && start < SECTOR_COUNT);
-      assert.ok(length >= 2 && length <= 6, 'interval clues are not exact single-sector assignments');
-      assert.ok(count >= 0 && count <= OBJECT_COUNTS[objectType]);
-      return {
-        kind: 'arc',
-        test: (objects) => Array.from({ length }, (unused, offset) => objects[(start + offset) % SECTOR_COUNT])
-          .filter((object) => object === objectType).length === count,
-      };
-    }
-    fields = sentence.match(/^X行星与最近的(.+)之间的最短环形距离为 (\d+)（相邻为 1）$/u);
-    if (fields) {
-      const objectType = readClueType(fields[1]);
-      const distance = Number(fields[2]);
-      assert.ok(distance >= 1 && distance <= 6);
-      return {
-        kind: 'x-distance',
-        test: (objects) => Math.min(...objects.flatMap((object, sector) => object === objectType
-          ? [ringDistance(objects.indexOf(Obj.PLANET_X), sector)] : [])) === distance,
-      };
-    }
-    fields = sentence.match(/^X行星相邻的两个扇区中，(.+)恰有 (\d+) 个$/u);
-    if (fields) {
-      const objectType = readClueType(fields[1]);
-      const count = Number(fields[2]);
-      assert.ok(count >= 0 && count <= 2);
-      return {
-        kind: 'x-neighbors',
-        test: (objects) => {
-          const sector = objects.indexOf(Obj.PLANET_X);
-          return [objects[(sector + 11) % SECTOR_COUNT], objects[(sector + 1) % SECTOR_COUNT]]
-            .filter((object) => object === objectType).length === count;
-        },
-      };
-    }
-    fields = sentence.match(/^X行星位于第 (\d+) 或第 (\d+) 扇区$/u);
-    if (fields) {
-      const first = Number(fields[1]) - 1;
-      const second = Number(fields[2]) - 1;
-      assert.ok(first >= 0 && first < SECTOR_COUNT);
-      assert.ok(second >= 0 && second < SECTOR_COUNT);
-      assert.notEqual(first, second);
-      return {
-        kind: 'x-candidates',
-        test: (objects) => [first, second].includes(objects.indexOf(Obj.PLANET_X)),
-      };
-    }
     assert.fail(`unsupported or ambiguous displayed clue: ${sentence}`);
   });
+}
+
+function parseConferenceText(clue) {
+  assert.match(clue, /^[^。！？\n]+。$/u);
+  assert.doesNotMatch(clue, /空域|从第|位于第|恰有|最短环形距离|每个X行星|任何X行星|某个X行星|至少(?:有)?一个X行星/u);
+  const statements = parseClueText(clue);
+  assert.equal(statements.length, 1);
+  const [statement] = statements;
+  assert.ok(['adjacent', 'opposite', 'within'].includes(statement.kind));
+  assert.equal(statement.objectTypes.length, 2);
+  assert.ok(statement.objectTypes.includes(Obj.PLANET_X));
+  assert.equal(statement.objectTypes.filter((objectType) => INITIAL_OBJECT_TYPES.includes(objectType)).length, 1);
+  return statement;
+}
+
+let independentConferences;
+
+function independentConferenceSpace() {
+  if (independentConferences) return independentConferences;
+  const candidates = allIndependentBoards();
+  const observationGroups = new Map();
+  for (const [index, objects] of candidates.entries()) {
+    const key = objects.map(apparentType).join(',');
+    if (!observationGroups.has(key)) observationGroups.set(key, []);
+    observationGroups.get(key).push(index);
+  }
+  const statements = [];
+  for (const [label, objectType] of Object.entries(CLUE_TYPES)) {
+    if (!INITIAL_OBJECT_TYPES.includes(objectType)) continue;
+    for (const [subject, neighbor] of [['X行星', label], [label, 'X行星']]) {
+      for (const [relation, range] of [['adjacent'], ['opposite'], ['within', 2], ['within', 3], ['within', 4], ['within', 5]]) {
+        for (const quantifier of ['none', 'some', 'all']) {
+          const statement = interpretedRelation(subject, neighbor, relation, quantifier, range);
+          const values = Uint8Array.from(candidates, (objects) => Number(statement.test(objects)));
+          statements.push({ ...statement, values });
+        }
+      }
+    }
+  }
+  const informative = statements.filter((statement) => statement.values.includes(0) && statement.values.includes(1));
+  const eligible = [];
+  const excluded = [];
+  for (const [index, objects] of candidates.entries()) {
+    const peers = observationGroups.get(objects.map(apparentType).join(','));
+    const distinguishable = informative.some((statement) => statement.values[index] === 1
+      && peers.every((peer) => peer === index || statement.values[peer] === 0));
+    (distinguishable ? eligible : excluded).push(objects);
+  }
+  independentConferences = { candidates, observationGroups, informative, eligible, excluded };
+  return independentConferences;
 }
 
 test('standard board validation accepts the declared inventory and circular neighbors', () => {
@@ -270,7 +275,7 @@ test('standard board validation rejects malformed boards and incorrect inventory
 test('board validation agrees with an independent exhaustive backtracking oracle', (context) => {
   const started = performance.now();
   const candidates = allIndependentBoards();
-  assert.ok(candidates.length > 1000);
+  assert.equal(candidates.length, 4446);
   assert.equal(new Set(candidates.map((objects) => objects.join(','))).size, candidates.length);
   for (const objects of candidates) assert.equal(puzzles.validateBoard(objects), true);
   context.diagnostic(`${candidates.length} independent valid boards; enumeration ${Math.round(performance.now() - started)}ms`);
@@ -291,14 +296,9 @@ test('research topics name one or two ordinary objects and contain exactly one f
 });
 
 test('relative research preserves legal mirror candidates until observations distinguish them', () => {
-  let firstDraw = true;
-  const puzzle = puzzles.createPuzzle({ random: () => {
-    if (!firstDraw) return 0.5;
-    firstDraw = false;
-    return (648 + 0.5) / allIndependentBoards().length;
-  } });
-  const planetSector = puzzle.objects.indexOf(Obj.PLANET_X);
-  const reflected = puzzle.objects.map((unused, sector) => puzzle.objects[(2 * planetSector - sector + 24) % 12]);
+  const puzzle = puzzles.createPuzzle({ random: seededRandom(648) });
+  const comets = puzzle.objects.flatMap((object, sector) => object === Obj.COMET ? [sector] : []);
+  const reflected = puzzle.objects.map((unused, sector) => puzzle.objects[(comets[0] + comets[1] - sector + 24) % 12]);
   assert.ok(independentlyValid(reflected));
   assert.notDeepEqual(reflected, puzzle.objects);
   assert.equal(puzzles.matchingClues(reflected, puzzle), true, 'relative facts cannot encode an arbitrary board orientation');
@@ -307,15 +307,64 @@ test('relative research preserves legal mirror candidates until observations dis
   assert.equal(puzzles.countSolutions(puzzle, { initialClues: observations }), 1);
 });
 
-test('generation exposes the standard server contract without serializing private constraints', (context) => {
+test('X conferences state exactly one relative fact about X and one ordinary type', () => {
+  for (let seed = 0; seed < 32; seed += 1) {
+    const puzzle = puzzles.createPuzzle({ random: seededRandom(seed + 1200) });
+    const statement = parseConferenceText(puzzle.conferences[10]);
+    assert.equal(statement.test(puzzle.objects), true);
+  }
+});
+
+test('the independent relation oracle finds 114 informative predicates and 4428 eligible boards', () => {
+  const { candidates, informative, eligible, excluded } = independentConferenceSpace();
+  assert.equal(candidates.length, 4446);
+  assert.equal(informative.length, 114);
+  assert.equal(eligible.length, 4428);
+  assert.equal(excluded.length, 18);
+  assert.equal(new Set([...eligible, ...excluded].map((objects) => objects.join(','))).size, 4446);
+});
+
+test('ambiguous boards stay legal solver possibilities rather than becoming hidden player knowledge', () => {
+  const ambiguous = [
+    Obj.ASTEROID, Obj.ASTEROID, Obj.COMET, Obj.DWARF_PLANET,
+    Obj.COMET, Obj.ASTEROID, Obj.ASTEROID, Obj.PLANET_X,
+    Obj.GAS_CLOUD, Obj.EMPTY, Obj.GAS_CLOUD, Obj.EMPTY,
+  ];
+  const swapped = ambiguous.slice();
+  [swapped[7], swapped[11]] = [swapped[11], swapped[7]];
+  const { candidates, observationGroups, informative, eligible, excluded } = independentConferenceSpace();
+  const excludedKeys = new Set(excluded.map((objects) => objects.join(',')));
+  for (const objects of [ambiguous, swapped]) {
+    assert.ok(independentlyValid(objects));
+    assert.equal(puzzles.validateBoard(objects), true);
+    assert.equal(excludedKeys.has(objects.join(',')), true);
+    assert.equal(eligible.some((candidate) => candidate.join(',') === objects.join(',')), false);
+  }
+  assert.deepEqual(ambiguous.map(apparentType), swapped.map(apparentType));
+  for (const statement of informative) assert.equal(statement.test(ambiguous), statement.test(swapped));
+  const puzzle = puzzles.createPuzzle({ random: seededRandom(18) });
+  for (const objects of excluded) {
+    const peers = observationGroups.get(objects.map(apparentType).join(',')).map((index) => candidates[index]);
+    const options = { topicIds: [], includeConference: false, initialClues: completeObservationExclusions({ objects }) };
+    assert.equal(puzzles.validateBoard(objects), true);
+    assert.equal(puzzles.countSolutions(puzzle, options), peers.length);
+    for (const peer of peers) assert.equal(puzzles.matchingClues(peer, puzzle, options), true);
+  }
+});
+
+test('generation exposes the standard server contract without serializing private constraints', async (context) => {
   assert.equal(typeof puzzles.createPuzzle, 'function');
   assert.equal(typeof puzzles.matchingClues, 'function');
   assert.equal(typeof puzzles.countSolutions, 'function');
+  const coldPuzzles = await import('../server/puzzles.js?cold-generation-test');
   const started = performance.now();
-  const puzzle = puzzles.createPuzzle({ random: seededRandom(42) });
+  const puzzle = coldPuzzles.createPuzzle({ random: seededRandom(42) });
   const elapsed = performance.now() - started;
   assert.ok(elapsed < 2000, `cold enumeration and first puzzle took ${Math.round(elapsed)}ms`);
-  assert.deepEqual(Object.keys(puzzle).sort(), ['conferences', 'objects', 'topics']);
+  assert.deepEqual(Object.keys(puzzle).sort(), ['conferenceNames', 'conferences', 'modeId', 'objects', 'topics']);
+  assert.equal(puzzle.modeId, 'standard');
+  assert.deepEqual(Object.keys(puzzle.conferenceNames), ['10']);
+  assert.match(puzzle.conferenceNames[10], /^X行星和(小行星|彗星|气体云|矮行星)$/u);
   assert.deepEqual(Object.keys(puzzle.topics), TOPIC_IDS);
   assert.deepEqual(Object.keys(puzzle.conferences), ['10']);
   assert.equal(typeof puzzle.conferences[10], 'string');
@@ -336,8 +385,8 @@ test('generation exposes the standard server contract without serializing privat
   context.diagnostic(`cold enumeration, feature cache, and first puzzle ${Math.round(elapsed)}ms`);
 });
 
-test('expert and unknown modes are explicitly rejected instead of falling back', () => {
-  for (const modeId of ['expert', 'unknown', '', null, 12]) {
+test('unknown modes are explicitly rejected instead of falling back', () => {
+  for (const modeId of ['unknown', '', null, 12]) {
     assert.throws(() => puzzles.createPuzzle({ modeId }), /standard|标准/u);
   }
 });
@@ -398,8 +447,8 @@ test('displayed facts independently match candidates and become unique with comp
         .map((objectType) => Object.keys(CLUE_TYPES).find((label) => CLUE_TYPES[label] === objectType)).join('和');
       assert.equal(topic.name, expectedName, 'the subject matches the clue without leaking its predicate');
     }
-    const conferenceStatements = parseClueText(puzzle.conferences[10]);
-    const conferenceCount = candidates.filter((objects) => conferenceStatements.every((statement) => statement.test(objects))).length;
+    const conferenceStatement = parseConferenceText(puzzle.conferences[10]);
+    const conferenceCount = candidates.filter((objects) => conferenceStatement.test(objects)).length;
     assert.ok(conferenceCount > 1 && conferenceCount < candidates.length);
     assert.equal(puzzles.countSolutions(puzzle, { topicIds: [] }), conferenceCount);
     const solutions = candidates.filter((objects) => parsed.every((statement) => statement.test(objects)));
@@ -432,12 +481,14 @@ test('candidate filtering uses deduction constraints, not the stored answer', ()
 });
 
 test('uniform board sampling uses equal-sized bins without rejection or rotation bias', () => {
-  const total = allIndependentBoards().length;
+  const total = independentConferenceSpace().eligible.length;
   const boards = new Set();
   for (const index of [0, 1, 17, 100, Math.floor(total / 2), total - 2, total - 1]) {
     function selectAt(fraction) {
       let calls = 0;
-      return puzzles.createPuzzle({ random: () => calls++ === 0 ? fraction : 0 });
+      const puzzle = puzzles.createPuzzle({ random: () => calls++ === 0 ? fraction : 0 });
+      assert.equal(calls, 13, 'one board draw, one conference draw, six topic draws and five shuffle draws');
+      return puzzle;
     }
     const lower = selectAt((index + 0.01) / total);
     const upper = selectAt((index + 0.99) / total);
@@ -472,22 +523,23 @@ test('generation produces varied complete puzzles within a bounded warm runtime'
   context.diagnostic(`256 puzzles: ${generated.size} boards, ${research.size} research sets, ${Math.round(elapsed)}ms; X histogram ${xHistogram.join(',')}`);
 });
 
-test('each player receives four fresh, deduplicated, zero-based ordinary-object exclusions', () => {
+test('four seats receive twelve fresh ordinary-object exclusions while the helper defaults to four', () => {
   assert.equal(typeof puzzles.initialCluesFor, 'function');
   const puzzle = puzzles.createPuzzle({ random: seededRandom(11) });
   const snapshot = JSON.stringify(puzzle);
   const random = seededRandom(8675309);
-  const startingClues = Array.from({ length: 6 }, () => puzzles.initialCluesFor(puzzle, { random }));
+  const startingClues = Array.from({ length: 4 }, () => puzzles.initialCluesFor(puzzle, { count: 12, random }));
   assert.equal(JSON.stringify(puzzle), snapshot, 'issuing clues does not mutate or publish them on the puzzle');
-  assert.equal(new Set(startingClues.map((clues) => JSON.stringify(clues))).size, 6);
+  assert.equal(new Set(startingClues.map((clues) => JSON.stringify(clues))).size, 4);
   for (const clues of startingClues) {
-    assert.equal(clues.length, 4);
+    assert.equal(clues.length, 12);
     assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, clues.length);
     for (const clue of clues) {
       assert.deepEqual(Object.keys(clue).sort(), ['objectType', 'sector']);
       assert.ok(Number.isInteger(clue.sector) && clue.sector >= 0 && clue.sector < SECTOR_COUNT);
       assert.ok(INITIAL_OBJECT_TYPES.includes(clue.objectType), `initial clues cannot exclude ${clue.objectType}`);
       assert.notEqual(clue.objectType, apparentType(puzzle.objects[clue.sector]));
+      assert.ok(clue.objectType !== Obj.COMET || COMET_SECTORS.has(clue.sector));
     }
     assert.ok(puzzles.countSolutions(puzzle, { initialClues: clues }) >= 1);
     assert.equal(puzzles.matchingClues(puzzle.objects, puzzle, { initialClues: clues }), true);
@@ -505,26 +557,43 @@ test('each player receives four fresh, deduplicated, zero-based ordinary-object 
 test('initial clue sampling handles the entire finite exclusion pool without retry loops', () => {
   const puzzle = puzzles.createPuzzle({ random: seededRandom(81) });
   for (const random of [() => 0, () => 1 - Number.EPSILON, seededRandom(999)]) {
-    const clues = puzzles.initialCluesFor(puzzle, { count: 39, random });
-    assert.equal(clues.length, 39);
-    assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, 39);
+    const clues = puzzles.initialCluesFor(puzzle, { count: 32, random });
+    assert.equal(clues.length, 32);
+    assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, 32);
     const expected = puzzle.objects.flatMap((object, sector) => INITIAL_OBJECT_TYPES
-      .filter((objectType) => objectType !== apparentType(object)).map((objectType) => `${sector}:${objectType}`));
+      .filter((objectType) => objectType !== apparentType(object) && (objectType !== Obj.COMET || COMET_SECTORS.has(sector)))
+      .map((objectType) => `${sector}:${objectType}`));
     assert.deepEqual(clues.map(({ sector, objectType }) => `${sector}:${objectType}`).sort(), expected.sort());
     const xSector = puzzle.objects.indexOf(Obj.PLANET_X);
-    assert.equal(clues.filter(({ sector }) => sector === xSector).length, 4);
+    assert.equal(clues.filter(({ sector }) => sector === xSector).length, COMET_SECTORS.has(xSector) ? 4 : 3);
     assert.ok(clues.every(({ sector, objectType }) => sector !== xSector || objectType !== Obj.EMPTY));
   }
   assert.deepEqual(puzzles.initialCluesFor(puzzle, { count: 0, random: () => assert.fail('zero clues need no random draws') }), []);
-  assert.deepEqual(
-    puzzles.initialCluesFor(puzzle, { count: 12, random: seededRandom(123) }),
-    puzzles.initialCluesFor(puzzle, { count: 12, random: seededRandom(123) }),
-  );
+  const fullHand = puzzles.initialCluesFor(puzzle, { count: 12, random: seededRandom(123) });
+  for (const count of [0, 4, 8, 12]) {
+    assert.deepEqual(puzzles.initialCluesFor(puzzle, { count, random: seededRandom(123) }), fullHand.slice(0, count));
+  }
+});
+
+test('all 4446 base-legal boards have exactly 32 true nontrivial initial exclusions', () => {
+  for (const objects of allIndependentBoards()) {
+    let draws = 0;
+    const clues = puzzles.initialCluesFor({ objects }, { count: 32, random: () => { draws += 1; return 0; } });
+    assert.equal(draws, 32);
+    assert.equal(clues.length, 32);
+    assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, 32);
+    for (const { sector, objectType } of clues) {
+      assert.ok(INITIAL_OBJECT_TYPES.includes(objectType));
+      assert.notEqual(objects[sector], objectType);
+      assert.ok(objectType !== Obj.COMET || COMET_SECTORS.has(sector), `nontrivial exclusion at sector ${sector + 1}`);
+    }
+    assert.throws(() => puzzles.initialCluesFor({ objects }, { count: 33 }), /count/u);
+  }
 });
 
 test('initial clue issuance rejects invalid counts, boards, and random sources', () => {
   const puzzle = puzzles.createPuzzle({ random: seededRandom(91) });
-  for (const count of [-1, 0.5, 40, 48, 49, NaN, Infinity, null, false, '4']) {
+  for (const count of [-1, 0.5, 33, 39, 40, 48, 49, NaN, Infinity, null, false, '4']) {
     assert.throws(() => puzzles.initialCluesFor(puzzle, { count }), /count/u);
   }
   for (const invalidPuzzle of [null, undefined, {}, { objects: [] }, { objects: Array(SECTOR_COUNT).fill(Obj.EMPTY) }]) {
@@ -537,7 +606,7 @@ test('initial clue issuance rejects invalid counts, boards, and random sources',
 
 test('ordinary-object initial exclusions do not distinguish X from true empty sectors', () => {
   const puzzle = puzzles.createPuzzle({ random: seededRandom(982) });
-  const allClues = puzzles.initialCluesFor(puzzle, { count: 39, random: () => 0 });
+  const allClues = puzzles.initialCluesFor(puzzle, { count: 32, random: () => 0 });
   const options = { topicIds: [], includeConference: false, initialClues: allClues };
   const expected = allIndependentBoards().filter((objects) => objects.every((object, sector) => apparentType(object) === apparentType(puzzle.objects[sector])));
   assert.ok(expected.length > 0);
@@ -588,50 +657,51 @@ test('puzzles and their clue strings do not share mutable state through the serv
   assert.deepEqual(puzzles.createPuzzle({ random: seededRandom(789) }), expected);
 });
 
-test('every valid board gets six single-fact topics and an observation-unique solution (PUZZLE_EXHAUSTIVE=1)', {
+test('all 4428 eligible boards have a conference distinguishing every original observation peer (PUZZLE_EXHAUSTIVE=1)', {
   skip: process.env.PUZZLE_EXHAUSTIVE !== '1',
 }, (context) => {
-  const candidates = allIndependentBoards();
-  const unsampled = new Set(candidates.map((objects) => objects.join(',')));
-  const observationGroups = new Map();
-  for (const objects of candidates) {
-    const key = objects.map(apparentType).join(',');
-    if (!observationGroups.has(key)) observationGroups.set(key, []);
-    observationGroups.get(key).push(objects);
-  }
+  const { candidates, eligible, observationGroups } = independentConferenceSpace();
+  const unsampled = new Set(eligible.map((objects) => objects.join(',')));
   let maximumStatements = 0;
   let maximumGeneration = 0;
   const started = performance.now();
-  for (let index = 0; index < candidates.length; index += 1) {
+  for (let index = 0; index < eligible.length; index += 1) {
     const random = seededRandom(index * 65537 + 20260920);
     let firstDraw = true;
     const generationStarted = performance.now();
     const puzzle = puzzles.createPuzzle({ random: () => {
       if (!firstDraw) return random();
       firstDraw = false;
-      return (index + 0.5) / candidates.length;
+      return (index + 0.5) / eligible.length;
     } });
     maximumGeneration = Math.max(maximumGeneration, performance.now() - generationStarted);
-    assert.equal(unsampled.delete(puzzle.objects.join(',')), true, `uniform bin ${index} selects a different legal board`);
-    assert.equal(puzzles.countSolutions(puzzle, { initialClues: completeObservationExclusions(puzzle) }), 1, `observable full-board uniqueness for bin ${index}`);
+    assert.equal(unsampled.delete(puzzle.objects.join(',')), true, `uniform bin ${index} selects a different eligible board`);
+    assert.equal(puzzles.countSolutions(puzzle, { topicIds: [], initialClues: completeObservationExclusions(puzzle) }), 1, `conference-only observable uniqueness for bin ${index}`);
     const researchStatements = Object.values(puzzle.topics).map((topic) => parseClueText(topic.clue));
-    for (const statements of researchStatements) assert.equal(statements.length, 1);
+    for (const statements of researchStatements) {
+      assert.equal(statements.length, 1);
+      assert.ok(statements[0].objectTypes.every((objectType) => INITIAL_OBJECT_TYPES.includes(objectType)));
+    }
     assert.equal(new Set(Object.values(puzzle.topics).map((topic) => topic.name)).size, 6);
-    const allStatements = [...researchStatements.flat(), ...parseClueText(puzzle.conferences[10])];
+    const conferenceStatement = parseConferenceText(puzzle.conferences[10]);
+    const allStatements = [...researchStatements.flat(), conferenceStatement];
     maximumStatements = Math.max(maximumStatements, allStatements.length);
     assert.equal(allStatements.every((statement) => statement.test(puzzle.objects)), true);
-    const observedCandidates = observationGroups.get(puzzle.objects.map(apparentType).join(','));
+    const observedCandidates = observationGroups.get(puzzle.objects.map(apparentType).join(',')).map((peer) => candidates[peer]);
+    assert.deepEqual(observedCandidates.filter((objects) => conferenceStatement.test(objects)), [puzzle.objects]);
     assert.deepEqual(observedCandidates.filter((objects) => allStatements.every((statement) => statement.test(objects))), [puzzle.objects]);
-    for (let player = 0; player < 6; player += 1) {
-      const clues = puzzles.initialCluesFor(puzzle, { random });
-      assert.equal(clues.length, 4);
-      assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, 4);
+    for (let player = 0; player < 4; player += 1) {
+      const clues = puzzles.initialCluesFor(puzzle, { count: 12, random });
+      assert.equal(clues.length, 12);
+      assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, 12);
       assert.ok(clues.every(({ objectType }) => INITIAL_OBJECT_TYPES.includes(objectType)));
       assert.ok(clues.every(({ sector, objectType }) => apparentType(puzzle.objects[sector]) !== objectType));
+      assert.ok(clues.every(({ sector, objectType }) => objectType !== Obj.COMET || COMET_SECTORS.has(sector)));
     }
   }
-  assert.equal(unsampled.size, 0, 'production enumeration covers every independently valid board without duplicates');
+  assert.equal(unsampled.size, 0, 'production samples every eligible board without duplicates and never samples the 18 excluded boards');
+  assert.equal(maximumStatements, 7);
   const elapsed = performance.now() - started;
   assert.ok(elapsed < 60000, `exhaustive sweep took ${Math.round(elapsed)}ms`);
-  context.diagnostic(`${candidates.length} unique boards certified in ${Math.round(elapsed)}ms; max generation ${maximumGeneration.toFixed(2)}ms; max ${maximumStatements} statements; ${candidates.length * 6} private hands`);
+  context.diagnostic(`${eligible.length} eligible boards certified against ${candidates.length} original boards in ${Math.round(elapsed)}ms; max generation ${maximumGeneration.toFixed(2)}ms; max ${maximumStatements} statements; ${eligible.length * 4} private hands`);
 });

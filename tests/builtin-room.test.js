@@ -9,7 +9,7 @@ function puzzleFixture() {
     objects: [Obj.ASTEROID, Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.PLANET_X, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.DWARF_PLANET, Obj.ASTEROID, Obj.ASTEROID],
     topics: Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((topic) => [topic, { name: `研究 ${topic}`, clue: `私有研究线索 ${topic}` }])),
     conferences: { 10: '会议专属线索：X 行星不在 1–3 号扇区。' },
-    startingClues: Array.from({ length: 6 }, (_, playerIndex) => [
+    startingClues: Array.from({ length: 4 }, (_, playerIndex) => [
       { sector: playerIndex, objectType: Obj.DWARF_PLANET },
       { sector: 10, objectType: Obj.COMET },
       { sector: 11, objectType: Obj.GAS_CLOUD },
@@ -18,9 +18,9 @@ function puzzleFixture() {
   };
 }
 
-function builtin(playerCount = 1) {
+function builtin(playerCount = 1, initialClueCount = 4) {
   const puzzle = puzzleFixture();
-  const room = createRoom({ playMode: 'builtin', puzzle, hostName: '甲' });
+  const room = createRoom({ playMode: 'builtin', puzzle, hostName: '甲', initialClueCount });
   while (room.players.length < playerCount) addPlayer(room, `玩家 ${room.players.length + 1}`);
   return { room, puzzle, host: room.players[0], guest: room.players[1] };
 }
@@ -31,9 +31,73 @@ function accept(room, player, action) {
   return result;
 }
 
+test('builtin initial clues are private, uniformly dealt on start, and cannot be rerolled', () => {
+  const counts = [0, 4, 8, 12];
+  for (const count of counts) {
+    const { room, host } = builtin(4, count);
+    const pool = room.puzzle.objects.flatMap((actual, sector) => THEORY_TYPES
+      .filter((objectType) => objectType !== actual && (objectType !== Obj.COMET || [1, 2, 4, 6, 10].includes(sector)))
+      .map((objectType) => ({ sector, objectType }))).slice(0, 12);
+    room.puzzle.startingClues = room.players.map(() => structuredClone(pool));
+    accept(room, host, { kind: 'start-game' });
+    for (const player of room.players) {
+      const setup = viewFor(room, player.id).mySetup;
+      assert.equal(setup.clues.length, count);
+      assert.equal(setup.cluesClaimed, true);
+      assert.equal(setup.initialClueCount, count);
+      for (const invalidCount of [-1, 1, 3, 5, 13, 4.5, null, '4']) {
+        assert.equal(applyRoomAction(room, player.id, { kind: 'claim-initial-clues', count: invalidCount }).ok, false);
+      }
+    }
+    for (const [index, player] of room.players.entries()) {
+      accept(room, player, { kind: 'claim-initial-clues', count });
+      const before = structuredClone(viewFor(room, player.id).mySetup);
+      assert.equal(before.cluesClaimed, true);
+      assert.equal(before.initialClueCount, count);
+      assert.equal(before.clues.length, count);
+      accept(room, player, { kind: 'claim-initial-clues', count });
+      assert.deepEqual(viewFor(room, player.id).mySetup, before);
+      assert.equal(applyRoomAction(room, player.id, { kind: 'claim-initial-clues', count: count === 4 ? 8 : 4 }).ok, false);
+      assert.equal(viewFor(room, player.id).startingClues, undefined);
+      assert.equal(viewFor(room, player.id).puzzle, undefined);
+      const nextPlayer = room.players[index + 1];
+      if (nextPlayer) assert.equal(viewFor(room, nextPlayer.id).mySetup.clues.length, count);
+      accept(room, player, { kind: 'setup' });
+    }
+    assert.equal(room.phase, 'play');
+    assert.equal(applyRoomAction(room, host.id, { kind: 'claim-initial-clues', count: 12 }).ok, false);
+  }
+});
+
+test('claiming builtin clues cannot mutate record setup or silently truncate an unavailable pool', () => {
+  const record = createRoom();
+  assert.equal(applyRoomAction(record, record.players[0].id, { kind: 'claim-initial-clues', count: 4 }).ok, false);
+  const { room, host } = builtin(1, 12);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, false);
+  assert.equal(room.phase, 'lobby');
+  assert.equal(viewFor(room, host.id).mySetup, null);
+});
+
+test('reopening builtin readiness preserves the claimed count and never permits a new hand', () => {
+  const { room, host } = builtin(2);
+  accept(room, host, { kind: 'start-game' });
+  accept(room, host, { kind: 'claim-initial-clues', count: 4 });
+  const clues = structuredClone(viewFor(room, host.id).mySetup.clues);
+  accept(room, host, { kind: 'setup' });
+  accept(room, host, { kind: 'setup-reopen' });
+  assert.equal(viewFor(room, host.id).mySetup.ready, false);
+  assert.equal(viewFor(room, host.id).mySetup.cluesClaimed, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'claim-initial-clues', count: 0 }).ok, false);
+  accept(room, host, { kind: 'claim-initial-clues', count: 4 });
+  assert.deepEqual(viewFor(room, host.id).mySetup.clues, clues);
+});
+
 function start(room) {
   accept(room, room.players[0], { kind: 'start-game' });
-  for (const player of room.players) accept(room, player, { kind: 'setup' });
+  for (const player of room.players) {
+    if (room.playMode === 'builtin') accept(room, player, { kind: 'claim-initial-clues', count: 4 });
+    accept(room, player, { kind: 'setup' });
+  }
 }
 
 function passResearch(room) {
@@ -62,7 +126,7 @@ function exhaustedBuiltin(playerCount = 1) {
   start(room);
   const claims = puzzle.objects.flatMap((objectType, sector) => THEORY_TYPES.includes(objectType)
     ? [{ sector, objectType }]
-    : THEORY_TYPES.map((claimType) => ({ sector, objectType: claimType })));
+    : THEORY_TYPES.filter((claimType) => claimType !== Obj.COMET || [1, 2, 4, 6, 10].includes(sector)).map((claimType) => ({ sector, objectType: claimType })));
   for (const claim of claims) {
     const phaseId = nextResearch(room);
     for (const player of room.players) {
@@ -75,7 +139,7 @@ function exhaustedBuiltin(playerCount = 1) {
     passResearch(room);
   }
   nextResearch(room);
-  assert.equal(room.session.entries.filter((entry) => entry.type === 'theory').length, 21);
+  assert.equal(room.session.entries.filter((entry) => entry.type === 'theory').length, 19);
   assert.equal(viewFor(room, host.id).theoryLockedSectors.length, 9);
   return fixture;
 }
@@ -135,7 +199,7 @@ test('builtin declaration capacity uses each author history rather than hidden p
   const phaseId = room.research.id;
   accept(room, host, { kind: 'research-declare', phaseId, count: 0 });
   accept(room, guest, { kind: 'research-declare', phaseId, count: 1 });
-  accept(room, guest, { kind: 'research-submit', phaseId, sector: 5, objectType: Obj.COMET });
+  accept(room, guest, { kind: 'research-submit', phaseId, sector: 5, objectType: Obj.GAS_CLOUD });
 });
 
 test('declaration buttons enforce personal capacity and preserve old expert views', () => {
@@ -144,7 +208,7 @@ test('declaration buttons enforce personal capacity and preserve old expert view
     { modeId: 'expert', maxDeclare: 1, allowed: 1 },
     { modeId: 'expert', maxDeclare: undefined, allowed: 2 },
   ]) {
-    const room = modeId === 'standard' ? builtin().room : createRoom({ modeId });
+    const room = modeId === 'standard' ? builtin().room : createRoom({ modeId, initialClueCount: 0 });
     if (modeId === 'expert') addPlayer(room, '乙');
     start(room);
     nextResearch(room);
@@ -161,20 +225,22 @@ test('declaration buttons enforce personal capacity and preserve old expert view
   }
 });
 
-test('legacy rooms stay record mode, builtin accepts solo and rejects unsupported boards', () => {
+test('legacy rooms stay record mode, builtin accepts solo and rejects mismatched puzzles', () => {
   const legacy = createRoom();
   assert.equal(viewFor(legacy, legacy.hostId).playMode, 'record');
   assert.equal(viewFor(legacy, legacy.hostId).canStart, false);
   const { room, host } = builtin();
   assert.equal(viewFor(room, host.id).canStart, true);
   assert.equal(viewFor(room, host.id).playMode, 'builtin');
-  assert.throws(() => createRoom({ playMode: 'builtin', modeId: 'expert', puzzle: puzzleFixture() }), /12|标准/);
+  assert.throws(() => createRoom({ playMode: 'builtin', modeId: 'expert', puzzle: puzzleFixture() }), /谜题/);
   assert.throws(() => createRoom({ playMode: 'builtin' }), /谜题/);
 });
 
 test('builtin setup issues private initial clues and ignores forged setup data', () => {
   const { room, host, guest } = builtin(2);
   accept(room, host, { kind: 'start-game' });
+  accept(room, host, { kind: 'claim-initial-clues', count: 4 });
+  accept(room, guest, { kind: 'claim-initial-clues', count: 4 });
   const before = structuredClone(viewFor(room, host.id).mySetup.clues);
   assert.equal(before.length, 4);
   assert.notDeepEqual(before, viewFor(room, guest.id).mySetup.clues);
@@ -248,10 +314,10 @@ test('builtin retains range validation and rejects malformed queries without spe
   }
 });
 
-test('conference publishes automatically only after the shared window reaches its event', () => {
+test('conference publishes automatically only after the shared window leaves its event', () => {
   const { room, host, puzzle } = builtin();
   start(room);
-  while (viewFor(room, host.id).time < 9) {
+  while (viewFor(room, host.id).time < 10) {
     assert.equal(JSON.stringify(viewFor(room, host.id)).includes(puzzle.conferences[10]), false);
     accept(room, host, { kind: 'wait' });
     passResearch(room);
@@ -263,14 +329,44 @@ test('conference publishes automatically only after the shared window reaches it
   assert.equal(room.conference, null);
 });
 
+test('builtin mixed crossings withhold conference clues until all earlier theory and review work completes', () => {
+  for (const submitWrong of [false, true]) {
+    const { room, host, puzzle } = builtin();
+    start(room);
+    accept(room, host, { kind: 'survey', type: Obj.ASTEROID, start: 0, size: 1 });
+    assert.equal(room.research.sector, 3);
+    const phaseId = room.research.id;
+    accept(room, host, { kind: 'research-declare', phaseId, count: submitWrong ? 1 : 0 });
+    if (submitWrong) accept(room, host, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.GAS_CLOUD });
+    accept(room, host, { kind: 'survey', type: Obj.ASTEROID, start: 4, size: 1 });
+    passResearch(room);
+    accept(room, host, { kind: 'target', sector: 8 });
+    assert.equal(viewFor(room, host.id).windowTime, 12);
+    assert.equal(room.research.sector, 9);
+    assert.equal(room.session.entries.some((entry) => entry.type === 'conference'), false);
+    assert.equal(JSON.stringify(viewFor(room, host.id)).includes(puzzle.conferences[10]), false);
+    accept(room, host, { kind: 'research-declare', phaseId: room.research.id, count: 0 });
+    assert.equal(room.research.sector, 12);
+    const conferenceIndex = room.session.entries.findIndex((entry) => entry.type === 'conference');
+    assert.ok(conferenceIndex >= 0);
+    assert.equal(room.session.entries[conferenceIndex].text, puzzle.conferences[10]);
+    if (submitWrong) {
+      const penaltyIndex = room.session.entries.findIndex((entry) => entry.type === 'penalty');
+      assert.ok(penaltyIndex >= 0 && penaltyIndex < conferenceIndex);
+    }
+  }
+});
+
 test('builtin advances theory track, automatically reviews and charges wrong theory once', () => {
   const { room, host } = builtin();
   start(room);
   accept(room, host, { kind: 'wait' });
   accept(room, host, { kind: 'wait' });
+  assert.equal(room.research, null);
+  accept(room, host, { kind: 'wait' });
   const phaseId = room.research.id;
   accept(room, host, { kind: 'research-declare', phaseId, count: 1 });
-  const submitted = accept(room, host, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.COMET });
+  const submitted = accept(room, host, { kind: 'research-submit', phaseId, sector: 1, objectType: Obj.COMET });
   assert.equal(submitted.entry.review, 'pending');
   for (let guard = 0; submitted.entry.review === 'pending' && guard < 20; guard++) {
     accept(room, host, { kind: 'wait' });
@@ -337,9 +433,23 @@ test('multiplayer final opportunity keeps truth hidden, freezes clocks, and auto
   assert.equal(viewFor(room, host.id).scores.rows.find((player) => player.id === host.id).locatePoints, 8);
 });
 
-test('builtin player list is locked after start and capped at six before start', () => {
-  const { room, host } = builtin(6);
-  assert.throws(() => addPlayer(room, '第七位'), /6/);
-  accept(room, host, { kind: 'start-game' });
-  assert.throws(() => addPlayer(room, '中途加入'), /开始|加入/);
+test('builtin supports one through four players and refuses a fifth without changing the room', () => {
+  for (const playerCount of [1, 2, 3, 4]) {
+    const { room } = builtin(playerCount);
+    if (playerCount === 4) {
+      const before = structuredClone(room);
+      assert.throws(() => addPlayer(room, '第五位'), /最多支持 4 名玩家/);
+      assert.deepEqual(room, before);
+    }
+    start(room);
+    assert.equal(room.phase, 'play');
+    for (const player of room.players) assert.equal(room.setup[player.id].clues.length, 4);
+    assert.throws(() => addPlayer(room, '中途加入'), /开始|加入/);
+  }
+});
+
+test('the builtin player cap does not change record room capacity', () => {
+  const room = createRoom({ playMode: 'record', hostName: '房主' });
+  for (let playerNumber = 2; playerNumber <= 5; playerNumber += 1) addPlayer(room, `玩家 ${playerNumber}`);
+  assert.equal(room.players.length, 5);
 });

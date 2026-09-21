@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 
 import { createServer } from '../server.mjs';
 import { Obj } from '../public/src/types.js';
+import { inMemoryFetch } from './server-dispatch.js';
 
 const store = new Map();
 const tabStore = new Map();
@@ -14,8 +15,10 @@ const realLocalStorage = globalThis.localStorage;
 const realSessionStorage = globalThis.sessionStorage;
 
 const server = createServer();
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const base = `http://127.0.0.1:${server.address().port}`;
+const useMemory = process.env.PLANETX_TEST_TRANSPORT === 'memory';
+if (!useMemory) await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const base = useMemory ? 'http://in-memory.test' : `http://127.0.0.1:${server.address().port}`;
+const transportFetch = useMemory ? inMemoryFetch(server) : globalThis.fetch;
 
 // Installed in a hook (not at import time) so other test files keep the real fetch.
 // Storage stubs are only installed when nobody else has provided them, so every test
@@ -38,7 +41,7 @@ test.before(() => {
     };
   nativeFetch = globalThis.fetch;
   // relative URLs -> absolute, exactly like a browser on that origin
-  globalThis.fetch = (url, options) => nativeFetch(String(url).startsWith('/') ? base + url : url, options);
+  globalThis.fetch = (url, options) => transportFetch(String(url).startsWith('/') ? base + url : url, options);
 });
 
 test.after(() => {
@@ -49,12 +52,17 @@ test.after(() => {
 const online = await import('../public/src/online.js');
 
 test('builtin transport creates solo puzzle mode and restores earned private clues without the answer', async () => {
-  const created = await online.createRoom({ name: '单人玩家', modeId: 'standard', playMode: 'builtin' });
+  const created = await online.createRoom({ name: '单人玩家', modeId: 'standard', playMode: 'builtin', initialClueCount: 12 });
   assert.equal(created.view.playMode, 'builtin');
   assert.equal(created.view.canStart, true);
   const started = await online.sendAction(created, { kind: 'start-game' });
   assert.equal(started.ok, true, started.error);
-  assert.equal(started.view.mySetup.clues.length, 4);
+  assert.equal(started.view.mySetup.clues.length, 12);
+  assert.equal(started.view.mySetup.cluesClaimed, true);
+  const claimed = await online.sendAction(created, { kind: 'claim-initial-clues', count: 12 });
+  assert.equal(claimed.ok, true, claimed.error);
+  assert.equal(claimed.view.mySetup.clues.length, 12);
+  assert.equal(claimed.view.mySetup.initialClueCount, 12);
   const ready = await online.sendAction(created, { kind: 'setup' });
   assert.equal(ready.view.phase, 'play');
   const research = await online.sendAction(created, { kind: 'research', topic: 'A' });
@@ -62,19 +70,22 @@ test('builtin transport creates solo puzzle mode and restores earned private clu
   assert.ok(research.view.topics.A.clue);
   assert.equal(research.view.topics.B.clue, '');
   const restored = await online.fetchView(created);
+  assert.deepEqual(restored.mySetup.clues, claimed.view.mySetup.clues);
   assert.equal(restored.topics.A.clue, research.view.topics.A.clue);
   assert.equal(restored.revealedObjects, null);
   assert.equal(restored.puzzle, undefined);
   assert.equal(restored.objects, undefined);
 });
 
-test('builtin transport rejects expert mode instead of silently making a record room', async () => {
-  await assert.rejects(() => online.createRoom({ name: '不支持的棋盘', modeId: 'expert', playMode: 'builtin' }), /标准|12/);
+test('builtin transport creates expert puzzles instead of falling back to a record room', async () => {
+  const room = await online.createRoom({ name: '专家玩家', modeId: 'expert', playMode: 'builtin' });
+  assert.equal(room.view.playMode, 'builtin');
+  assert.equal(room.view.mode.sectors, 18);
 });
 
 /** Create a room with two players sitting in the lobby, plus their identities. */
-async function tableInLobby() {
-  const host = await online.createRoom({ name: '阿甲' });
+async function tableInLobby(initialClueCount = 0) {
+  const host = await online.createRoom({ name: '阿甲', initialClueCount });
   const guest = await online.joinRoom(host.roomId, '阿乙');
   return { host, guest };
 }
@@ -85,14 +96,15 @@ async function tableInLobby() {
  * table-wide A–F names and conference notes.
  */
 async function tablePlaying({ hostClue = null, conferences = null } = {}) {
-  const ctx = await tableInLobby();
+  const ctx = await tableInLobby(hostClue ? 4 : 0);
+  const clues = hostClue ? [hostClue, { sector: 0, type: Obj.GAS_CLOUD }, { sector: 3, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }] : [];
   const started = await online.sendAction(ctx.host, { kind: 'start-game' });
   assert.equal(started.ok, true, started.error);
   assert.equal(started.view.phase, 'setup');
 
   const hostSetup = await online.sendAction(ctx.host, {
     kind: 'setup',
-    clues: hostClue ? [hostClue] : [],
+    clues,
     noClues: !hostClue,
     topics: { A: '阿甲的课题' },
     conferences: conferences || {},
@@ -100,7 +112,7 @@ async function tablePlaying({ hostClue = null, conferences = null } = {}) {
   assert.equal(hostSetup.ok, true, hostSetup.error);
   assert.equal(hostSetup.view.phase, 'setup', 'one card is not enough');
 
-  const guestSetup = await online.sendAction(ctx.guest, { kind: 'setup', noClues: true, topics: { A: '阿乙的课题' } });
+  const guestSetup = await online.sendAction(ctx.guest, { kind: 'setup', noClues: !hostClue, clues: clues.map((clue) => ({ ...clue, type: Obj.GAS_CLOUD })), topics: { A: '阿乙的课题' } });
   assert.equal(guestSetup.ok, true, guestSetup.error);
   assert.equal(guestSetup.view.phase, 'play');
   assert.equal(guestSetup.view.turnPlayerId, ctx.host.playerId, 'the host opens the first round');
@@ -198,20 +210,21 @@ test('the lobby gates the start on two players and the host’s command', async 
 });
 
 test('the setup phase collects a private initial clue, shared subjects and the conference notes', async () => {
-  const ctx = await tablePlaying({ hostClue: { sector: 3, type: Obj.COMET }, conferences: { 10: 'X行星紧邻一颗彗星' } });
+  const ctx = await tablePlaying({ hostClue: { sector: 1, type: Obj.COMET }, conferences: { 10: 'X行星紧邻一颗彗星' } });
   const { host, guest } = ctx;
 
   const hostView = await online.fetchView(host);
   assert.equal(hostView.phase, 'play');
   assert.equal(hostView.mySetup.ready, true);
-  assert.deepEqual(hostView.mySetup.clues, [{ sector: 3, type: Obj.COMET }]);
+  assert.equal(hostView.mySetup.clues.length, 4);
+  assert.deepEqual(hostView.mySetup.clues[0], { sector: 1, type: Obj.COMET });
   assert.equal(hostView.mySetup.topics.A.name, '阿甲的课题');
   assert.equal(hostView.topics.A.name, '阿甲的课题', 'and it seeds the subject list used while playing');
   assert.deepEqual(hostView.conferenceRuleSectors, [10], 'a standard board has one conference');
 
   const guestView = await online.fetchView(guest);
   assert.equal(guestView.mySetup.ready, true);
-  assert.equal(guestView.mySetup.clues.length, 0, 'the guest said they had no clue');
+  assert.equal(guestView.mySetup.clues.length, 4, 'the guest has the same count with a private hand');
   assert.equal(guestView.players.find((p) => p.id === host.playerId).ready, true, 'readiness is public');
   assert.equal(guestView.topics.A.name, '阿甲的课题', 'subject names are shared by the whole table');
   assert.equal(guestView.conferenceRules[10], 'X行星紧邻一颗彗星', 'and so is the conference rule');
@@ -320,15 +333,15 @@ test('two clients share the log and the board, but each one has their own clock'
   // publish in the phase's order; the objects are private to their authors
   const firstPublisher = publisher(declared.view, host, guest);
   const secondPublisher = firstPublisher === host ? guest : host;
-  const first = await online.sendAction(firstPublisher, { kind: 'research-submit', phaseId: opened.id, sector: 5, objectType: Obj.COMET });
+  const first = await online.sendAction(firstPublisher, { kind: 'research-submit', phaseId: opened.id, sector: 4, objectType: Obj.COMET });
   assert.equal(first.ok, true, first.error);
   const second = await online.sendAction(secondPublisher, { kind: 'research-submit', phaseId: opened.id, sector: 1, objectType: Obj.GAS_CLOUD });
   assert.equal(second.ok, true, second.error);
   assert.deepEqual(second.view.knowledge.theories.map((t) => t.slot).sort(), [3, 3], 'one phase -> one track space');
   assert.equal(second.view.research, null, 'and the phase is over');
-  const authored = second.view.knowledge.theories.find((t) => t.sector === 5);
+  const authored = second.view.knowledge.theories.find((t) => t.sector === 4);
   assert.equal(authored.objectType, undefined, 'only the sector is public');
-  const myOwn = (await online.fetchView(firstPublisher)).knowledge.theories.find((t) => t.sector === 5);
+  const myOwn = (await online.fetchView(firstPublisher)).knowledge.theories.find((t) => t.sector === 4);
   assert.equal(myOwn.objectType, Obj.COMET, 'the author receives their own object');
 
   assert.equal((await online.sendAction(firstPublisher, { kind: 'undo' })).ok, false, 'not the last entry');
@@ -483,7 +496,7 @@ test('the client transmits final theory batches atomically without moving either
   assert.equal(invalid.status, 400);
   assert.equal(invalid.ok, false);
   assert.deepEqual(invalid.view, before);
-  const published = await online.sendAction(guest, { kind: 'final-theories', theories: [{ sector: 1, objectType: Obj.COMET }, { sector: 3, objectType: Obj.COMET }] });
+  const published = await online.sendAction(guest, { kind: 'final-theories', theories: [{ sector: 1, objectType: Obj.COMET }, { sector: 4, objectType: Obj.COMET }] });
   assert.equal(published.ok, true, published.error);
   assert.equal(published.view.phase, 'reveal');
   assert.equal(published.view.endgame.players[0].choice, 'final-theories');

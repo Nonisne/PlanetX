@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { crossedEvents } from '../public/src/phases.js';
 
 import { Obj, CODE, LABEL, apparentType, SURVEY_TYPES, THEORY_TYPES, NOTE_ROWS } from '../public/src/types.js';
 import {
@@ -36,6 +37,32 @@ import {
 } from '../public/src/rules.js';
 
 const { standard, expert } = MODES;
+
+test('phase markers trigger when the window leaves them, including lap boundaries', () => {
+  assert.deepEqual(crossedEvents(standard, 1, 2), []);
+  assert.deepEqual(crossedEvents(standard, 2, 3), [{ kind: 'theory', id: 'theory:3', time: 3, sector: 3 }]);
+  assert.deepEqual(crossedEvents(standard, 8, 9), [{ kind: 'theory', id: 'theory:9', time: 9, sector: 9 }]);
+  assert.deepEqual(crossedEvents(standard, 9, 10), [{ kind: 'conference', id: 'conference:10', time: 10, sector: 10 }]);
+  assert.deepEqual(crossedEvents(standard, 11, 12), [{ kind: 'theory', id: 'theory:12', time: 12, sector: 12 }]);
+  assert.deepEqual(crossedEvents(expert, 6, 7), [{ kind: 'conference', id: 'conference:7', time: 7, sector: 7 }]);
+  assert.deepEqual(crossedEvents(expert, 15, 16), [{ kind: 'conference', id: 'conference:16', time: 16, sector: 16 }]);
+  assert.deepEqual(crossedEvents(expert, 17, 18), [{ kind: 'theory', id: 'theory:18', time: 18, sector: 18 }]);
+});
+
+test('crossing multiple markers preserves departure order across laps', () => {
+  assert.deepEqual(crossedEvents(standard, 8, 15).map(({ kind, time, sector }) => ({ kind, time, sector })), [
+    { kind: 'theory', time: 9, sector: 9 },
+    { kind: 'conference', time: 10, sector: 10 },
+    { kind: 'theory', time: 12, sector: 12 },
+    { kind: 'theory', time: 15, sector: 3 },
+  ]);
+});
+
+test('the base rules state the correct dwarf count for each board', () => {
+  assert.match(baseRuleText(standard).join(' '), /矮行星共 1 颗/);
+  assert.match(baseRuleText(expert).join(' '), /矮行星共 4 颗/);
+  assert.doesNotMatch(baseRuleText(expert).join(' '), /矮行星共 1 颗/);
+});
 
 test('the visible sky window slides one sector per time unit', () => {
   assert.equal(TIME_UNITS_PER_SHIFT, 1);
