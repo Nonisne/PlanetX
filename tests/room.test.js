@@ -562,12 +562,20 @@ test('expert declaration capacity counts distinct available sectors, not remaini
       .sort((first, second) => first.sector - second.sector);
     for (const paper of pending) accepted(room, host.id, { kind: 'review', id: paper.id, review: 'correct' });
   };
+  const nextType = (playerId, sector) => {
+    const option = viewFor(room, playerId).theoryOptions.find((entry) => entry.sector === sector);
+    assert.ok(option?.types?.length, `player ${playerId} needs a token for sector ${sector + 1}`);
+    return option.types[0];
+  };
   for (let sector = 0; sector < 17; sector += 2) {
     const phaseId = walkToTheorySector(room, host.id).id;
     const sectors = [sector, sector + 1].filter((candidate) => candidate < 17);
-    accepted(room, host.id, { kind: 'research-declare', phaseId, count: sectors.length });
-    accepted(room, guest.id, { kind: 'research-declare', phaseId, count: 0 });
-    for (const target of sectors) publishNext(room, target, Obj.ASTEROID);
+    const hostCount = Math.min(1, sectors.length);
+    const guestCount = sectors.length - hostCount;
+    accepted(room, host.id, { kind: 'research-declare', phaseId, count: hostCount });
+    accepted(room, guest.id, { kind: 'research-declare', phaseId, count: guestCount });
+    if (hostCount) publishNext(room, sectors[0], nextType(host.id, sectors[0]));
+    if (guestCount) publishNext(room, sectors[1], nextType(guest.id, sectors[1]));
     finishReviews();
   }
   for (let advance = 0; advance < 2; advance++) {
@@ -582,17 +590,9 @@ test('expert declaration capacity counts distinct available sectors, not remaini
   assert.equal(refused.ok, false);
   assert.deepEqual(room, before);
   assert.equal(viewFor(room, host.id).research.quota, 2);
-  assert.equal(viewFor(room, host.id).research.maxDeclare, 1);
-  accepted(room, host.id, { kind: 'research-declare', phaseId, count: 1 });
-  accepted(room, guest.id, { kind: 'research-declare', phaseId, count: 1 });
-  publishNext(room, 17, Obj.ASTEROID);
-  assert.equal(viewFor(room, host.id).research.maxDeclare, 0);
-  assert.equal(viewFor(room, guest.id).research.maxDeclare, 1);
-  assert.equal(viewFor(room, guest.id).research.picks[0].objectType, undefined);
-  publishNext(room, 17, Obj.GAS_CLOUD);
-  walkToTheorySector(room, host.id);
-  assert.equal(viewFor(room, host.id).research.maxDeclare, 1);
-  assert.equal(viewFor(room, guest.id).research.maxDeclare, 1);
+  assert.equal(viewFor(room, host.id).research.maxDeclare, 1, 'capacity follows remaining sectors, not the expert quota of 2');
+  accepted(room, host.id, { kind: 'research-declare', phaseId, count: 0 });
+  accepted(room, guest.id, { kind: 'research-declare', phaseId, count: 0 });
 });
 
 test('a peer review that says correct reveals the whole sector and locks it', () => {

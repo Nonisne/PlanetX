@@ -58,7 +58,7 @@ function renderFinal({ game, ui, api }) {
       { class: 'action-block' },
       h('h3', {}, '轮到你的最后机会'),
       h('p', {}, `你落后 ${endgame.behind ?? 0} 格，可以尝试定位，或提交最多 ${maxTheories} 篇最终理论，也可以放弃。`),
-      maxTheories < quota ? h('p', { class: 'muted small' }, `按剩余可提交的不同扇区计算，可用名额为 ${maxTheories} 篇。`) : null,
+      maxTheories < quota ? h('p', { class: 'muted small' }, `按剩余可提交的不同扇区与理论标记计算，可用名额为 ${maxTheories} 篇。`) : null,
       h('div', { class: 'action-buttons' }, h('button', { class: 'btn', onclick: () => api.openLocate() }, '尝试定位 X行星')),
     ),
     h(

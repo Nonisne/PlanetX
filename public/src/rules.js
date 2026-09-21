@@ -59,6 +59,20 @@ export const THEORY_POINTS = Object.freeze({
 /** Expert boards hold four dwarf planets, so a dwarf-planet theory pays less. */
 export const THEORY_POINTS_EXPERT = Object.freeze({ ...THEORY_POINTS, dwarfPlanet: 2 });
 
+/**
+ * Physical theory-token inventory per player (official setup).
+ * Standard returns three unused dwarf tokens to the box; expert keeps all four.
+ * Spent tokens are never returned — wrong papers leave the game, correct ones stay on the track.
+ */
+export const THEORY_TOKEN_INVENTORY = Object.freeze({
+  standard: Object.freeze({ asteroid: 4, comet: 2, gasCloud: 2, dwarfPlanet: 1 }),
+  expert: Object.freeze({ asteroid: 4, comet: 2, gasCloud: 2, dwarfPlanet: 4 }),
+});
+
+export function theoryTokenInventory(mode) {
+  return THEORY_TOKEN_INVENTORY[mode?.id] || THEORY_TOKEN_INVENTORY.standard;
+}
+
 /** +1 for every sector where you were the first to publish a correct theory. */
 export const LEADER_BONUS = 1;
 

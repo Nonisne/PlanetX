@@ -124,9 +124,12 @@ function exhaustedBuiltin(playerCount = 1) {
   const fixture = builtin(playerCount);
   const { room, host, puzzle } = fixture;
   start(room);
-  const claims = puzzle.objects.flatMap((objectType, sector) => THEORY_TYPES.includes(objectType)
-    ? [{ sector, objectType }]
-    : THEORY_TYPES.filter((claimType) => claimType !== Obj.COMET || [1, 2, 4, 6, 10].includes(sector)).map((claimType) => ({ sector, objectType: claimType })));
+  // One correct paper per ordinary sector spends the whole standard inventory (9 tokens)
+  // and locks every sector that can ever be confirmed by review.
+  const claims = puzzle.objects
+    .map((objectType, sector) => ({ sector, objectType }))
+    .filter((claim) => THEORY_TYPES.includes(claim.objectType));
+  assert.equal(claims.length, 9);
   for (const claim of claims) {
     const phaseId = nextResearch(room);
     for (const player of room.players) {
@@ -139,8 +142,10 @@ function exhaustedBuiltin(playerCount = 1) {
     passResearch(room);
   }
   nextResearch(room);
-  assert.equal(room.session.entries.filter((entry) => entry.type === 'theory').length, 19);
+  assert.equal(room.session.entries.filter((entry) => entry.type === 'theory').length, 9);
   assert.equal(viewFor(room, host.id).theoryLockedSectors.length, 9);
+  assert.equal(viewFor(room, host.id).theoryTokensRemaining.asteroid, 0);
+  assert.equal(viewFor(room, host.id).theoryTokensRemaining.dwarfPlanet, 0);
   return fixture;
 }
 
@@ -162,6 +167,7 @@ function declarationControls(game) {
       if (tagName === 'button') buttons.push(element);
       return element;
     },
+    createElementNS(_ns, tagName) { return this.createElement(tagName); },
     createTextNode(text) { return { nodeType: 3, textContent: String(text) }; },
   };
   try {
