@@ -1,0 +1,11 @@
+{
+  "name": "Planet X Web",
+  "install": "node --version",
+  "terminals": [
+    {
+      "name": "server",
+      "command": "PORT=5173 HOST=0.0.0.0 node start.mjs"
+    }
+  ],
+  "ports": [5173]
+}
