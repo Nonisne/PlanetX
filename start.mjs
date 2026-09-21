@@ -59,7 +59,7 @@ function openPage() {
   const url = `http://127.0.0.1:${port}/`;
   const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'rundll32.exe' : 'xdg-open';
   const args = process.platform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url];
-  const browser = spawn(command, args, { stdio: 'ignore', windowsHide: true });
+  const browser = spawn(command, args, { stdio: 'ignore', windowsHide: true, env: process.env });
   browser.on('error', () => out(`  无法自动打开浏览器，请手动访问 ${url}`));
   browser.on('exit', (code) => { if (code) out(`  浏览器未能自动打开，请手动访问 ${url}`); });
   browser.unref();

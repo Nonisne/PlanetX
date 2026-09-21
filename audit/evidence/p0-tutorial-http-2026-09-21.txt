@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: capabilities expose both builtin boards, tutorial and strict room clue counts
+ok 1 - capabilities expose both builtin boards, tutorial and strict room clue counts
+  ---
+  duration_ms: 25.574678
+  ...
+# Subtest: HTTP enforces a single host-controlled clue count and automatic private distribution
+ok 2 - HTTP enforces a single host-controlled clue count and automatic private distribution
+  ---
+  duration_ms: 178.833077
+  ...
+# Subtest: HTTP creates expert builtin puzzles with two public conference titles but no unearned text
+ok 3 - HTTP creates expert builtin puzzles with two public conference titles but no unearned text
+  ---
+  duration_ms: 9.981367
+  ...
+# Subtest: tutorial creation is fixed, unjoinable, server-only and denies Bot credentials on every route
+ok 4 - tutorial creation is fixed, unjoinable, server-only and denies Bot credentials on every route
+  ---
+  duration_ms: 7.459835
+  ...
+# Subtest: HTTP and SSE persist every tutorial step, reject duplicates, and finish a complete private lesson
+ok 5 - HTTP and SSE persist every tutorial step, reject duplicates, and finish a complete private lesson
+  ---
+  duration_ms: 149.938256
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 377.06003

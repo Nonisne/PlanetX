@@ -139,8 +139,9 @@ test('macOS entrypoints resolve Node with Finder PATH, open only a ready page, a
   };
   const started = runEntry('一键启动.command');
   await ready(started, port);
-  for (let attempt = 0; attempt < 80 && !fs.existsSync(openedFile); attempt++) await delay(25);
-  assert.ok(fs.existsSync(openedFile), started.output);
+  // Under full-suite load, spawn(open) + fetch + write can exceed the old 2s window.
+  for (let attempt = 0; attempt < 200 && !fs.existsSync(openedFile); attempt++) await delay(25);
+  assert.ok(fs.existsSync(openedFile), `browser stand-in did not write ${openedFile} within 5s\n${started.output}`);
   assert.deepEqual(JSON.parse(fs.readFileSync(openedFile, 'utf8')), { url: `http://127.0.0.1:${port}/`, status: 200 });
   const stopped = runEntry('一键关闭.command');
   assert.equal(await exited(stopped), 0, stopped.output);
