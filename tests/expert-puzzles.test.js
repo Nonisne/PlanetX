@@ -406,9 +406,16 @@ test('expert initial exclusions support zero, twelve and all 49 true nontrivial 
       assert.ok(clue.objectType !== Obj.COMET || PRIME_SECTORS.includes(clue.sector + 1));
     }
     for (const count of [0, 4, 8, 12]) {
-      const clues = initialCluesFor(puzzle, { count, random: seededRandom(9001) });
-      assert.deepEqual(clues, allClues.slice(0, count));
+      const clues = initialCluesFor(puzzle, { count, random: seededRandom(9001 + count) });
+      assert.equal(clues.length, count);
+      assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, count);
       assert.equal(matchingClues(puzzle.objects, puzzle, { initialClues: clues }), true);
+      const cometExclusions = clues.filter(({ objectType }) => objectType === Obj.COMET).length;
+      assert.ok(cometExclusions <= 2, `expert hand seed=${seed} count=${count} had ${cometExclusions} comet exclusions`);
+      if (count > 0) {
+        const candidates = countSolutions(puzzle, { topicIds: [], includeConference: false, initialClues: clues });
+        assert.ok(candidates >= 10000, `expert hand seed=${seed} count=${count} left only ${candidates} candidates`);
+      }
     }
     assert.equal(countSolutions(puzzle, { initialClues: allClues }), 1);
     assert.equal(JSON.stringify(puzzle), snapshot);
