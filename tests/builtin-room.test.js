@@ -94,7 +94,7 @@ test('reopening builtin readiness preserves the claimed count and never permits 
 
 function start(room) {
   accept(room, room.players[0], { kind: 'start-game' });
-  for (const player of room.players) {
+  for (const player of room.players.filter((seat) => !seat.spectator)) {
     if (room.playMode === 'builtin') accept(room, player, { kind: 'claim-initial-clues', count: 4 });
     accept(room, player, { kind: 'setup' });
   }
@@ -103,7 +103,7 @@ function start(room) {
 function passResearch(room) {
   for (let guard = 0; room.research && guard < 20; guard++) {
     const phaseId = room.research.id;
-    for (const player of room.players) {
+    for (const player of room.players.filter((seat) => !seat.spectator)) {
       if (room.research?.id === phaseId && !Object.hasOwn(room.research.declares, player.id)) {
         accept(room, player, { kind: 'research-declare', phaseId, count: 0 });
       }
@@ -446,11 +446,18 @@ test('builtin supports one through four players and refuses a fifth without chan
       const before = structuredClone(room);
       assert.throws(() => addPlayer(room, '第五位'), /最多支持 4 名玩家/);
       assert.deepEqual(room, before);
+      const spectator = addPlayer(room, '旁观', { spectator: true });
+      assert.equal(spectator.spectator, true);
+      assert.equal(room.players.length, 5);
     }
     start(room);
     assert.equal(room.phase, 'play');
-    for (const player of room.players) assert.equal(room.setup[player.id].clues.length, 4);
+    for (const player of room.players.filter((seat) => !seat.spectator)) assert.equal(room.setup[player.id].clues.length, 4);
     assert.throws(() => addPlayer(room, '中途加入'), /开始|加入/);
+    if (playerCount === 4) {
+      const late = addPlayer(room, '中途旁观', { spectator: true });
+      assert.equal(late.spectator, true);
+    }
   }
 });
 

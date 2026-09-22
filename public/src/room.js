@@ -61,6 +61,19 @@ export const CLUE_TYPES = INITIAL_CLUE_TYPES;
 /** App 开局最多给你这么多条"某扇区没有某天体"。 */
 export const MAX_SETUP_CLUES = 12;
 
+/** Soft cap so a room cannot accumulate an unbounded spectator list. */
+export const MAX_SPECTATORS = 12;
+
+/** True when this seat is watch-only and does not occupy a play slot. */
+export function isSpectator(player) {
+  return Boolean(player && player.spectator);
+}
+
+/** Players who act, declare research, and fill setup cards. */
+export function seatedPlayers(room) {
+  return room.players.filter((player) => !isSpectator(player));
+}
+
 /** Fields that only the player who produced them may see (until `revealed`). */
 export const PRIVATE_KEYS = Object.freeze({
   survey: Object.freeze(['count']),
@@ -160,22 +173,32 @@ export function createRoom({ modeId = 'standard', hostName = '主持人', playMo
   return room;
 }
 
-export function addPlayer(room, name) {
+export function addPlayer(room, name, { spectator = false } = {}) {
   if (room.tutorialState) throw new Error('教学房间固定为 1 名真人和 1 个 Bot，不能加入其他玩家');
-  if (room.playMode === 'builtin' && room.phase !== 'lobby') throw new Error('内置谜题已开始，不能中途加入');
-  if (room.playMode === 'builtin' && room.players.length >= BUILTIN_MAX_PLAYERS) throw new Error(`内置谜题最多支持 ${BUILTIN_MAX_PLAYERS} 名玩家`);
+  const asSpectator = Boolean(spectator);
+  const seated = seatedPlayers(room);
+  const spectators = room.players.filter((player) => isSpectator(player));
+  if (asSpectator) {
+    if (spectators.length >= MAX_SPECTATORS) throw new Error(`观战席最多 ${MAX_SPECTATORS} 人`);
+  } else {
+    if (room.playMode === 'builtin' && room.phase !== 'lobby') throw new Error('内置谜题已开始，不能中途加入');
+    if (room.playMode === 'builtin' && seated.length >= BUILTIN_MAX_PLAYERS) {
+      throw new Error(`内置谜题最多支持 ${BUILTIN_MAX_PLAYERS} 名玩家`);
+    }
+  }
   const used = new Set(room.players.map((p) => p.color));
   const player = {
     id: makeId(4),
-    name: String(name || '').trim() || `玩家 ${room.players.length + 1}`,
+    name: String(name || '').trim() || (asSpectator ? `观战者 ${spectators.length + 1}` : `玩家 ${seated.length + 1}`),
     token: makeToken(),
     color: COLORS.find((c) => !used.has(c)) || COLORS[room.players.length % COLORS.length],
     joinedAt: Date.now(),
     host: false,
+    spectator: asSpectator,
   };
   room.players.push(player);
   room.playerTopics[player.id] = emptyTopics();
-  if (room.phase === 'setup') {
+  if (!asSpectator && room.phase === 'setup') {
     // somebody joined after the host started: they still get a setup card
     room.setup[player.id] = { ...setupDefaults(), initialClueCount: room.initialClueCount, noClues: room.initialClueCount === 0 };
   }
@@ -209,9 +232,9 @@ function spentLess(a, b) {
   return arrivalFirst(a, b) < 0;
 }
 
-/** Everybody, least time first: the order in which players act (and publish). */
+/** Everybody who plays, least time first: the order in which players act (and publish). */
 export function turnOrder(room) {
-  return room.players
+  return seatedPlayers(room)
     .map((player) => ({ player, key: spendKey(room, player) }))
     .sort((a, b) => (spentLess(a.key, b.key) ? -1 : 1))
     .map((row) => row.player);
@@ -244,9 +267,9 @@ export function setupDefaults() {
   return { clues: [], noClues: false, initialClueCount: null, cluesClaimed: false, topics: { ...emptyTopics() }, ready: false };
 }
 
-/** Which setup cards are still missing. */
+/** Which seated setup cards are still missing. */
 export function readyCount(room) {
-  return room.players.filter((p) => room.setup[p.id] && room.setup[p.id].ready).length;
+  return seatedPlayers(room).filter((p) => room.setup[p.id] && room.setup[p.id].ready).length;
 }
 
 export function playerByToken(room, token) {
@@ -259,11 +282,13 @@ export function playerById(room, id) {
 
 /** The console state as seen by one player: private fields merged in, others stripped. */
 export function stateFor(room, playerId) {
+  const viewer = playerById(room, playerId);
+  const seeAll = isSpectator(viewer);
   const entries = room.session.entries.map((entry) => {
     const copy = { ...entry };
     delete copy.private;
     delete copy.payload;
-    if (entry.actorId === playerId) {
+    if (entry.actorId === playerId || seeAll) {
       Object.assign(copy, entry.private || {});
     } else if (!entry.revealed) {
       // a revealed entry (a theorem that a peer review made public) is everybody's
@@ -273,7 +298,7 @@ export function stateFor(room, playerId) {
   });
   const locate = room.session.locate ? { ...room.session.locate } : null;
   const locator = locate?.actorId || [...room.session.entries].reverse().find((entry) => entry.type === 'located')?.actorId;
-  if (locate && locator !== playerId && !room.session.revealedObjects) {
+  if (locate && locator !== playerId && !seeAll && !room.session.revealedObjects) {
     for (const key of PRIVATE_KEYS.located) delete locate[key];
   }
   return {
@@ -289,6 +314,7 @@ export function stateFor(room, playerId) {
 export function viewFor(room, playerId) {
   const view = consoleView(stateFor(room, playerId));
   const me = playerById(room, playerId);
+  const seated = seatedPlayers(room);
   const turnPlayer = currentPlayer(room);
   view.roomId = room.id;
   view.modeId = room.modeId;
@@ -299,13 +325,15 @@ export function viewFor(room, playerId) {
   view.phase = room.phase;
   view.hostId = room.hostId || null;
   view.amHost = playerId === room.hostId;
+  view.amSpectator = isSpectator(me);
   view.turnPlayerId = turnPlayer ? turnPlayer.id : null;
   view.turnPlayerName = turnPlayer ? turnPlayer.name : null;
   view.isMyTurn = Boolean(turnPlayer && turnPlayer.id === playerId);
   view.readyCount = readyCount(room);
-  view.playerCount = room.players.length;
-  view.canStart = playerId === room.hostId && room.phase === 'lobby' && room.players.length >= (room.playMode === 'builtin' ? 1 : 2);
-  view.mySetup = me ? room.setup[playerId] || null : null;
+  view.playerCount = seated.length;
+  view.spectatorCount = room.players.length - seated.length;
+  view.canStart = playerId === room.hostId && room.phase === 'lobby' && seated.length >= (room.playMode === 'builtin' ? 1 : 2);
+  view.mySetup = me && !isSpectator(me) ? room.setup[playerId] || null : null;
   view.topicNames = { ...room.topicNames };
   view.conferenceNames = { ...room.conferenceNames };
   view.conferenceSectors = conferenceSectorsOf(room);
@@ -319,6 +347,7 @@ export function viewFor(room, playerId) {
       name: p.name,
       color: p.color,
       host: p.id === room.hostId,
+      spectator: isSpectator(p),
       ready: Boolean(room.setup[p.id] && room.setup[p.id].ready),
       clues: room.session.entries.filter((e) => e.type === 'research' && e.actorId === p.id).length,
       theories: room.session.entries.filter((e) => e.type === 'theory' && e.actorId === p.id).length,
@@ -342,8 +371,8 @@ export function viewFor(room, playerId) {
   // from this player's (redacted) log with everybody's names attached
   const mineState = stateFor(room, playerId);
   view.theoryOptions = theoryOptionsFor(mineState, { phaseId: room.research?.id || room.endgame?.publicationPhase || null });
-  view.rounds = actionRounds(mineState, view.players);
-  view.scores = scoreBoard(mineState, view.players);
+  view.rounds = actionRounds(mineState, view.players.filter((p) => !p.spectator));
+  view.scores = scoreBoard(mineState, view.players.filter((p) => !p.spectator));
 
   // The sky window is one shared dial and it follows the pawn that is furthest behind:
   // its sector is the window's first visible sector, so the whole table observes from
@@ -370,16 +399,18 @@ export function viewFor(room, playerId) {
 function researchView(room, playerId) {
   const phase = room.research;
   if (!phase) return null;
-  const declared = Object.keys(phase.declares).length;
+  const seated = seatedPlayers(room);
+  const declared = Object.keys(phase.declares).filter((id) => seated.some((player) => player.id === id)).length;
   const myPicks = phase.picks.filter((pick) => pick.playerId === playerId);
+  const seeAll = isSpectator(playerById(room, playerId));
   return {
     id: phase.id,
     sector: phase.sector,
     quota: phase.quota,
     maxDeclare: declarationCapacity(room, playerId),
-    playerCount: room.players.length,
+    playerCount: seated.length,
     declaredCount: declared,
-    allDeclared: declared >= room.players.length,
+    allDeclared: declared >= seated.length,
     myCount: Object.prototype.hasOwnProperty.call(phase.declares, playerId) ? phase.declares[playerId] : null,
     left: phase.left[playerId] || 0,
     order: phase.order.slice(),
@@ -388,7 +419,12 @@ function researchView(room, playerId) {
     cursorName: phase.cursorId ? (playerById(room, phase.cursorId) || {}).name || '？' : null,
     isMyPick: phase.cursorId === playerId && (phase.left[playerId] || 0) > 0,
     // the sector everyone published to is public; the object they claimed is not
-    picks: phase.picks.map((pick) => ({ playerId: pick.playerId, sector: pick.sector })),
+    // (spectators see both)
+    picks: phase.picks.map((pick) => (
+      seeAll || pick.playerId === playerId
+        ? { playerId: pick.playerId, sector: pick.sector, objectType: pick.objectType }
+        : { playerId: pick.playerId, sector: pick.sector }
+    )),
     myPicks: myPicks.map((pick) => ({ sector: pick.sector, objectType: pick.objectType })),
   };
 }
@@ -533,6 +569,7 @@ function applyAction(room, playerId, action) {
   if (!player) return { ok: false, error: '你不在这个房间里' };
   const kind = action && action.kind;
   const isHost = playerId === room.hostId;
+  if (isSpectator(player)) return { ok: false, error: '观战者不能参与游戏行动' };
 
   if (room.phase === 'final') return finalAction(room, player, action);
   if (room.phase === 'reveal') {
@@ -555,9 +592,10 @@ function applyAction(room, playerId, action) {
   if (kind === 'start-game') {
     if (!isHost) return { ok: false, error: '只有房主可以开始游戏' };
     if (room.phase !== 'lobby') return { ok: false, error: '游戏已经开始过了' };
-    if (room.players.length < 2 && room.playMode !== 'builtin') return { ok: false, error: '至少需要 2 名玩家才能开始（单人请用单机记录台）' };
+    const seated = seatedPlayers(room);
+    if (seated.length < 2 && room.playMode !== 'builtin') return { ok: false, error: '至少需要 2 名玩家才能开始（单人请用单机记录台）' };
     const cards = {};
-    for (const [seat, participant] of room.players.entries()) {
+    for (const [seat, participant] of seated.entries()) {
       const card = { ...setupDefaults(), initialClueCount: room.initialClueCount, noClues: room.initialClueCount === 0 };
       if (room.playMode === 'builtin') {
         const pool = room.puzzle.startingClues[seat];
@@ -598,7 +636,7 @@ function applyAction(room, playerId, action) {
       if (!card.cluesClaimed) return { ok: false, error: '系统尚未分发初始线索，请刷新后重试' };
       card.ready = true;
       room.setup[playerId] = card;
-      if (readyCount(room) === room.players.length) room.phase = 'play';
+      if (readyCount(room) === seatedPlayers(room).length) room.phase = 'play';
       return { ok: true, phase: room.phase, ready: readyCount(room) };
     }
     const rawClues = action.noClues ? [] : Array.isArray(action.clues) ? action.clues : [];
@@ -640,7 +678,7 @@ function applyAction(room, playerId, action) {
     }
     room.setup[playerId] = { clues, noClues: room.initialClueCount === 0, initialClueCount: room.initialClueCount, cluesClaimed: true, topics, ready: true };
     room.playerTopics[playerId] = topics;
-    if (readyCount(room) === room.players.length) room.phase = 'play';
+    if (readyCount(room) === seatedPlayers(room).length) room.phase = 'play';
     return { ok: true, phase: room.phase, ready: readyCount(room) };
   }
 
@@ -976,13 +1014,15 @@ function declareResearch(room, playerId, count) {
   const capacity = declarationCapacity(room, playerId);
   if (declaredCount > capacity) return { ok: false, error: `本阶段你最多可提交 ${capacity} 篇论文（按尚可提交的不同扇区计算）` };
   phase.declares[playerId] = declaredCount;
-  if (Object.keys(phase.declares).length >= room.players.length) startResearchPublishing(room);
+  const seated = seatedPlayers(room);
+  const declared = Object.keys(phase.declares).filter((id) => seated.some((player) => player.id === id)).length;
+  if (declared >= seated.length) startResearchPublishing(room);
   return { ok: true, count: declaredCount, research: phase };
 }
 
 function startResearchPublishing(room) {
   const phase = room.research;
-  for (const player of room.players) {
+  for (const player of seatedPlayers(room)) {
     if (!Object.prototype.hasOwnProperty.call(phase.declares, player.id)) phase.declares[player.id] = 0;
   }
   const publishers = researchOrder(room).filter((p) => (phase.declares[p.id] || 0) > 0);
@@ -1074,7 +1114,13 @@ export function roomSummary(room) {
     id: room.id,
     modeId: room.modeId,
     playMode: room.playMode || 'record',
-    players: room.players.map((p) => ({ id: p.id, name: p.name, host: Boolean(p.host), color: p.color })),
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      host: Boolean(p.host),
+      color: p.color,
+      spectator: isSpectator(p),
+    })),
     entries: room.session.entries.length,
   };
 }

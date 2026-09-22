@@ -62,6 +62,11 @@ test('builtin HTTP caps rooms at four players and distributes the host-selected 
   assert.match(extra.body.error, /最多支持 4 名玩家/);
   assert.equal(room.players.length, 4);
   assert.equal(room.revision, revision);
+  const spectator = await api(`/api/rooms/${room.id}/join`, { method: 'POST', body: { name: '旁观', spectator: true } });
+  assert.equal(spectator.status, 200);
+  assert.equal(spectator.body.view.amSpectator, true);
+  assert.equal(spectator.body.view.playerCount, 4);
+  assert.equal(room.players.length, 5);
   await acceptedAction(players[0], { kind: 'start-game' });
   for (const player of players) {
     assert.equal(room.setup[player.playerId].clues.length, 12);
@@ -373,6 +378,12 @@ test('a room can be created, joined and played over HTTP', async () => {
   assert.equal(joined.body.view.players.length, 2);
   const guest = joined.body;
 
+  const spectatorJoin = await api(`/api/rooms/${roomId}/join`, { method: 'POST', body: { name: '观众', spectator: true } });
+  assert.equal(spectatorJoin.status, 200);
+  assert.equal(spectatorJoin.body.view.amSpectator, true);
+  assert.equal(spectatorJoin.body.view.playerCount, 2);
+  assert.equal(spectatorJoin.body.view.spectatorCount, 1);
+
   // the game only opens once the host starts it and everybody fills their card
   const early = await api(`/api/rooms/${roomId}/action`, { method: 'POST', token, body: { action: { kind: 'wait' } } });
   assert.equal(early.status, 400);
@@ -382,7 +393,56 @@ test('a room can be created, joined and played over HTTP', async () => {
   assert.equal(started.body.ok, true);
   assert.equal(started.body.view.phase, 'setup');
   assert.equal(started.body.view.canStart, false);
+  assert.equal(started.body.view.playerCount, 2);
 
+  const hostCard = await api(`/api/rooms/${roomId}/action`, {
+    method: 'POST',
+    token,
+    body: { action: { kind: 'setup', clues: initialClues, topics: { A: '小行星带' } } },
+  });
+  assert.equal(hostCard.body.ok, true);
+  assert.equal(hostCard.body.view.phase, 'setup', 'still waiting for the seated guest, not the spectator');
+
+  const spectatorAct = await api(`/api/rooms/${roomId}/action`, {
+    method: 'POST',
+    token: spectatorJoin.body.token,
+    body: { action: { kind: 'setup', noClues: true } },
+  });
+  assert.equal(spectatorAct.status, 400);
+  assert.match(spectatorAct.body.error, /观战/);
+
+  const guestCard = await api(`/api/rooms/${roomId}/action`, {
+    method: 'POST',
+    token: guest.token,
+    body: { action: { kind: 'setup', clues: initialClues } },
+  });
+  assert.equal(guestCard.body.ok, true);
+  assert.equal(guestCard.body.view.phase, 'play');
+
+  const surveyed = await api(`/api/rooms/${roomId}/action`, {
+    method: 'POST',
+    token,
+    body: { action: { kind: 'survey', type: Obj.ASTEROID, start: 0, size: 3, count: 2 } },
+  });
+  assert.equal(surveyed.body.ok, true);
+  const spectatorView = await api(`/api/rooms/${roomId}/view?token=${encodeURIComponent(spectatorJoin.body.token)}`);
+  const guestView = await api(`/api/rooms/${roomId}/view?token=${encodeURIComponent(guest.token)}`);
+  const surveyForSpectator = spectatorView.body.view.entries.find((entry) => entry.type === 'survey');
+  const surveyForGuest = guestView.body.view.entries.find((entry) => entry.type === 'survey');
+  assert.equal(surveyForSpectator.count, 2);
+  assert.equal(surveyForGuest.count, undefined);
+});
+
+test('HTTP room create join play continues with subject names after spectator coverage', async () => {
+  // Keep the remainder of the original end-to-end flow focused on seated play.
+  const created = await api('/api/rooms', { method: 'POST', body: { name: '阿甲', initialClueCount: 4 } });
+  const initialClues = [{ sector: 1, type: Obj.COMET }, { sector: 0, type: Obj.GAS_CLOUD }, { sector: 3, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }];
+  assert.equal(created.status, 200);
+  const { roomId, token } = created.body;
+  const joined = await api(`/api/rooms/${roomId}/join`, { method: 'POST', body: { name: '阿乙' } });
+  assert.equal(joined.status, 200);
+  const guest = joined.body;
+  await api(`/api/rooms/${roomId}/action`, { method: 'POST', token, body: { action: { kind: 'start-game' } } });
   const hostCard = await api(`/api/rooms/${roomId}/action`, {
     method: 'POST',
     token,
