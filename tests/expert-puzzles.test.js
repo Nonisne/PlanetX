@@ -93,6 +93,15 @@ function readClue(clue) {
   assert.doesNotMatch(clue, /空域|从第|位于第|恰有|最短环形距离|每个X行星|任何X行星|某个X行星|至少(?:有)?一个X行星/u);
   const labels = Object.fromEntries(Object.entries(LABEL).map(([objectType, label]) => [label, objectType]));
   const sentence = clue.slice(0, -1);
+  const separation = sentence.match(/^没有任何(.+)位于其他(.+)的 (\d+) 个扇区以内$/u);
+  if (separation) {
+    assert.equal(separation[1], separation[2]);
+    const objectType = labels[separation[1]];
+    assert.ok(ORDINARY_TYPES.includes(objectType));
+    const range = Number(separation[3]);
+    assert.ok(range >= 1 && range < SECTOR_COUNT / 2);
+    return { kind: 'relation', objectType, neighborType: objectType, relation: 'within', quantifier: 'none', range };
+  }
   const band = sentence.match(/^所有(.+)都位于一段不超过 (\d+) 个连续扇区内$/u);
   if (band) {
     const objectType = labels[band[1]];

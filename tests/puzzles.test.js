@@ -108,8 +108,11 @@ function interpretedRelation(subjectLabel, neighborLabel, relation, quantifier, 
   const neighborType = readClueType(neighborLabel);
   assert.ok([...INITIAL_OBJECT_TYPES, Obj.PLANET_X].includes(objectType));
   assert.ok([...INITIAL_OBJECT_TYPES, Obj.PLANET_X].includes(neighborType));
-  assert.notEqual(objectType, neighborType);
-  if (relation === 'within') assert.ok(range >= 2 && range < SECTOR_COUNT / 2);
+  if (objectType === neighborType) {
+    assert.equal(relation, 'within');
+    assert.equal(quantifier, 'none');
+    assert.ok(range >= 1 && range < SECTOR_COUNT / 2);
+  } else if (relation === 'within') assert.ok(range >= 2 && range < SECTOR_COUNT / 2);
   return {
     kind: relation,
     objectTypes: [objectType, neighborType],
@@ -155,6 +158,11 @@ function parseClueText(clue) {
             .some((start) => positions.every((sector) => (sector - start + SECTOR_COUNT) % SECTOR_COUNT < length));
         },
       };
+    }
+    fields = sentence.match(/^没有任何(.+)位于其他(.+)的 (\d+) 个扇区以内$/u);
+    if (fields) {
+      assert.equal(fields[1], fields[2]);
+      return interpretedRelation(fields[1], fields[2], 'within', 'none', Number(fields[3]));
     }
     for (const [quantifier, pattern] of [
       ['none', /^没有任何(.+)与(.+)(相邻|正对)$/u],

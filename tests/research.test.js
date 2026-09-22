@@ -64,9 +64,10 @@ function oracleValue(feature, board) {
     const largestGap = Math.max(...subjects.map((sector, index) => nextSectors[index] - sector));
     return Number(board.length - largestGap + 1 <= feature.length);
   }
-  const neighbors = boardSectors(board, feature.neighborType);
-  const matches = subjects.map((subject) => neighbors.some((neighbor) => {
-    const distance = shortestDistance(subject, neighbor, board.length);
+    const neighbors = boardSectors(board, feature.neighborType);
+    const matches = subjects.map((subject) => neighbors.some((neighbor) => {
+      if (neighbor === subject) return false;
+      const distance = shortestDistance(subject, neighbor, board.length);
     if (feature.relation === 'adjacent') return distance === 1;
     if (feature.relation === 'opposite') return distance * 2 === board.length;
     return distance <= feature.range;
@@ -130,21 +131,33 @@ function inventoryBoard(objectCounts) {
   return Object.entries(objectCounts).flatMap(([objectType, count]) => Array(count).fill(objectType));
 }
 
-test('research generates only ordinary-object bands and distinct-type relations', () => {
+test('research generates bands, same-type separation, and distinct-type relations', () => {
   const features = buildResearchFeatures(12, OBJECT_COUNTS);
-  assert.equal(features.length, 244);
+  assert.equal(features.length, 259);
   assert.equal(features.filter((feature) => feature.kind === 'band').length, 28);
-  assert.equal(features.filter((feature) => feature.kind === 'relation').length, 216);
+  assert.equal(features.filter((feature) => feature.kind === 'relation' && feature.objectType !== feature.neighborType).length, 216);
+  const separations = features.filter((feature) => feature.objectType === feature.neighborType);
+  assert.equal(separations.length, 15);
   for (const feature of features) {
     assert.ok(['band', 'relation'].includes(feature.kind));
     assert.ok(ORDINARY_TYPES.includes(feature.objectType));
     assert.equal(Object.hasOwn(feature, 'start'), false);
     assert.equal(Object.hasOwn(feature, 'count'), false);
-    if (feature.kind === 'relation') {
+    if (feature.kind === 'relation' && feature.objectType !== feature.neighborType) {
       assert.ok(ORDINARY_TYPES.includes(feature.neighborType));
-      assert.notEqual(feature.objectType, feature.neighborType);
     }
   }
+  for (const feature of separations) {
+    assert.equal(feature.relation, 'within');
+    assert.equal(feature.quantifier, 'none');
+    assert.equal(feature.topicKey, feature.objectType);
+    assert.ok(feature.range >= 1 && feature.range < 6);
+    assert.equal(researchTopicName(feature), { asteroid: '小行星', comet: '彗星', gasCloud: '气体云' }[feature.objectType]);
+    assert.equal(researchClueText(feature), `没有任何${researchTopicName(feature)}位于其他${researchTopicName(feature)}的 ${feature.range} 个扇区以内。`);
+  }
+  const separated = boardWith(12, { [Obj.COMET]: [1, 6] });
+  assertPredicate({ ...separations.find((feature) => feature.objectType === Obj.COMET && feature.range === 4) }, separated, 1);
+  assertPredicate({ ...separations.find((feature) => feature.objectType === Obj.COMET && feature.range === 5) }, separated, 0);
 });
 
 test('conferences enumerate all 144 allowed X-to-ordinary relations in both directions', () => {
@@ -294,7 +307,7 @@ test('within limits are exactly two through half a circle minus one for each boa
 
 test('feature sets are deterministic, unique and independently extensible with engine caches', () => {
   const features = buildResearchFeatures(12, OBJECT_COUNTS);
-  assert.equal(features.length, 244);
+  assert.equal(features.length, 259);
   const baseline = structuredClone(features);
   assert.equal(new Set(features.map((feature) => JSON.stringify(feature))).size, features.length);
   for (const feature of features) {
@@ -498,7 +511,7 @@ test('every feature agrees with the array oracle on all 729 two-type six-sector 
     [Obj.GAS_CLOUD]: 1,
     [Obj.DWARF_PLANET]: 1,
   });
-  assert.equal(features.length, 116);
+  assert.equal(features.length, 120);
   const types = [Obj.EMPTY, Obj.ASTEROID, Obj.COMET];
   for (let boardCode = 0; boardCode < 3 ** 6; boardCode += 1) {
     let remaining = boardCode;
@@ -515,7 +528,7 @@ for (const sectorCount of [12, 18]) {
   test(`every ${sectorCount}-sector feature agrees with the independent oracle on varied complete inventories`, () => {
     const objectCounts = inventoryFor(sectorCount);
     const features = buildResearchFeatures(sectorCount, objectCounts);
-    assert.equal(features.length, sectorCount === 12 ? 244 : 384);
+    assert.equal(features.length, sectorCount === 12 ? 259 : 416);
     const board = inventoryBoard(objectCounts);
     assert.equal(board.length, sectorCount);
     for (let seed = 1; seed <= 24; seed += 1) {

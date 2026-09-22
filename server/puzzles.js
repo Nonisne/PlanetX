@@ -168,11 +168,13 @@ function createStandardPuzzle(random) {
   const conference = { feature: conferenceOptions[randomIndex(conferenceOptions.length, random)], value: 1 };
   let remaining = matchingIndices(catalogue.indices, conference);
   const used = new Set();
-  const availableBands = catalogue.research.filter((feature) => feature.kind === 'band' && feature.values[answerIndex] === 1);
-  const bandCount = Math.min(2, new Set(availableBands.map((feature) => feature.topicKey)).size);
+  const singleObject = (feature) => feature.kind === 'band' || feature.objectType === feature.neighborType;
+  const availableSingle = catalogue.research.filter((feature) => singleObject(feature) && feature.values[answerIndex] === 1);
+  const singleCount = Math.min(2, new Set(availableSingle.map((feature) => feature.topicKey)).size);
   const research = TOPIC_IDS.map((topicId, index) => {
-    const kind = index < bandCount ? 'band' : 'relation';
-    const features = catalogue.research.filter((feature) => feature.kind === kind);
+    const features = catalogue.research.filter((feature) => (
+      index < singleCount ? singleObject(feature) : feature.kind === 'relation' && feature.objectType !== feature.neighborType
+    ));
     const indices = remaining.length > 1 ? remaining : catalogue.indices;
     const desiredCount = researchTargetCount(indices.length);
     let constraint = chooseResearch(features, indices, answerIndex, desiredCount, used, random);
