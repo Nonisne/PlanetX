@@ -138,6 +138,12 @@ test('research generates bands, same-type separation, and distinct-type relation
   assert.equal(features.filter((feature) => feature.kind === 'relation' && feature.objectType !== feature.neighborType).length, 216);
   const separations = features.filter((feature) => feature.objectType === feature.neighborType);
   assert.equal(separations.length, 15);
+  assert.equal(separations.every((feature) => feature.objectType !== Obj.DWARF_PLANET), true);
+  const expertSeparations = buildResearchFeatures(18, { ...OBJECT_COUNTS, [Obj.DWARF_PLANET]: 4, [Obj.EMPTY]: 5 })
+    .filter((feature) => feature.objectType === feature.neighborType);
+  assert.equal(expertSeparations.length, 24);
+  assert.equal(expertSeparations.some((feature) => feature.objectType === Obj.DWARF_PLANET), false);
+  assert.equal(new Set(expertSeparations.map((feature) => feature.objectType)).size, 3);
   for (const feature of features) {
     assert.ok(['band', 'relation'].includes(feature.kind));
     assert.ok(ORDINARY_TYPES.includes(feature.objectType));
@@ -528,7 +534,7 @@ for (const sectorCount of [12, 18]) {
   test(`every ${sectorCount}-sector feature agrees with the independent oracle on varied complete inventories`, () => {
     const objectCounts = inventoryFor(sectorCount);
     const features = buildResearchFeatures(sectorCount, objectCounts);
-    assert.equal(features.length, sectorCount === 12 ? 259 : 416);
+    assert.equal(features.length, sectorCount === 12 ? 259 : 408);
     const board = inventoryBoard(objectCounts);
     assert.equal(board.length, sectorCount);
     for (let seed = 1; seed <= 24; seed += 1) {

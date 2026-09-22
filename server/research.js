@@ -25,16 +25,19 @@ export function buildResearchFeatures(sectorCount, objectCounts) {
       for (let length = count; length < sectorCount; length += 1) {
         features.push({ kind: 'band', objectType, topicKey: objectType, length });
       }
-      for (let range = 1; range < sectorCount / 2; range += 1) {
-        features.push({
-          kind: 'relation',
-          objectType,
-          neighborType: objectType,
-          topicKey: objectType,
-          relation: 'within',
-          range,
-          quantifier: 'none',
-        });
+      // Expert dwarfs already occupy one exact six-sector band, so a same-type gap clue adds nothing.
+      if (objectType !== Obj.DWARF_PLANET) {
+        for (let range = 1; range < sectorCount / 2; range += 1) {
+          features.push({
+            kind: 'relation',
+            objectType,
+            neighborType: objectType,
+            topicKey: objectType,
+            relation: 'within',
+            range,
+            quantifier: 'none',
+          });
+        }
       }
     }
     for (const neighborType of RESEARCH_TYPES) {
