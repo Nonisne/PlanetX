@@ -569,9 +569,26 @@ test('initial clue sampling handles the entire finite exclusion pool without ret
     assert.ok(clues.every(({ sector, objectType }) => sector !== xSector || objectType !== Obj.EMPTY));
   }
   assert.deepEqual(puzzles.initialCluesFor(puzzle, { count: 0, random: () => assert.fail('zero clues need no random draws') }), []);
-  const fullHand = puzzles.initialCluesFor(puzzle, { count: 12, random: seededRandom(123) });
   for (const count of [0, 4, 8, 12]) {
-    assert.deepEqual(puzzles.initialCluesFor(puzzle, { count, random: seededRandom(123) }), fullHand.slice(0, count));
+    const clues = puzzles.initialCluesFor(puzzle, { count, random: seededRandom(123 + count) });
+    assert.equal(clues.length, count);
+    assert.equal(new Set(clues.map(({ sector, objectType }) => `${sector}:${objectType}`)).size, count);
+    assert.ok(clues.every(({ sector, objectType }) => apparentType(puzzle.objects[sector]) !== objectType));
+  }
+});
+
+test('partial initial hands cap prime-comet exclusions and keep enough base-rule candidates', () => {
+  for (let seed = 0; seed < 64; seed += 1) {
+    const puzzle = puzzles.createPuzzle({ random: seededRandom(seed + 401) });
+    for (const count of [4, 8, 12]) {
+      const clues = puzzles.initialCluesFor(puzzle, { count, random: seededRandom(seed * 17 + count) });
+      assert.equal(clues.length, count);
+      const cometExclusions = clues.filter(({ objectType }) => objectType === Obj.COMET).length;
+      assert.ok(cometExclusions <= 1, `standard hand seed=${seed} count=${count} had ${cometExclusions} comet exclusions`);
+      const candidates = puzzles.countSolutions(puzzle, { topicIds: [], includeConference: false, initialClues: clues });
+      assert.ok(candidates >= 64, `standard hand seed=${seed} count=${count} left only ${candidates} candidates`);
+      assert.equal(puzzles.matchingClues(puzzle.objects, puzzle, { initialClues: clues }), true);
+    }
   }
 });
 

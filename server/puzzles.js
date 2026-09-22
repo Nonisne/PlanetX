@@ -207,9 +207,37 @@ export function createPuzzle({ modeId = 'standard', random = Math.random, maxAtt
   return assemblePuzzle(modeId, objects, research, conferences);
 }
 
+const DEAL_GUARD = Object.freeze({
+  standard: Object.freeze({ maxPrimeCometExclusions: 1, minCandidates: 64 }),
+  expert: Object.freeze({ maxPrimeCometExclusions: 2, minCandidates: 10000 }),
+});
+const DEAL_GUARD_ATTEMPTS = 48;
+
+function sampleExclusions(exclusions, count, random, rotation = 0) {
+  const offset = ((rotation % exclusions.length) + exclusions.length) % exclusions.length;
+  const pool = offset === 0 ? exclusions.slice() : exclusions.slice(offset).concat(exclusions.slice(0, offset));
+  for (let index = 0; index < count; index += 1) {
+    const selected = index + randomIndex(pool.length - index, random);
+    [pool[index], pool[selected]] = [pool[selected], pool[index]];
+  }
+  return pool.slice(0, count);
+}
+
+function primeCometExclusionCount(clues) {
+  return clues.reduce((total, clue) => total + (clue.objectType === Obj.COMET ? 1 : 0), 0);
+}
+
+function handPassesDealGuard(puzzle, hand, guard, { scoreCandidates }) {
+  if (primeCometExclusionCount(hand) > guard.maxPrimeCometExclusions) return { ok: false, candidates: -1 };
+  if (!scoreCandidates) return { ok: true, candidates: Infinity };
+  const candidates = countSolutions(puzzle, { topicIds: [], includeConference: false, initialClues: hand });
+  return { ok: candidates >= guard.minCandidates, candidates };
+}
+
 export function initialCluesFor(puzzle, { count = 4, random = Math.random } = {}) {
   if (!validateBoard(puzzle?.objects)) throw new TypeError('Initial clues require a valid standard board or expert board.');
-  const cometSectors = puzzle.objects.length === 18 ? new Set(EXPERT_COMET_SECTORS) : COMET_SECTORS;
+  const modeId = puzzle.objects.length === 18 ? 'expert' : 'standard';
+  const cometSectors = modeId === 'expert' ? new Set(EXPERT_COMET_SECTORS) : COMET_SECTORS;
   const exclusions = puzzle.objects.flatMap((object, sector) => INITIAL_CLUE_TYPES
     .filter((objectType) => objectType !== apparentType(object) && (objectType !== Obj.COMET || cometSectors.has(sector)))
     .map((objectType) => ({ sector, objectType })));
@@ -217,11 +245,25 @@ export function initialCluesFor(puzzle, { count = 4, random = Math.random } = {}
     throw new RangeError(`count must be an integer from 0 to ${exclusions.length}.`);
   }
   if (typeof random !== 'function') throw new TypeError('random must be a function.');
-  for (let index = 0; index < count; index += 1) {
-    const selected = index + randomIndex(exclusions.length - index, random);
-    [exclusions[index], exclusions[selected]] = [exclusions[selected], exclusions[index]];
+  if (count === 0) return [];
+  // Full-pool deals skip the guard so enumeration helpers stay exact.
+  if (count === exclusions.length) return sampleExclusions(exclusions, count, random);
+  const guard = DEAL_GUARD[modeId];
+  const scoreCandidates = puzzleConstraints.has(puzzle);
+  let bestHand = null;
+  let bestScore = -Infinity;
+  for (let attempt = 0; attempt < DEAL_GUARD_ATTEMPTS; attempt += 1) {
+    const hand = sampleExclusions(exclusions, count, random, attempt);
+    const { ok, candidates } = handPassesDealGuard(puzzle, hand, guard, { scoreCandidates });
+    if (ok) return hand;
+    if (candidates > bestScore) {
+      bestScore = candidates;
+      bestHand = hand;
+    } else if (!bestHand) {
+      bestHand = hand;
+    }
   }
-  return exclusions.slice(0, count);
+  return bestHand;
 }
 
 function selectedConstraints(puzzle, { topicIds = TOPIC_IDS, includeConference = true } = {}) {
