@@ -25,6 +25,20 @@ export function buildResearchFeatures(sectorCount, objectCounts) {
       for (let length = count; length < sectorCount; length += 1) {
         features.push({ kind: 'band', objectType, topicKey: objectType, length });
       }
+      // Expert dwarfs already occupy one exact six-sector band, so a same-type gap clue adds nothing.
+      if (objectType !== Obj.DWARF_PLANET) {
+        for (let range = 1; range < sectorCount / 2; range += 1) {
+          features.push({
+            kind: 'relation',
+            objectType,
+            neighborType: objectType,
+            topicKey: objectType,
+            relation: 'within',
+            range,
+            quantifier: 'none',
+          });
+        }
+      }
     }
     for (const neighborType of RESEARCH_TYPES) {
       if (neighborType === objectType) continue;
@@ -72,7 +86,7 @@ export function researchFeatureValue(feature, masks, sectorCount) {
       relatedMask = rotateMask(neighborMask, sectorCount / 2, sectorCount);
       break;
     case 'within':
-      relatedMask = neighborMask;
+      relatedMask = feature.objectType === feature.neighborType ? 0 : neighborMask;
       for (let distance = 1; distance <= feature.range; distance += 1) {
         relatedMask |= rotateMask(neighborMask, distance, sectorCount)
           | rotateMask(neighborMask, sectorCount - distance, sectorCount);
@@ -121,6 +135,9 @@ export function researchClueText(feature) {
   const someNeighbor = feature.neighborType === Obj.PLANET_X ? neighbor : `某个${neighbor}`;
   const allNeighbor = feature.neighborType === Obj.PLANET_X ? neighbor : `至少一个${neighbor}`;
   if (feature.relation === 'within') {
+    if (feature.objectType === feature.neighborType) {
+      return `没有任何${object}位于其他${object}的 ${feature.range} 个扇区以内。`;
+    }
     if (feature.quantifier === 'none') return `没有任何${object}位于${neighbor}的 ${feature.range} 个扇区以内。`;
     if (feature.quantifier === 'some') return `至少有一个${object}位于${someNeighbor}的 ${feature.range} 个扇区以内。`;
     return `每个${object}都位于${allNeighbor}的 ${feature.range} 个扇区以内。`;

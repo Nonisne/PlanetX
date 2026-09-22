@@ -128,7 +128,17 @@ function matchingIndices(indices, constraint) {
   return indices.filter((index) => constraint.feature.values[index] === constraint.value);
 }
 
+// Each clue should leave most of the current pool, instead of cutting geometrically toward one board.
+const RESEARCH_KEEP_RATIO = 0.6;
+// "all" quantifiers cut harder than "some"/"none"; this penalty lets a milder true clue win unless it barely informs.
+const ALL_QUANTIFIER_PENALTY_RATIO = 0.03;
+
+function researchTargetCount(poolSize) {
+  return Math.max(1, Math.round(poolSize * RESEARCH_KEEP_RATIO));
+}
+
 function chooseResearch(features, indices, answerIndex, desiredCount, used, random) {
+  const allPenalty = Math.max(1, Math.round(indices.length * ALL_QUANTIFIER_PENALTY_RATIO));
   let bestScore = Infinity;
   let choices = [];
   for (const feature of features) {
@@ -138,7 +148,7 @@ function chooseResearch(features, indices, answerIndex, desiredCount, used, rand
       if (feature.values[index] === 1) count += 1;
     }
     if (count === indices.length) continue;
-    const score = Math.abs(count - desiredCount);
+    const score = Math.abs(count - desiredCount) + (feature.quantifier === 'all' ? allPenalty : 0);
     if (score < bestScore) {
       bestScore = score;
       choices = [{ feature, value: 1 }];
@@ -158,19 +168,18 @@ function createStandardPuzzle(random) {
   const conference = { feature: conferenceOptions[randomIndex(conferenceOptions.length, random)], value: 1 };
   let remaining = matchingIndices(catalogue.indices, conference);
   const used = new Set();
-  const availableBands = catalogue.research.filter((feature) => feature.kind === 'band' && feature.values[answerIndex] === 1);
-  const bandCount = Math.min(2, new Set(availableBands.map((feature) => feature.topicKey)).size);
+  const singleObject = (feature) => feature.kind === 'band' || feature.objectType === feature.neighborType;
+  const availableSingle = catalogue.research.filter((feature) => singleObject(feature) && feature.values[answerIndex] === 1);
+  const singleCount = Math.min(2, new Set(availableSingle.map((feature) => feature.topicKey)).size);
   const research = TOPIC_IDS.map((topicId, index) => {
-    const kind = index < bandCount ? 'band' : 'relation';
-    const features = catalogue.research.filter((feature) => feature.kind === kind);
-    const slots = TOPIC_IDS.length - index;
+    const features = catalogue.research.filter((feature) => (
+      index < singleCount ? singleObject(feature) : feature.kind === 'relation' && feature.objectType !== feature.neighborType
+    ));
     const indices = remaining.length > 1 ? remaining : catalogue.indices;
-    const desiredCount = remaining.length > 1
-      ? Math.max(1, Math.round(remaining.length ** ((slots - 1) / slots)))
-      : Math.round(catalogue.indices.length / 3);
+    const desiredCount = researchTargetCount(indices.length);
     let constraint = chooseResearch(features, indices, answerIndex, desiredCount, used, random);
     if (!constraint && indices !== catalogue.indices) {
-      constraint = chooseResearch(features, catalogue.indices, answerIndex, Math.round(catalogue.indices.length / 3), used, random);
+      constraint = chooseResearch(features, catalogue.indices, answerIndex, researchTargetCount(catalogue.indices.length), used, random);
     }
     if (!constraint) throw new Error('Unable to select six distinct research topics.');
     remaining = matchingIndices(remaining, constraint);

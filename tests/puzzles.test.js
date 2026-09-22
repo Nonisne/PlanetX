@@ -108,8 +108,11 @@ function interpretedRelation(subjectLabel, neighborLabel, relation, quantifier, 
   const neighborType = readClueType(neighborLabel);
   assert.ok([...INITIAL_OBJECT_TYPES, Obj.PLANET_X].includes(objectType));
   assert.ok([...INITIAL_OBJECT_TYPES, Obj.PLANET_X].includes(neighborType));
-  assert.notEqual(objectType, neighborType);
-  if (relation === 'within') assert.ok(range >= 2 && range < SECTOR_COUNT / 2);
+  if (objectType === neighborType) {
+    assert.equal(relation, 'within');
+    assert.equal(quantifier, 'none');
+    assert.ok(range >= 1 && range < SECTOR_COUNT / 2);
+  } else if (relation === 'within') assert.ok(range >= 2 && range < SECTOR_COUNT / 2);
   return {
     kind: relation,
     objectTypes: [objectType, neighborType],
@@ -155,6 +158,11 @@ function parseClueText(clue) {
             .some((start) => positions.every((sector) => (sector - start + SECTOR_COUNT) % SECTOR_COUNT < length));
         },
       };
+    }
+    fields = sentence.match(/^没有任何(.+)位于其他(.+)的 (\d+) 个扇区以内$/u);
+    if (fields) {
+      assert.equal(fields[1], fields[2]);
+      return interpretedRelation(fields[1], fields[2], 'within', 'none', Number(fields[3]));
     }
     for (const [quantifier, pattern] of [
       ['none', /^没有任何(.+)与(.+)(相邻|正对)$/u],
@@ -467,6 +475,23 @@ test('displayed facts independently match candidates and become unique with comp
   context.diagnostic(`32 independently solved puzzles; clue kinds ${[...clueKinds].join(', ')}; maximum ${maximumClauses} statements`);
 });
 
+test('standard research keeps most candidates and prefers milder quantifiers over universal ones', () => {
+  let universal = 0;
+  let milder = 0;
+  let researchOnly = 0;
+  for (let seed = 0; seed < 48; seed += 1) {
+    const puzzle = puzzles.createPuzzle({ random: seededRandom(seed * 7919 + 3) });
+    researchOnly += puzzles.countSolutions(puzzle);
+    for (const topic of Object.values(puzzle.topics)) {
+      if (/^所有.+都位于一段不超过/u.test(topic.clue)) continue;
+      if (/^每个/u.test(topic.clue)) universal += 1;
+      else milder += 1;
+    }
+  }
+  assert.ok(milder > universal, `milder relation clues ${milder} should outnumber universal clues ${universal}`);
+  assert.ok(researchOnly / 48 >= 8, `research plus conference still left ${researchOnly / 48} boards on average`);
+});
+
 test('candidate filtering uses deduction constraints, not the stored answer', () => {
   const puzzle = puzzles.createPuzzle({ random: seededRandom(987) });
   const answer = puzzle.objects;
@@ -630,7 +655,9 @@ test('ordinary-object initial exclusions do not distinguish X from true empty se
   assert.equal(puzzles.countSolutions(puzzle, options), expected.length);
   assert.deepEqual(allIndependentBoards().filter((objects) => puzzles.matchingClues(objects, puzzle, options)), expected);
   const impossible = [{ sector: puzzle.objects.indexOf(Obj.COMET), objectType: Obj.COMET }];
-  assert.equal(puzzles.countSolutions(puzzle, { initialClues: impossible }), 0);
+  const researchSolutions = puzzles.countSolutions(puzzle);
+  const contradicted = puzzles.countSolutions(puzzle, { initialClues: impossible });
+  assert.ok(contradicted < researchSolutions, 'a false comet exclusion removes at least the answer board');
   assert.equal(puzzles.matchingClues(puzzle.objects, puzzle, { initialClues: impossible }), false);
   const duplicate = [allClues[0], allClues[0]];
   assert.equal(

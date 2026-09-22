@@ -1136,6 +1136,7 @@ function researchClueCard({ state, game, ui, api }) {
       game.playMode === 'builtin' && renderDisclosure(
         { state, api, id: 'research-terms', title: '研究线索怎么读', heading: 'h3' },
         h('p', { class: 'muted small' }, '连续范围：所有同类天体位于某段至多 N 格的连续区域；起点未知，可跨越最后一格和第 1 格。'),
+        h('p', { class: 'muted small' }, '同类间隔：没有任何一颗位于其他同类的 N 格以内，N 从 1 格算起，按最短环形距离，包含恰好 N 格。矮行星不用这条；专家盘的矮行星已固定在连续 6 格内。'),
         h('p', { class: 'muted small' }, `相邻是左右一格；正对相隔半圈，本盘为 ${game.mode.sectors / 2} 格。`),
         h('p', { class: 'muted small' }, 'N 格以内按最短环形距离计算，包含恰好 N 格，相邻为 1 格。'),
         h('p', { class: 'muted small' }, '“至少一个”也可能全部符合；“每个A”分别至少对应一个B，并不要求每个B都被对应。'),
