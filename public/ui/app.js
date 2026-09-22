@@ -122,7 +122,7 @@ export function createApp(root) {
       // the host's room-dialog draft of the table-wide setup information
       tableInfo: null,
       panels: {},
-      lobby: { name: '', code: '', busy: false, error: null },
+      lobby: { name: '', code: '', busy: false, error: null, spectator: false },
       // which board (12 or 18 sectors) the next session / room uses
       modeId: null,
       playMode: 'record',
@@ -582,9 +582,9 @@ export function createApp(root) {
     const lobby = state.ui.lobby;
     beginLobbyRequest();
     try {
-      const room = await joinRoom(lobby.code, lobby.name);
+      const room = await joinRoom(lobby.code, lobby.name, { spectator: Boolean(lobby.spectator) });
       await enterRoom(room);
-      toast(`已加入房间 ${room.roomId}`, 'clue');
+      toast(room.view?.amSpectator ? `已以观战身份加入房间 ${room.roomId}` : `已加入房间 ${room.roomId}`, 'clue');
     } catch (err) {
       state.ui.lobby = { ...state.ui.lobby, busy: false, error: err.message };
       render();
@@ -682,7 +682,7 @@ export function createApp(root) {
 
   /** The empty lobby form, used to seed `ui.lobby` if it is ever missing. */
   function emptyLobby() {
-    return { name: '', code: '', busy: false, error: null };
+    return { name: '', code: '', busy: false, error: null, spectator: false };
   }
 
   /** The setup card's draft, seeded from the server view the first time it is touched. */

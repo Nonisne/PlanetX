@@ -412,7 +412,8 @@ export function renderConsoleStatus({ state, api }) {
         )
       : null,
     game.phase === 'lobby' ? h('div', { class: 'turn-banner' }, '开局前：等房主点「开始游戏」') : null,
-    game.phase === 'setup'
+    game.amSpectator ? h('div', { class: 'turn-banner' }, '观战中：可查看所有人行动结果，不参与操作也不占用游戏名额') : null,
+    game.phase === 'setup' && !game.amSpectator
       ? h('div', { class: 'turn-banner' }, `开局准备：${game.playMode === 'builtin' ? `每人自动分发 ${game.initialClueCount ?? 4} 条初始线索，请确认准备` : `填写全桌统一的 ${game.initialClueCount ?? 4} 条初始线索，房主填写课题与会议标题`}（已提交 ${game.readyCount || 0}/${game.playerCount || 0}）`)
       : null,
     frozen ? h('div', { class: 'turn-banner' }, game.phase === 'final' ? `最后机会：等待 ${game.endgame?.cursorName || '其他玩家'}；普通行动已关闭` : game.status === 'finished' ? '全盘已揭示，本局已结束' : '等待填写官方 app 的完整答案，之后结算全部理论') : null,
@@ -432,7 +433,7 @@ export function renderConsoleStatus({ state, api }) {
       h('p', { class: 'console-note small muted' }, game.playMode === 'builtin'
         ? '内置谜题：观测、会议、同行评审与定位由系统自动判定。查询结果仅本人可见，完整答案只在终局揭晓；不能撤销已获得的线索。'
         : state.remote
-        ? '时间轨、行动历史、学术研究与会议线索全桌共享。勘测数量、扫描结果、研究线索和未公开的理论天体仅本人可见。'
+        ? '时间轨、行动历史、学术研究与会议线索全桌共享。勘测数量、扫描结果、研究线索和未公开的理论天体仅本人可见；观战者例外，可看到所有人结果。'
         : '本页不生成谜题、不判定对错；请记录官方 app 或实体版给出的结果。'),
     ),
     Array.isArray(game.players)
@@ -449,7 +450,8 @@ export function renderConsoleStatus({ state, api }) {
               h('span', { class: 'dot', style: { background: p.color } }),
               p.name,
               p.host ? h('span', { class: 'muted small' }, ' · 房主') : null,
-              h('span', { class: 'pawn-time' }, `${p.timeLabel} · ${p.sector} 号`),
+              p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
+              p.spectator ? null : h('span', { class: 'pawn-time' }, `${p.timeLabel} · ${p.sector} 号`),
               p.isTurn ? h('span', { class: 'muted small' }, ' · 行动中') : null,
               p.pendingReviews ? h('span', { class: 'muted small warn' }, ' · 待评审') : null,
             ),
@@ -496,6 +498,7 @@ export function renderRecordPanel({ state, api }) {
     );
   }
   if (phase === 'lobby') return lobbyCard({ game, api });
+  if (game.amSpectator) return spectatorCard({ game });
   if (phase === 'setup') return setupCard({ state, api });
   const endgame = renderEndgame({ game, ui, api });
   if (endgame) return endgame;
@@ -629,7 +632,9 @@ function initialCluePicker({ value = 4, onPick, readOnly = false }) {
 
 function lobbyCard({ game, api }) {
   const players = game.players || [];
-  const enough = (game.playerCount || players.length) >= (game.playMode === 'builtin' ? 1 : 2);
+  const seated = players.filter((p) => !p.spectator);
+  const spectators = players.filter((p) => p.spectator);
+  const enough = (game.playerCount || seated.length) >= (game.playMode === 'builtin' ? 1 : 2);
   return h(
     'section',
     { class: 'card action-card record-card' },
@@ -637,7 +642,7 @@ function lobbyCard({ game, api }) {
     h(
       'div',
       { class: 'action-block' },
-      h('h3', {}, '桌上的玩家', h('span', { class: 'muted small' }, ` ${players.length} 人`)),
+      h('h3', {}, '桌上的玩家', h('span', { class: 'muted small' }, ` ${seated.length} 人${spectators.length ? ` · 观战 ${spectators.length}` : ''}`)),
       h(
         'div',
         { class: 'player-bar' },
@@ -648,11 +653,12 @@ function lobbyCard({ game, api }) {
             h('span', { class: 'dot', style: { background: p.color } }),
             p.name,
             p.host ? h('span', { class: 'muted small' }, ' · 房主') : null,
+            p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
             p.id === game.me ? h('span', { class: 'muted small' }, ' · 你') : null,
           ),
         ),
       ),
-      h('p', { class: 'muted small' }, game.tutorial ? '固定双人教学：你与 Bot「领航员」，无需邀请其他玩家。' : `房间码 ${game.roomId}：让别人在自己的设备上打开本页 → 「联机」→「加入房间」。`),
+      h('p', { class: 'muted small' }, game.tutorial ? '固定双人教学：你与 Bot「领航员」，无需邀请其他玩家。' : `房间码 ${game.roomId}：让别人在自己的设备上打开本页 → 「联机」→「加入房间」。可选择玩家或观战；观战不占用 ${BUILTIN_MAX_PLAYERS} 个游戏名额。`),
     ),
     initialCluePicker({ value: game.initialClueCount ?? 4, readOnly: !game.amHost || Boolean(game.tutorial), onPick: count => api.setInitialClueCount(count) }),
     h(
@@ -663,7 +669,7 @@ function lobbyCard({ game, api }) {
         ? h(
             'p',
             { class: 'muted small' },
-            game.amHost ? (game.tutorial ? '教学固定使用标准棋盘与 4 条初始线索。' : game.playMode === 'builtin' ? '可以单人开始，也可以先邀请朋友。开始后系统按全桌统一数量自动分发私有初始线索，每人确认准备；开局后不再接受新玩家。' : '人齐了就可以开始。开始后每人填写指定数量的初始线索，由房主填写全桌课题名称，然后进入第一轮。') : '等房主点「开始游戏」。',
+            game.amHost ? (game.tutorial ? '教学固定使用标准棋盘与 4 条初始线索。' : game.playMode === 'builtin' ? '可以单人开始，也可以先邀请朋友。开始后系统按全桌统一数量自动分发私有初始线索，每人确认准备；开局后不再接受新玩家（观战仍可中途加入）。' : '人齐了就可以开始。开始后每人填写指定数量的初始线索，由房主填写全桌课题名称，然后进入第一轮。') : '等房主点「开始游戏」。',
           )
         : h('p', { class: 'muted small' }, '至少需要 2 名玩家才能开始；单人玩请用「离开房间」回到单机记录台。'),
       h(
@@ -676,6 +682,21 @@ function lobbyCard({ game, api }) {
         ),
       ),
     ),
+  );
+}
+
+function spectatorCard({ game }) {
+  const phaseLabel = game.phase === 'setup' ? '开局准备中'
+    : game.phase === 'lobby' ? '等待开局'
+      : game.phase === 'final' || game.phase === 'reveal' || game.status === 'finished' || game.phase === 'done' ? '本局收尾'
+        : '对局进行中';
+  return h(
+    'section',
+    { class: 'card action-card record-card' },
+    h('h2', {}, '观战模式'),
+    h('p', { class: 'pick-status' }, phaseLabel),
+    h('p', { class: 'muted small' }, '你可以查看所有玩家的勘测数量、扫描结果、研究线索与未公开论文内容，但不能提交行动、领取线索或占用游戏名额。'),
+    game.turnPlayerName ? h('p', { class: 'muted small' }, `当前行动者：${game.turnPlayerName}`) : null,
   );
 }
 
@@ -1828,11 +1849,12 @@ export function renderModal({ state, api }) {
               h('span', { class: 'dot', style: { background: p.color } }),
               p.name,
               p.host ? h('span', { class: 'muted small' }, ' · 房主') : null,
+              p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
             ),
           ),
         ),
         h('p', { class: 'muted small' }, `连接状态：${state.netStatus === 'online' ? '已连接（实时同步）' : '正在重连…'}`),
-        h('p', { class: 'muted small' }, '勘测数量、扫描结果、研究课题与线索只有本人可见；时间轨、天窗、日志、学术研究与会议线索全桌共享。'),
+        h('p', { class: 'muted small' }, '勘测数量、扫描结果、研究课题与线索只有本人可见（观战者可见全部）；时间轨、天窗、日志、学术研究与会议线索全桌共享。'),
         game.playMode !== 'builtin' && game.amHost && (game.phase === 'setup' || game.phase === 'play')
           ? h(
               'div',
@@ -1877,6 +1899,36 @@ export function renderModal({ state, api }) {
           { class: 'lobby-field' },
           h('span', { class: 'muted small' }, '房间码（6 位，回车即可加入）'),
           codeInput,
+        ),
+        !tutorial && h(
+          'div',
+          { class: 'lobby-field' },
+          h('span', { class: 'muted small' }, '加入身份'),
+          h(
+            'div',
+            { class: 'chips', role: 'group', 'aria-label': '加入身份' },
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `chip chip-select${lobby.spectator ? '' : ' active'}`,
+                'aria-pressed': String(!lobby.spectator),
+                onclick: () => api.patchLobby({ spectator: false }),
+              },
+              '玩家',
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `chip chip-select${lobby.spectator ? ' active' : ''}`,
+                'aria-pressed': String(Boolean(lobby.spectator)),
+                onclick: () => api.patchLobby({ spectator: true }),
+              },
+              '观战',
+            ),
+          ),
+          h('p', { class: 'muted small' }, '观战可看所有人行动结果，不参与操作，也不占用游戏名额。'),
         ),
         !tutorial && h('div', { class: 'lobby-actions' }, joinButton),
         !tutorial && h('p', { class: 'muted small' }, '房主给你的 6 位房间码，大小写都行、粘贴时带了空格或横线也没关系；填好按钮就会亮，回车同样可以加入。'),

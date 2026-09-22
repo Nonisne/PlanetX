@@ -43,8 +43,11 @@ export async function createRoom({ name, modeId = 'standard', playMode = 'record
   return res;
 }
 
-export async function joinRoom(roomId, name) {
-  const res = await request(`/rooms/${String(roomId || '').trim().toUpperCase()}/join`, { method: 'POST', body: { name } });
+export async function joinRoom(roomId, name, { spectator = false } = {}) {
+  const res = await request(`/rooms/${String(roomId || '').trim().toUpperCase()}/join`, {
+    method: 'POST',
+    body: { name, spectator: Boolean(spectator) },
+  });
   if (!res.token) throw new Error(res.error || '加入房间失败');
   return res;
 }

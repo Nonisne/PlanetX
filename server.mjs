@@ -151,13 +151,21 @@ async function handleApi(req, res, url) {
         sendJson(res, 409, { error: '教学房间固定为 1 名真人和 1 个 Bot，不能加入其他玩家' });
         return true;
       }
-      if (room.playMode === 'builtin' && (room.phase !== 'lobby' || room.players.length >= BUILTIN_MAX_PLAYERS)) {
+      const spectator = Boolean(body.spectator);
+      const seatedCount = room.players.filter((player) => !player.spectator).length;
+      if (!spectator && room.playMode === 'builtin' && (room.phase !== 'lobby' || seatedCount >= BUILTIN_MAX_PLAYERS)) {
         sendJson(res, 409, { error: room.phase !== 'lobby' ? '内置谜题已开始，不能中途加入；请等待下一局' : `内置谜题最多支持 ${BUILTIN_MAX_PLAYERS} 名玩家` });
         return true;
       }
-      const player = addPlayer(room, body.name);
+      let player;
+      try {
+        player = addPlayer(room, body.name, { spectator });
+      } catch (error) {
+        sendJson(res, 409, { error: error.message || '无法加入房间' });
+        return true;
+      }
       room.revision = (room.revision || 0) + 1;
-      broadcast(room, { kind: 'player-joined', name: player.name });
+      broadcast(room, { kind: 'player-joined', name: player.name, spectator: Boolean(player.spectator) });
       sendJson(res, 200, { roomId: room.id, playerId: player.id, token: player.token, view: roomView(room, player.id) });
       return true;
     }
