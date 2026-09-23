@@ -166,7 +166,6 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
   const expected = tutorialExpected(game);
   const expectedCode = CODE[expected?.type || expected?.objectType] || expected?.code;
   const hasTheories = (game.knowledge.theories || []).length > 0;
-  const research = researchPhase(game);
   const sector = ui.selectedSector;
   const target = sector !== null && sector !== undefined ? game.knowledge.targets.find((t) => t.sector === sector) : null;
   const visible = sector !== null && sector !== undefined ? (game.visible || []).includes(sector) : false;
@@ -234,13 +233,6 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
       : null,
   );
 
-  const researchRail = h(
-    'aside',
-    { class: `map-research-rail${research ? ' phase-open' : ''}`, 'aria-label': '学术研究' },
-    research ? researchCard({ game, research, ui, api }) : null,
-    renderTheoriesPanel({ state, api, game, onReview: api.recordTheoryReview }),
-  );
-
   return h(
     'section',
     { class: 'card map-card', ...tutorialFocusProps(game, game.tutorial?.focus === 'timeline' ? 'timeline' : 'map') },
@@ -252,8 +244,12 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
     ),
     h(
       'div',
-      { class: `map-card-body${research ? ' with-research-phase' : ''}` },
-      researchRail,
+      { class: 'map-card-body' },
+      h(
+        'aside',
+        { class: 'map-research-rail', 'aria-label': '学术研究提交结果' },
+        renderTheoriesPanel({ state, api, game, onReview: api.recordTheoryReview }),
+      ),
       h('div', { class: 'map-main' },
         h('div', { class: 'board-wrap' }, boardEl, renderMarkPopover({ state, api })),
         h('div', { class: 'map-side' }, detail, strip, legend,
@@ -544,7 +540,7 @@ export function renderRecordPanel({ state, api }) {
       h('p', { class: 'muted small' }, '完成时所有未评审论文一起向内推进一格，即使本阶段没有新论文。'),
     );
   }
-  // research phase lives inside the star map (left rail); action panel only points there
+  // while the research phase runs, the publishing flow replaces the action launcher
   const blocked = !research && turnBlocked(game);
   const waiting = blocked ? `现在轮到 ${game.turnPlayerName || '别人'} 行动` : null;
 
@@ -553,13 +549,7 @@ export function renderRecordPanel({ state, api }) {
     { class: 'card action-card record-card', ...tutorialFocusProps(game, tutorial?.focus) },
     h('h2', {}, '行动', closed ? h('span', { class: 'muted small' }, '（本局已结束）') : null),
     review,
-    research
-      ? h(
-          'div',
-          { class: 'turn-wait good research-map-hint' },
-          '学术研究阶段进行中：请在星图左侧完成选篇与提交。',
-        )
-      : null,
+    research ? researchCard({ game, research, ui, api }) : null,
     blocked
       ? h(
           'div',

@@ -309,8 +309,7 @@ h3 {
   .col-info {
     display: flex;
   }
-  .map-card-body,
-  .map-card-body.with-research-phase {
+  .map-card-body {
     grid-template-columns: minmax(0, 1fr);
   }
   .map-research-rail {
@@ -343,10 +342,6 @@ h3 {
   align-items: start;
 }
 
-.map-card-body.with-research-phase {
-  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
-}
-
 .map-research-rail {
   display: flex;
   flex-direction: column;
@@ -357,24 +352,8 @@ h3 {
   padding: 2px 2px 2px 0;
 }
 
-.map-research-rail.phase-open {
-  border: 1px solid rgba(167, 139, 250, 0.4);
-  border-radius: 12px;
-  padding: 10px;
-  background: rgba(167, 139, 250, 0.06);
-}
-
-.map-research-rail .theories-card,
-.map-research-rail .research-open {
+.map-research-rail .theories-card {
   margin: 0;
-}
-
-.map-research-rail > .research-open {
-  border: 0;
-  border-radius: 0;
-  padding: 0 0 10px;
-  background: transparent;
-  border-bottom: 1px solid rgba(167, 139, 250, 0.28);
 }
 
 .map-main {
@@ -1457,10 +1436,6 @@ select {
   font-size: 9.5px;
   font-weight: 700;
   fill: #06101f;
-}
-
-.research-map-hint {
-  margin-bottom: 8px;
 }
 
 /* the research phase card and its running list of submissions */

@@ -890,8 +890,8 @@ test('the workspace separates the playfield, reference rail and contextual actio
   assert.equal(findAll(actions, (n) => /topics-card/.test(n.className || '')).length, 0, 'the A–F subjects belong to the reference rail');
   assert.equal(findAll(actions, (n) => /theories-card/.test(n.className || '')).length, 0, 'so does the theory track');
   const mapBody = findAll(layout, element => (element.className || '').includes('map-card-body'))[0];
-  assert.ok(mapBody.children[0].className.includes('map-research-rail'), 'academic research sits on the left inside the map');
-  assert.ok(mapBody.children[1].className.includes('map-main'), 'the board column follows the research rail');
+  assert.ok(mapBody.children[0].className.includes('map-research-rail'), 'submitted research results sit on the left inside the map');
+  assert.ok(mapBody.children[1].className.includes('map-main'), 'the board column follows the research results rail');
   const mapMain = mapBody.children[1];
   assert.ok(mapMain.children[0].className.includes('board-wrap'));
   assert.ok(mapMain.children[1].className.includes('map-side'), 'marking tools follow the board in the DOM');
@@ -1645,13 +1645,12 @@ test('the online research phase renders declare → publish → review', async (
   assert.ok(state.game.research, 'the phase is open');
   assert.equal(state.game.research.sector, 3);
   let text = collectText(root).join('');
-  assert.ok(text.includes('学术研究阶段'), 'the research phase is visible');
+  assert.ok(text.includes('学术研究阶段'), 'the action panel switches to the phase');
   assert.ok(text.includes('已选 0/2'), 'and counts the declarations');
-  const mapRail = findAll(root, (n) => (n.className || '').includes('map-research-rail'))[0];
-  assert.ok(mapRail, 'submission UI sits inside the star map');
-  assert.ok(collectText(mapRail).join('').includes('学术研究阶段'));
-  const hint = findAll(root, (n) => (n.className || '').includes('research-map-hint'))[0];
-  assert.ok(hint && collectText(hint).join('').includes('星图左侧'), 'the action panel points to the map rail');
+  const actions = findAll(root, (n) => (n.className || '').split(/\s+/).includes('col-actions'))[0];
+  assert.ok(collectText(actions).join('').includes('学术研究阶段'), 'submission controls stay in the right action panel');
+  assert.equal(findAll(root, (n) => (n.className || '').includes('research-map-hint')).length, 0);
+  assert.ok(findAll(root, (n) => (n.className || '').includes('map-research-rail'))[0], 'results table stays inside the star map');
 
   // declaring happens for everybody at once and cannot be changed
   fire(findButton(root, '提交 1 篇'), 'click');
@@ -2116,7 +2115,7 @@ test('the layout keeps exactly three columns: knowledge, map and actions', () =>
   assert.equal(findAll(layout, (n) => /col-notes/.test(n.className || '')).length, 0, 'the note sheet column is gone');
   const information = findAll(layout, element => (element.className || '').split(/\s+/).includes('col-info'))[0];
   assert.equal(findAll(information, element => (element.className || '').includes('topics-card')).length, 1);
-  assert.equal(findAll(information, element => (element.className || '').includes('theories-card')).length, 0, 'academic research sits inside the star map');
+  assert.equal(findAll(information, element => (element.className || '').includes('theories-card')).length, 0, 'submitted research results sit inside the star map');
   const mapColumn = findAll(layout, element => (element.className || '').split(/\s+/).includes('col-map'))[0];
   assert.equal(findAll(mapColumn, element => (element.className || '').includes('theories-card')).length, 1);
   assert.equal(findAll(mapColumn, element => (element.className || '').includes('map-research-rail')).length, 1);
@@ -2539,11 +2538,8 @@ test('approved regular and triggered research selectors consume per-sector theor
       research: online ? { id: 'phase-3', sector: 3, myCount: 1, allDeclared: true, isMyPick: true, left: 1, orderNames: ['甲', '乙'], picks: [], myPicks: [] } : null,
     }, { action: 'theory', theorySector: 1, theoryType: Obj.GAS_CLOUD });
     state.game.knowledge = { ...state.game.knowledge, theories: [{ id: 'older', actorId: state.game.me, sector: 1, objectType: Obj.ASTEROID, review: 'wrong', slot: 1 }] };
-    const api = { setUi(patch) { state.ui = { ...state.ui, ...patch }; }, confirmAction() {}, cancelAction() {}, consoleAction() {}, recordTheoryReview() {}, openMark() {} };
-    const render = () => (online
-      ? renderMapPanel({ state, api, boardEl: makeEl('div'), onClearNotes: null })
-      : renderActionPanel({ state, api }));
-    let panel = render();
+    const api = { setUi(patch) { state.ui = { ...state.ui, ...patch }; }, confirmAction() {}, cancelAction() {}, consoleAction() {} };
+    let panel = renderActionPanel({ state, api });
     const sectorSelect = findAll(panel, (element) => element.tagName === 'select')[0];
     assert.deepEqual(sectorSelect.children.map((option) => Number(option.attributes.value)), [1, 4]);
     assert.ok(sectorSelect.children.every((option) => option.attributes.disabled === undefined));
@@ -2551,11 +2547,11 @@ test('approved regular and triggered research selectors consume per-sector theor
     const chips = findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select'));
     assert.deepEqual(chips.map((chip) => collectText(chip).join('')), ['气体云'], 'another type at an older attempted sector remains available');
     state.ui.theoryType = Obj.ASTEROID;
-    panel = render();
+    panel = renderActionPanel({ state, api });
     assert.ok(Object.hasOwn(findButton(panel, '确认提交').attributes, 'disabled'));
     state.ui.theorySector = 4;
     state.ui.theoryType = Obj.COMET;
-    panel = render();
+    panel = renderActionPanel({ state, api });
     assert.deepEqual(findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select')).map((chip) => collectText(chip).join('')), ['彗星', '矮行星']);
     assert.equal(findButton(panel, '确认提交').attributes.disabled, undefined);
   }
@@ -2790,9 +2786,10 @@ test('approved normal actions omit waiting and publishing while triggered resear
     assert.equal(findButton(panel, '等待 1'), undefined);
     state.game.research = { id: 'research', sector: 3, myCount: null, declaredCount: 0, playerCount: 1, quota: 1, maxDeclare: 1 };
     state.game.theoryOptions = [{ sector: 1, types: [Obj.ASTEROID] }];
+    assert.ok(findButton(renderActionPanel({ state, api: {} }), '提交 1 篇'), 'declare controls stay in the right action panel');
     const map = renderMapPanel({ state, api: { recordTheoryReview() {}, openMark() {}, setUi() {} }, boardEl: makeEl('div'), onClearNotes: null });
-    assert.ok(findButton(map, '提交 1 篇'), 'declare controls live inside the star map research rail');
-    assert.ok(findAll(renderActionPanel({ state, api: {} }), (element) => (element.className || '').includes('research-map-hint')).length, 'action panel only points at the map');
+    assert.equal(findButton(map, '提交 1 篇'), undefined, 'the map rail only keeps the results table');
+    assert.ok(findAll(map, (element) => (element.className || '').includes('theories-card')).length, 'submitted results remain inside the map');
   }
   const { readFileSync } = await import('node:fs');
   const styles = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
