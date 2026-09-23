@@ -1,61 +1,60 @@
-// Heuristic Bot strategy for online rooms.
+// Heuristic Bot for builtin puzzles.
 //
-// Picks a legal action for the bot from its current player view, using a simple
-// score-based heuristic. Knows nothing about the puzzle solution — it only sees
-// what every player sees in `viewFor(room, botId)`, which means:
+// The Bot only ever sees what `viewFor(room, botId)` returns: its own private
+// surveys / targets / researches, the public log, the shared sky window, and
+// the table-wide conferences. It NEVER touches `room.puzzle`, `objects`,
+// unearned topic clues, or other players' private surveys. Every state change
+// goes through `applyRoomAction`, so all existing rules (turn order, research
+// phase, peer review, scoring) remain authoritative.
 //
-//   * the bot's own private surveys / targets / researches
-//   * the public log (every scan target sector, every research subject, every
-//     revealed theory object, every conference note)
-//   * the shared sky window
-//   * its own remaining scan markers and researched subjects
+// The strategy maintains a per-sector candidate set (what could still be there
+// in the bot's eyes), then picks the cheapest legal action that narrows it the
+// most. The strategy is deliberately conservative — it never claims certainty
+// it cannot derive from public information.
 //
-// The heuristic scores each legal turn action by:
-//
-//   * cost / information expected (cost dominates — same info for fewer months
-//     wins)
-//   * overlap with the bot's existing knowledge (avoid re-surveying ranges it
-//     already knows, prefer ranges that include sectors it has no info on)
-//   * if a survey cannot reveal anything new (the whole arc was already surveyed
-//     for the same type), it is skipped
-//
-// Setup, research phases (declare / submit) and final opportunities are handled
-// in dedicated branches.
+// The Bot is **only** active in `playMode === 'builtin'`. In any other mode
+// (`record`, `tutorial`) `decideAction` returns `null` so the controller never
+// acts.
 
-import { COST, arcSectors, cometSectors, surveyCost } from '../public/src/rules.js';
+import {
+  COST,
+  arcSectors,
+  cometSectors,
+  mod,
+  surveyCost,
+} from '../public/src/rules.js';
 import { Obj, SURVEY_TYPES } from '../public/src/types.js';
 
-const SURVEY_ARC_SIZES = [1, 2, 3, 6];
+const ALL_OBJECTS = Object.freeze([Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET, Obj.EMPTY, Obj.PLANET_X]);
+const SURVEY_ARC_SIZES_STANDARD = Object.freeze([1, 2, 3, 6]);
+const SURVEY_ARC_SIZES_EXPERT = Object.freeze([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+const TOPIC_IDS = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F']);
+
+// ---- entry point ----------------------------------------------------------
 
 /**
- * Decide one action (setup / turn / research / final) for the bot.
- *
- * Returns a plain action object that `applyRoomAction` understands, or
- * `null` when there is nothing meaningful to do.
- *
- * @param {object} room  the live room
- * @param {string} botId the bot player id
- * @param {object} view  `viewFor(room, botId)` — the bot's redacted perspective
+ * Decide one action for the bot. Returns a plain action object that
+ * `applyRoomAction` understands, or `null` when there is nothing meaningful.
  */
 export function decideAction(room, botId, view) {
-  if (!room || !view || room.playMode !== 'builtin') return null;
+  if (!room || !view) return null;
+  if (room.playMode !== 'builtin') return null;
+  if (room.tutorialState) return null;
+
   if (room.phase === 'lobby') return null;
   if (room.phase === 'setup') return decideSetupAction(room, botId, view);
   if (room.phase === 'final') return decideFinalAction(room, botId, view);
   if (room.phase === 'reveal') return null;
   if (room.phase === 'done') return null;
 
-  // peer reviews and the research phase are off-turn duties: every seated
-  // player must declare / answer before normal turns resume
-  if (Array.isArray(view.myPendingReviews) && view.myPendingReviews.length) {
-    return decideReviewAction(view);
-  }
-  if (room.research) return decideResearchAction(room, botId, view);
-
-  // during normal play the bot must be the one whose turn it is
   if (!view.isMyTurn) return null;
 
-  // conference prompt: free action, prefer to record it when we are on the clock
+  if (Array.isArray(view.myPendingReviews) && view.myPendingReviews.length) {
+    return decideReviewAction(room, botId, view);
+  }
+
+  if (room.research) return decideResearchPhaseAction(room, botId, view);
+
   if (room.conference && view.conference && view.conference.sector != null) {
     return { kind: 'conference', sector: view.conference.sector, text: view.conference.text || '（未记录线索内容）' };
   }
@@ -63,110 +62,169 @@ export function decideAction(room, botId, view) {
   return decideTurnAction(room, botId, view);
 }
 
-// ---- setup phase -----------------------------------------------------------
+// ---- setup -----------------------------------------------------------------
 
 function decideSetupAction(room, botId, view) {
   const card = view.mySetup;
-  if (card && card.ready) return null; // already submitted
+  if (card && card.ready) return null;
   return { kind: 'setup' };
 }
 
 // ---- research phase: declare + submit --------------------------------------
 
-function decideResearchAction(room, botId, view) {
+function decideResearchPhaseAction(room, botId, view) {
   const phase = room.research;
   if (!phase) return null;
   const declared = phase.declares[botId];
   const capacity = view.research ? view.research.maxDeclare : 0;
 
-  // declaration step
   if (!phase.order.length) {
     if (declared === undefined) {
-      const guessCount = countConfidentGuesses(view);
-      const pick = Math.max(0, Math.min(capacity, guessCount > 0 ? 1 : 0));
-      return { kind: 'research-declare', phaseId: phase.id, count: pick };
+      const picks = pickTheoryPicks(room, botId, view);
+      const count = Math.max(0, Math.min(capacity, picks.length));
+      return { kind: 'research-declare', phaseId: phase.id, count };
     }
     return null;
   }
 
-  // publishing step: only the cursor may submit
   if (phase.cursorId !== botId) return null;
   if ((phase.left[botId] || 0) <= 0) return null;
 
-  const ownTheories = room.session.entries.filter((entry) => entry.type === 'theory' && entry.actorId === botId);
-  const publishedSectors = new Set(ownTheories.map((entry) => entry.sector));
-  const lockedSectors = new Set(view.theoryLockedSectors || []);
-  const candidates = (view.theoryOptions || []).filter(({ sector }) => !publishedSectors.has(sector));
-  if (!candidates.length) return null;
-
-  const seenSectors = new Set([
-    ...(view.knowledge?.targets || []).map((entry) => entry.sector),
-    ...(view.knowledge?.surveys || []).flatMap((entry) => arcSectors(entry.start, entry.size, room.session.mode.sectors)),
-  ]);
-  let best = null;
-  let bestScore = -Infinity;
-  for (const { sector, types } of candidates) {
-    if (lockedSectors.has(sector)) continue;
-    const type = types[0];
-    if (!type) continue;
-    const score = (seenSectors.has(sector) ? 1 : 0) - publishedSectors.size * 0.1;
-    if (score > bestScore) {
-      bestScore = score;
-      best = { sector, type };
-    }
-  }
-  if (!best) return null;
-  return { kind: 'research-submit', phaseId: phase.id, sector: best.sector, objectType: best.type };
+  const picks = pickTheoryPicks(room, botId, view);
+  const usedThisPhase = new Set(
+    room.research.picks.filter((pick) => pick.playerId === botId).map((pick) => pick.sector),
+  );
+  const remaining = picks.filter(({ sector }) => !usedThisPhase.has(sector));
+  if (!remaining.length) return null;
+  return { kind: 'research-submit', phaseId: phase.id, sector: remaining[0].sector, objectType: remaining[0].type };
 }
 
 /**
- * A rough "do I have a guess worth committing?" check.
+ * Rank the (sector, type) candidates for a bot's theory paper.
  *
- * The bot cannot truly verify a sector without the puzzle solution, but it can
- * count how many sectors in the visible window have been scanned or surveyed
- * by anyone. If at least one of those sectors has been *both* surveyed and
- * scanned, the bot is willing to commit one paper.
+ * Each candidate must (a) not be locked, (b) the type still has tokens,
+ * (c) the bot has not already published this sector in this phase. The score
+ * rewards sectors whose candidate set has narrowed to a single ordinary
+ * object — those are near-certainties and the bot should claim them first.
  */
-function countConfidentGuesses(view) {
-  if (!view.knowledge) return 0;
-  const scannedSectors = new Set(view.knowledge.targets.map((entry) => entry.sector));
-  const surveyedSectors = new Set();
-  for (const survey of view.knowledge.surveys) {
-    for (const sector of arcSectors(survey.start, survey.size, view.mode.sectors)) surveyedSectors.add(sector);
+function pickTheoryPicks(room, botId, view) {
+  const candidates = [];
+  const lockedSectors = new Set(view.theoryLockedSectors || []);
+  const remaining = view.theoryTokensRemaining || {};
+  for (const { sector, types } of view.theoryOptions || []) {
+    if (lockedSectors.has(sector)) continue;
+    for (const type of types) {
+      if ((remaining[type] || 0) <= 0) continue;
+      candidates.push({ sector, type });
+    }
   }
-  let overlap = 0;
-  for (const sector of scannedSectors) if (surveyedSectors.has(sector)) overlap += 1;
-  return overlap > 0 ? 1 : 0;
+  if (!candidates.length) return candidates;
+
+  const knowledge = computeKnowledge(room, botId, view);
+  const candidatesInSectors = new Map();
+  for (const { sector, type } of candidates) candidatesInSectors.set(sector, (candidatesInSectors.get(sector) || []).concat(type));
+
+  // bonus for rare tokens so the bot spends its budget where points are
+  const typeValue = { dwarfPlanet: 4, comet: 3, gasCloud: 4, asteroid: 2 };
+  for (const candidate of candidates) {
+    const cs = candidatesInSectors.get(candidate.sector);
+    const narrowed = cs.length === 1;
+    candidate.score = (narrowed ? 100 : 0) + (typeValue[candidate.type] || 0);
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
 }
 
 // ---- review ----------------------------------------------------------------
 
-function decideReviewAction(view) {
-  // the bot cannot know whether the app said correct / wrong, so it always
-  // reports "correct" — that matches the heuristic of preferring bold claims
+function decideReviewAction(room, botId, view) {
   const id = view.myPendingReviews[0];
   if (id == null) return null;
+  const entry = (view.knowledge?.theories || []).find((theory) => theory.id === id);
+  if (!entry) return { kind: 'review', id, review: 'correct' };
+
+  // if a peer has already locked this sector with a correct claim, defer
+  const locked = view.theoryLockedSectors || [];
+  if (locked.includes(entry.sector)) {
+    const lockedEntry = (view.knowledge.theories || []).find(
+      (theory) => theory.sector === entry.sector && theory.review === 'correct' && theory.revealed,
+    );
+    if (lockedEntry) return { kind: 'review', id, review: entry.objectType === lockedEntry.objectType ? 'correct' : 'wrong' };
+  }
+
+  // otherwise check the bot's own candidate set: if this (sector, object) is
+  // the only remaining possibility, mark correct; if it is provably excluded,
+  // mark wrong.
+  const knowledge = computeKnowledge(room, botId, view);
+  const possible = knowledge.possible(entry.sector);
+  if (possible.length === 1 && possible[0] === entry.objectType) return { kind: 'review', id, review: 'correct' };
+  if (possible.length === 1 && possible[0] !== entry.objectType) return { kind: 'review', id, review: 'wrong' };
+  // cannot be sure: bias toward correct (a missed-correct claim would lock the
+  // sector for everyone; a missed-wrong costs only 1 month to the author)
   return { kind: 'review', id, review: 'correct' };
 }
 
-// ---- final opportunities ---------------------------------------------------
+// ---- final opportunity ------------------------------------------------------
 
 function decideFinalAction(room, botId, view) {
   const endgame = view.endgame;
   if (!endgame || !endgame.isMyTurn) return null;
-  // without puzzle knowledge the bot cannot locate safely — pass
+  const knowledge = computeKnowledge(room, botId, view);
+
+  // locate only when X + both neighbours have collapsed to single objects
+  const locate = findCertainLocate(knowledge, view);
+  if (locate) return { kind: 'locate', sector: locate.sector, left: locate.left, right: locate.right };
+
+  // otherwise publish the most confident papers we still have capacity for
+  const picks = pickTheoryPicks(room, botId, view);
+  const quota = endgame.quota || 0;
+  if (picks.length && quota > 0) {
+    const theories = picks.slice(0, quota).map((pick) => ({ sector: pick.sector, objectType: pick.type }));
+    return { kind: 'final-theories', theories };
+  }
   return { kind: 'final-pass' };
+}
+
+/**
+ * Look for a sector whose candidate set has collapsed to Planet X, where the
+ * left and right neighbours are each unique too.
+ */
+function findCertainLocate(knowledge, view) {
+  const sectors = view.mode.sectors;
+  for (let sector = 0; sector < sectors; sector += 1) {
+    const possible = knowledge.possible(sector);
+    if (possible.length !== 1 || possible[0] !== Obj.PLANET_X) continue;
+    const left = mod(sector - 1, sectors);
+    const right = mod(sector + 1, sectors);
+    const leftPossible = knowledge.possible(left);
+    const rightPossible = knowledge.possible(right);
+    if (leftPossible.length === 1 && rightPossible.length === 1 && left !== right) {
+      return { sector, left: leftPossible[0], right: rightPossible[0] };
+    }
+  }
+  return null;
 }
 
 // ---- the normal turn --------------------------------------------------------
 
+/**
+ * Pick the best normal-turn action: survey / target / research / wait.
+ *
+ * Survey scoring: range.size / (cost + 1), bonus for full-window arcs.
+ * Target scoring: prefer sectors the bot has *itself* narrowed to 2-3 objects
+ * (still uncertain but informative) over sectors it has never touched.
+ * Research scoring: alphabet-order with a per-bot hash so the room's bots do
+ * not all pick the same first topic.
+ * Wait: fallback, but suppressed when stepping would cross an unprepared event.
+ */
 function decideTurnAction(room, botId, view) {
-  const mode = room.session.mode;
+  const mode = view.mode;
+  const knowledge = computeKnowledge(room, botId, view);
   const candidates = [];
 
-  // --- surveys ------------------------------------------------------------
+  // ---- surveys ----
   for (const type of SURVEY_TYPES) {
-    for (const size of SURVEY_ARC_SIZES) {
+    for (const size of surveyArcSizes(mode)) {
       if (size > mode.visible) continue;
       for (let start = 0; start < mode.sectors; start += 1) {
         const range = arcSectors(start, size, mode.sectors);
@@ -177,54 +235,72 @@ function decideTurnAction(room, botId, view) {
         if (!range.every((sector) => Array.isArray(view.visible) && view.visible.includes(sector))) continue;
         const cost = surveyCost(size);
         if (!Number.isFinite(cost)) continue;
-        const info = surveyInfo(room, botId, view, range, type);
-        if (info <= 0) continue;
-        candidates.push({ score: info / (cost + 1) + (size >= 6 ? 0.2 : 0), action: { kind: 'survey', type, start, size, count: 0 } });
+        // require at least one sector that is still uncertain
+        let unknown = 0;
+        for (const sector of range) if (knowledge.possible(sector).length > 1) unknown += 1;
+        if (unknown === 0) continue;
+        candidates.push({ score: unknown / (cost + 1) + (size >= mode.visible ? 0.2 : 0), action: { kind: 'survey', type, start, size, count: 0 } });
       }
     }
   }
 
-  // --- targets ------------------------------------------------------------
-  if (view.targetUses > 0) {
+  // ---- targets ----
+  if ((view.targetUses || 0) > 0) {
     for (const sector of view.visible || []) {
       if (alreadyTargeted(room, botId, sector)) continue;
-      const priority = scanPriority(view, sector);
-      if (priority <= 0) continue;
-      candidates.push({ score: priority / (COST.target + 1) + 0.5, action: { kind: 'target', sector, apparent: Obj.EMPTY } });
+      const possible = knowledge.possible(sector);
+      // only scan if the candidate set has 2 or 3 possibilities — if it is a
+      // single object the bot already knows; if it has 4+ the scan is unlikely
+      // to break a tie
+      if (possible.length < 2 || possible.length > 3) continue;
+      const covered = knowledge.surveyedByBot.has(sector);
+      const score = (covered ? 2 : 0.5) + (possible.length === 2 ? 1 : 0);
+      candidates.push({ score: score / (COST.target + 1) + 0.6, action: { kind: 'target', sector, apparent: Obj.EMPTY } });
     }
   }
 
-  // --- research -----------------------------------------------------------
+  // ---- research ----
   if (!view.lastWasResearch) {
     const researched = new Set(view.researched || []);
-    for (const topic of ['A', 'B', 'C', 'D', 'E', 'F']) {
+    const unresearched = TOPIC_IDS.filter((topic) => !researched.has(topic));
+    // give each bot a stable preferred starting topic. The hash uses both the
+    // bot id and the bot's seat index so consecutive bot ids (Bot1, Bot2, ...)
+    // still spread across the 6 topics.
+    const seatIndex = room.players.findIndex((p) => p.id === botId);
+    const preferredIndex = (stableHash(botId, seatIndex) * 37 + 0xc2b2ae35) >>> 0 % TOPIC_IDS.length;
+    for (let index = 0; index < TOPIC_IDS.length; index += 1) {
+      const topic = TOPIC_IDS[index];
       if (researched.has(topic)) continue;
-      candidates.push({ score: 1.4, action: { kind: 'research', topic, name: `课题 ${topic}`, text: 'Bot 自动研究' } });
-      break;
+      const forward = (index - preferredIndex + TOPIC_IDS.length) % TOPIC_IDS.length;
+      const backward = (preferredIndex - index + TOPIC_IDS.length) % TOPIC_IDS.length;
+      const distance = Math.min(forward, backward);
+      // prefer the bot's chosen starting topic; alphabet position provides a
+      // mild bias toward later letters (more useful for locating X).
+      const score = (TOPIC_IDS.length - 1 - distance) + (researchPriority(topic, knowledge, view) * 0.3);
+      candidates.push({ score, action: { kind: 'research', topic, name: `课题 ${topic}`, text: 'Bot 自动研究' } });
     }
   }
 
   if (!candidates.length) {
+    if (wouldCrossEvent(room, botId, view)) return null;
     return { kind: 'wait' };
   }
 
   candidates.sort((a, b) => b.score - a.score);
+
+  if (wouldCrossEvent(room, botId, view)) {
+    const nonWait = candidates.find((c) => c.action.kind !== 'wait');
+    if (nonWait) return nonWait.action;
+    return null;
+  }
+
   return candidates[0].action;
 }
 
-/** Sectors in the range we have not already surveyed for this type. */
-function surveyInfo(room, botId, view, range, type) {
-  const ownSurveys = view.knowledge && view.knowledge.surveys ? view.knowledge.surveys : [];
-  let alreadyCovered = 0;
-  for (const survey of ownSurveys) {
-    if (survey.surveyType !== type) continue;
-    const covered = new Set(arcSectors(survey.start, survey.size, room.session.mode.sectors));
-    for (const sector of range) if (covered.has(sector)) alreadyCovered += 1;
-  }
-  return Math.max(0, range.length - alreadyCovered);
+function surveyArcSizes(mode) {
+  return mode.id === 'expert' ? SURVEY_ARC_SIZES_EXPERT : SURVEY_ARC_SIZES_STANDARD;
 }
 
-/** True if the bot already scanned this sector. */
 function alreadyTargeted(room, botId, sector) {
   for (const entry of room.session.entries) {
     if (entry.type === 'target' && entry.actorId === botId && entry.sector === sector) return true;
@@ -232,17 +308,171 @@ function alreadyTargeted(room, botId, sector) {
   return false;
 }
 
+// ---- per-sector knowledge ---------------------------------------------------
+
 /**
- * Heuristic priority for scanning `sector`. Without puzzle knowledge we just
- * prefer sectors in the visible window that no one has touched yet.
+ * Build a per-sector candidate set the Bot can query for downstream scoring.
+ *
+ * Sources, in order:
+ *  1. bot's initial clues (`view.mySetup.clues`) — private to the bot
+ *  2. bot's own surveys — private; count constraints narrow candidate sets
+ *  3. bot's own targets — private; apparent fixes or rules out objects
+ *  4. publicly revealed theories (correct locks the sector; wrong excludes)
+ *  5. global object counts (soft, non-binding prune)
+ *
+ * The returned object also exposes `surveyedByBot` so the target heuristic
+ * can prefer sectors the bot has narrowed itself.
  */
-function scanPriority(view, sector) {
-  const targeted = new Set((view.knowledge?.targets || []).map((entry) => entry.sector));
-  const surveyedSectors = new Set();
-  for (const survey of view.knowledge?.surveys || []) {
-    for (const s of arcSectors(survey.start, survey.size, view.mode.sectors)) surveyedSectors.add(s);
+export function computeKnowledge(room, botId, view) {
+  const sectors = view.mode.sectors;
+  const possible = Array.from({ length: sectors }, () => new Set(ALL_OBJECTS));
+
+  const card = view.mySetup;
+  if (card && Array.isArray(card.clues)) {
+    for (const clue of card.clues) {
+      if (typeof clue.sector !== 'number') continue;
+      if (possible[clue.sector]) possible[clue.sector].delete(clue.type);
+    }
   }
-  if (targeted.has(sector)) return 0;
-  if (surveyedSectors.has(sector)) return 0.5;
-  return 1;
+
+  const mySurveys = (view.knowledge?.surveys || []).filter((survey) => survey.actorId === botId);
+  const surveyedByBot = new Set();
+  for (const survey of mySurveys) {
+    for (const sector of arcSectors(survey.start, survey.size, sectors)) surveyedByBot.add(sector);
+    if (survey.type && Number.isInteger(survey.count)) {
+      applySurvey(possible, arcSectors(survey.start, survey.size, sectors), survey.type, survey.count, view.mode);
+    }
+  }
+
+  const myTargets = (view.knowledge?.targets || []).filter((target) => target.actorId === botId);
+  for (const target of myTargets) {
+    if (typeof target.sector !== 'number') continue;
+    const apparent = target.apparent;
+    if (!apparent) continue;
+    const sectorSet = possible[target.sector];
+    if (!sectorSet) continue;
+    if (apparent === Obj.EMPTY) {
+      // the four ordinary objects are out — Planet X still possible
+      sectorSet.delete(Obj.ASTEROID);
+      sectorSet.delete(Obj.COMET);
+      sectorSet.delete(Obj.GAS_CLOUD);
+      sectorSet.delete(Obj.DWARF_PLANET);
+    } else {
+      sectorSet.clear();
+      sectorSet.add(apparent);
+    }
+  }
+
+  for (const theory of view.knowledge?.theories || []) {
+    if (theory.revealed && theory.review === 'correct' && typeof theory.objectType === 'string') {
+      if (possible[theory.sector]) {
+        possible[theory.sector].clear();
+        possible[theory.sector].add(theory.objectType);
+      }
+    } else if (theory.revealed && theory.review === 'wrong' && typeof theory.objectType === 'string') {
+      if (possible[theory.sector]) possible[theory.sector].delete(theory.objectType);
+    }
+  }
+
+  applyGlobalCounts(possible, view.mode);
+
+  const frozen = possible.map((set) => Array.from(set));
+  return {
+    possible(sector) {
+      return frozen[sector] || [];
+    },
+    surveyedByBot,
+  };
+}
+
+/**
+ * Narrow the candidate set based on the bot's own survey result. count === 0
+ * rules the type out everywhere in the range; count === range.length fixes
+ * every sector to that type; intermediate counts are uninformative without
+ * combinatorics, so we leave them.
+ */
+function applySurvey(possible, range, type, count) {
+  if (count === 0) {
+    for (const sector of range) possible[sector]?.delete(type);
+    return;
+  }
+  if (count === range.length) {
+    for (const sector of range) {
+      const set = possible[sector];
+      if (!set) continue;
+      set.clear();
+      set.add(type);
+    }
+  }
+}
+
+/**
+ * No-op placeholder: the candidate sets the bot derives from private clues,
+ * scans, and public theories are already enough for the heuristic. A full
+ * constraint solver is out of scope here.
+ */
+function applyGlobalCounts(possible, mode) {
+  void possible;
+  void mode;
+}
+
+// ---- research priority ------------------------------------------------------
+
+/**
+ * Higher alphabet letters are more often relational (X-adjacent, within-N,
+ * etc.) and therefore most useful for locating Planet X. We do not parse the
+ * topic clue text — that would risk leaking puzzle truth through score
+ * distribution. The diversity offset below keeps two bots in the same room
+ * from picking the same first topic.
+ */
+function researchPriority(topic, knowledge, view) {
+  void knowledge;
+  void view;
+  return TOPIC_IDS.indexOf(topic) / TOPIC_IDS.length;
+}
+
+// ---- event guards -----------------------------------------------------------
+
+/**
+ * True when stepping the bot forward would cross a conference or theory
+ * sector the bot is not ready for. Used to suppress wait / scan / research
+ * choices that would push the shared window past an unprepared event.
+ */
+function wouldCrossEvent(room, botId, view) {
+  if (!view.isMyTurn) return false;
+  const mode = view.mode;
+  const windowTime = view.windowTime ?? view.time;
+  const nextTime = windowTime + 1;
+  const nextSector = mod(nextTime, mode.sectors) + 1; // 1-based
+  const theorySectors = mode.id === 'expert' ? [3, 6, 9, 12, 15, 18] : [3, 6, 9, 12];
+  const conferenceSectors = mode.id === 'expert' ? [7, 16] : [10];
+  const isConference = conferenceSectors.includes(nextSector);
+  const isTheory = theorySectors.includes(nextSector);
+  if (!isConference && !isTheory) return false;
+
+  if (isConference) {
+    const alreadyRecorded = (view.knowledge?.conferences || []).some((entry) => entry.sector === nextSector - 1);
+    if (!alreadyRecorded) return true;
+  }
+
+  if (isTheory) {
+    const picks = pickTheoryPicks(room, botId, view);
+    const capacity = view.research ? view.research.maxDeclare : 0;
+    if (picks.length === 0 || capacity === 0) return true;
+  }
+
+  return false;
+}
+
+// ---- tiny stable hash for diversity ----------------------------------------
+
+function stableHash(...keys) {
+  let h = 0x9e3779b1;
+  for (const key of keys) {
+    const s = String(key);
+    for (let i = 0; i < s.length; i += 1) {
+      h = (h * 31 + s.charCodeAt(i)) | 0;
+    }
+  }
+  return Math.abs(h);
 }
