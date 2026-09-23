@@ -348,6 +348,7 @@ export function viewFor(room, playerId) {
       color: p.color,
       host: p.id === room.hostId,
       spectator: isSpectator(p),
+      bot: Boolean(p.bot),
       ready: Boolean(room.setup[p.id] && room.setup[p.id].ready),
       clues: room.session.entries.filter((e) => e.type === 'research' && e.actorId === p.id).length,
       theories: room.session.entries.filter((e) => e.type === 'theory' && e.actorId === p.id).length,

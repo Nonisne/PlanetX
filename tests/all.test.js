@@ -36,6 +36,7 @@ const files = [
   'tutorial-ui.test.js',
   'history-ui.test.js',
   'endgame-ui.test.js',
+  'bot.test.js',
 ];
 
 const results = [];

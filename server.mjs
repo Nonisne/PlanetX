@@ -15,6 +15,7 @@ import { addPlayer, applyRoomAction, createRoom, hydrateRoom, playerByToken, roo
 import { BUILTIN_MAX_PLAYERS, INITIAL_CLUE_COUNTS, MODES } from './public/src/rules.js';
 import { createPuzzle, initialCluesFor } from './server/puzzles.js';
 import { applyTutorialAction, createTutorialRoom } from './server/tutorial.js';
+import { attachBotController } from './server/bot-controller.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const port = Number(process.env.PORT || 5173);
@@ -122,14 +123,32 @@ async function handleApi(req, res, url) {
       return true;
     }
     let puzzle = null;
+    let requestedBots = 0;
     if (playMode === 'builtin') {
       const generated = createPuzzle({ modeId });
       puzzle = { ...generated, startingClues: Array.from({ length: BUILTIN_MAX_PLAYERS }, () => initialCluesFor(generated, { count: 12 })) };
+      // bots only join in builtin mode — `withBots` is ignored otherwise
+      requestedBots = Number(body.withBots) || 0;
+      const maxBots = BUILTIN_MAX_PLAYERS - 1; // the host still needs a seat
+      if (requestedBots < 0 || requestedBots > maxBots) {
+        sendJson(res, 400, { error: `内置模式最多加 ${maxBots} 个 Bot 对手（${BUILTIN_MAX_PLAYERS} 人房）` });
+        return true;
+      }
+    } else if (body.withBots != null && body.withBots !== 0 && body.withBots !== false) {
+      // record / tutorial: bots are not supported, but treat as a soft ignore
+      requestedBots = 0;
     }
     const room = playMode === 'tutorial' ? createTutorialRoom({ hostName: body.name })
       : createRoom({ modeId, hostName: body.name, playMode, puzzle, initialClueCount });
+    // add N bots after the host joined, only in builtin mode
+    for (let i = 0; i < requestedBots; i += 1) {
+      const botName = i === 0 ? `Bot${i + 1}` : `Bot${i + 1}`;
+      const bot = addPlayer(room, botName);
+      bot.bot = true;
+    }
     room.revision = 0;
     rooms.set(room.id, room);
+    if (room.players.some((player) => player.bot)) attachBotController(room);
     const me = room.players[0];
     sendJson(res, 200, { roomId: room.id, playerId: me.id, token: me.token, view: roomView(room, me.id) });
     return true;
@@ -156,6 +175,7 @@ async function handleApi(req, res, url) {
     }
     room.id = String(room.id).toUpperCase();
     rooms.set(room.id, room);
+    if (room.players.some((player) => player.bot)) attachBotController(room);
     sendJson(res, 200, { roomId: room.id, restored: true, occupied: false, summary: roomSummary(room) });
     return true;
   }
