@@ -2507,6 +2507,29 @@ function uiSliceState(game = {}, ui = {}) {
   return { ...app.state, game: { ...app.state.game, ...game }, ui: { ...app.state.ui, ...ui } };
 }
 
+test('status player chips highlight the active turn with a turn badge', () => {
+  const state = uiSliceState({
+    phase: 'play',
+    isMyTurn: false,
+    turnPlayerName: 'Bot1',
+    players: [
+      { id: 'me', name: '我', color: '#5eead4', host: true, isMe: true, isTurn: false, timeLabel: '第 1 圈 / 第 1 格', sector: 1 },
+      { id: 'bot', name: 'Bot1', color: '#fbbf24', bot: true, isMe: false, isTurn: true, timeLabel: '第 1 圈 / 第 2 格', sector: 2 },
+    ],
+  });
+  const status = renderStatus({ state, api: {} });
+  const chips = findAll(status, (element) => (element.className || '').includes('player-chip'));
+  assert.equal(chips.length, 2);
+  const active = chips.find((chip) => (chip.className || '').split(/\s+/).includes('turn'));
+  const idle = chips.find((chip) => !(chip.className || '').split(/\s+/).includes('turn'));
+  assert.ok(active, 'active player chip has turn class');
+  assert.match(collectText(active).join(''), /行动中/);
+  assert.ok(findAll(active, (element) => (element.className || '') === 'turn-badge').length === 1);
+  assert.equal(active.style?.borderColor, undefined, 'turn highlight is not overridden by player color');
+  assert.doesNotMatch(collectText(idle).join(''), /行动中/);
+  assert.equal(idle.style?.borderColor, '#5eead4');
+});
+
 test('approved initial clue setup displays the locked host count and never offers a personal claim', () => {
   for (const count of [0, 4, 8, 12]) {
     const state = uiSliceState({ playMode: 'builtin', phase: 'setup', initialClueCount: count, mySetup: { initialClueCount: count, cluesClaimed: false, clues: [], ready: false } }, { initialClueCount: count === 4 ? 8 : 4 });

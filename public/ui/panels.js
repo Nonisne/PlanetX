@@ -455,7 +455,8 @@ export function renderConsoleStatus({ state, api }) {
               'span',
               {
                 class: `player-chip${p.isMe ? ' me' : ''}${p.isTurn ? ' turn' : ''}${p.pendingReviews ? ' review' : ''}`,
-                style: { borderColor: p.color },
+                style: p.isTurn ? undefined : { borderColor: p.color },
+                title: p.isTurn ? '当前正在行动' : undefined,
               },
               h('span', { class: 'dot', style: { background: p.color } }),
               p.name,
@@ -463,7 +464,7 @@ export function renderConsoleStatus({ state, api }) {
               p.bot ? h('span', { class: 'muted small' }, ' · Bot') : null,
               p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
               p.spectator ? null : h('span', { class: 'pawn-time' }, `${p.timeLabel} · ${p.sector} 号`),
-              p.isTurn ? h('span', { class: 'muted small' }, ' · 行动中') : null,
+              p.isTurn ? h('span', { class: 'turn-badge' }, '行动中') : null,
               p.pendingReviews ? h('span', { class: 'muted small warn' }, ' · 待评审') : null,
             ),
           ),
