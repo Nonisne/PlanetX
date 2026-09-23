@@ -13,7 +13,7 @@ const project = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 function fixture(context) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'planetx 启停测试 '));
   const children = [];
-  for (const filename of ['package.json', 'start.mjs', 'stop.mjs', 'server.mjs', 'server', 'public', 'scripts', '一键启动.command', '一键关闭.command']) {
+  for (const filename of ['package.json', 'start.mjs', 'stop.mjs', 'server.mjs', 'server', 'public', 'scripts', 'mac一键启动.command', 'mac一键关闭.command']) {
     const source = path.join(project, filename);
     if (fs.existsSync(source)) fs.cpSync(source, path.join(directory, filename), { recursive: true });
   }
@@ -73,17 +73,17 @@ async function ready(child, port) {
 }
 
 test('macOS and Windows provide executable one-click entrypoints without broad process killing', () => {
-  for (const filename of ['一键启动.command', '一键关闭.command', 'start-server.cmd', 'stop-server.cmd', 'stop.mjs']) {
+  for (const filename of ['mac一键启动.command', 'mac一键关闭.command', 'Windows-start-server.cmd', 'Windows-stop-server.cmd', 'stop.mjs']) {
     assert.ok(fs.existsSync(path.join(project, filename)), `${filename} must exist`);
   }
-  for (const filename of ['一键启动.command', '一键关闭.command']) {
+  for (const filename of ['mac一键启动.command', 'mac一键关闭.command']) {
     if (process.platform !== 'win32') assert.notEqual(fs.statSync(path.join(project, filename)).mode & 0o111, 0);
     if (process.platform === 'darwin') {
       const checked = spawnSync('/bin/zsh', ['-n', path.join(project, filename)], { encoding: 'utf8' });
       assert.equal(checked.status, 0, checked.stderr);
     }
   }
-  for (const filename of ['start-server.cmd', 'stop-server.cmd']) {
+  for (const filename of ['Windows-start-server.cmd', 'Windows-stop-server.cmd']) {
     const source = fs.readFileSync(path.join(project, filename), 'utf8');
     assert.equal(/[^\x00-\x7f]/.test(source), false);
     assert.equal(/taskkill|killall|pkill/i.test(source), false);
@@ -137,13 +137,13 @@ test('macOS entrypoints resolve Node with Finder PATH, open only a ready page, a
     target.children.push(child);
     return child;
   };
-  const started = runEntry('一键启动.command');
+  const started = runEntry('mac一键启动.command');
   await ready(started, port);
   // Under full-suite load, spawn(open) + fetch + write can exceed the old 2s window.
   for (let attempt = 0; attempt < 200 && !fs.existsSync(openedFile); attempt++) await delay(25);
   assert.ok(fs.existsSync(openedFile), `browser stand-in did not write ${openedFile} within 5s\n${started.output}`);
   assert.deepEqual(JSON.parse(fs.readFileSync(openedFile, 'utf8')), { url: `http://127.0.0.1:${port}/`, status: 200 });
-  const stopped = runEntry('一键关闭.command');
+  const stopped = runEntry('mac一键关闭.command');
   assert.equal(await exited(stopped), 0, stopped.output);
   assert.equal(await exited(started), 0, started.output);
 });
