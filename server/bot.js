@@ -7,10 +7,11 @@
 // goes through `applyRoomAction`, so all existing rules (turn order, research
 // phase, peer review, scoring) remain authoritative.
 //
-// The strategy maintains a per-sector candidate set (what could still be there
-// in the bot's eyes), then picks the cheapest legal action that narrows it the
-// most. The strategy is deliberately conservative — it never claims certainty
-// it cannot derive from public information.
+// The strategy maintains a per-sector candidate set from the bot's own initial
+// clues, surveys, scans, revealed theories, and research or conference
+// sentences it has already received. It never reads the puzzle or an unearned
+// clue. A theory paper is submitted only when that set supports the claim;
+// otherwise the bot declares zero papers.
 //
 // The Bot is **only** active in `playMode === 'builtin'`. In any other mode
 // (`record`, `tutorial`) `decideAction` returns `null` so the controller never
@@ -21,6 +22,7 @@ import {
   COST,
   arcSectors,
   cometSectors,
+  isCometSector,
   mod,
   surveyCost,
 } from '../public/src/rules.js';
@@ -101,15 +103,19 @@ function decideResearchPhaseAction(room, botId, view) {
   return { kind: 'research-submit', phaseId: phase.id, sector: remaining[0].sector, objectType: remaining[0].type };
 }
 
+const THEORY_GUESS_SCORE = 55;
+const THEORY_TYPE_VALUE = { dwarfPlanet: 4, comet: 3, gasCloud: 4, asteroid: 2 };
+
 /**
- * Rank the (sector, type) candidates for a bot's theory paper.
+ * Rank the (sector, type) papers the bot is willing to publish.
  *
- * Each candidate must (a) not be locked, (b) the type still has tokens,
- * (c) the bot has not already published this sector in this phase. The score
- * rewards sectors whose candidate set has narrowed to a single ordinary
- * object — those are near-certainties and the bot should claim them first.
+ * A legal option is not enough. The sector must be pinned to that one object
+ * (score 100) or sit inside the bot's own dense survey (score 80 or 55).
+ * Anything else is omitted, so the declaration count is 0 when the bot is
+ * still guessing in the dark. Token stock is reserved here so two planned
+ * papers cannot spend the same last token.
  */
-function pickTheoryPicks(room, botId, view) {
+export function pickTheoryPicks(room, botId, view) {
   const candidates = [];
   const lockedSectors = new Set(view.theoryLockedSectors || []);
   const remaining = view.theoryTokensRemaining || {};
@@ -123,18 +129,58 @@ function pickTheoryPicks(room, botId, view) {
   if (!candidates.length) return candidates;
 
   const knowledge = computeKnowledge(room, botId, view);
-  const candidatesInSectors = new Map();
-  for (const { sector, type } of candidates) candidatesInSectors.set(sector, (candidatesInSectors.get(sector) || []).concat(type));
-
-  // bonus for rare tokens so the bot spends its budget where points are
-  const typeValue = { dwarfPlanet: 4, comet: 3, gasCloud: 4, asteroid: 2 };
-  for (const candidate of candidates) {
-    const cs = candidatesInSectors.get(candidate.sector);
-    const narrowed = cs.length === 1;
-    candidate.score = (narrowed ? 100 : 0) + (typeValue[candidate.type] || 0);
+  const surveys = (view.knowledge?.surveys || []).filter((survey) => survey.actorId === botId);
+  const unresolved = new Set();
+  for (const theory of view.knowledge?.theories || []) {
+    if (theory.actorId === botId && !theory.revealed) unresolved.add(theory.sector);
   }
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates;
+  const sectorCount = view.mode?.sectors || 0;
+  const ranked = [];
+  for (const candidate of candidates) {
+    if (unresolved.has(candidate.sector)) continue;
+    const support = theorySupport(candidate.sector, candidate.type, knowledge, surveys, sectorCount);
+    if (support < THEORY_GUESS_SCORE) continue;
+    candidate.score = support;
+    candidate.tie = (THEORY_TYPE_VALUE[candidate.type] || 0) + (stableHash(botId, candidate.sector, candidate.type) % 97) / 1000;
+    ranked.push(candidate);
+  }
+  ranked.sort((a, b) => b.score - a.score || b.tie - a.tie);
+
+  const tokens = { ...remaining };
+  const chosen = [];
+  for (const candidate of ranked) {
+    if ((tokens[candidate.type] || 0) <= 0) continue;
+    if (chosen.some((pick) => pick.sector === candidate.sector)) continue;
+    tokens[candidate.type] -= 1;
+    chosen.push(candidate);
+  }
+  return chosen;
+}
+
+/**
+ * How strongly the bot's own information supports publishing `type` in `sector`.
+ * 100 means the candidate set has collapsed to that object. 80 means a small
+ * survey almost forces it. 55 means the survey is dense enough to guess, but
+ * not dense enough to treat as certain. 0 means there is no positive evidence.
+ */
+function theorySupport(sector, type, knowledge, surveys, sectorCount) {
+  const possible = knowledge.possible(sector);
+  if (!possible.includes(type)) return -1;
+  if (possible.length === 1) return 100;
+  let best = 0;
+  for (const survey of surveys) {
+    const apparent = surveyApparent(survey);
+    if (apparent !== type || !Number.isInteger(survey.count) || survey.count <= 0) continue;
+    if (!Number.isInteger(survey.start) || !Number.isInteger(survey.size) || survey.size <= 0) continue;
+    const range = arcSectors(survey.start, survey.size, sectorCount);
+    if (!range.includes(sector)) continue;
+    const density = survey.count / range.length;
+    if (range.length > 6 || density < 0.5) continue;
+    const open = range.filter((item) => knowledge.possible(item).includes(type));
+    if (open.length <= survey.count + 1) best = Math.max(best, 80);
+    else if (density >= 2 / 3) best = Math.max(best, THEORY_GUESS_SCORE);
+  }
+  return best;
 }
 
 // ---- review ----------------------------------------------------------------
@@ -335,15 +381,105 @@ function alreadyTargeted(room, botId, sector) {
 
 // ---- per-sector knowledge ---------------------------------------------------
 
+const BOARD_COUNTS = Object.freeze({
+  standard: Object.freeze({ asteroid: 4, comet: 2, gasCloud: 2, dwarfPlanet: 1, empty: 2, planetX: 1 }),
+  expert: Object.freeze({ asteroid: 4, comet: 2, gasCloud: 2, dwarfPlanet: 4, empty: 5, planetX: 1 }),
+});
+
+const CLUE_LABELS = Object.freeze([
+  ['矮行星', Obj.DWARF_PLANET],
+  ['气体云', Obj.GAS_CLOUD],
+  ['小行星', Obj.ASTEROID],
+  ['X行星', Obj.PLANET_X],
+  ['彗星', Obj.COMET],
+]);
+const CLUE_NAME = CLUE_LABELS.map(([label]) => label).join('|');
+
+/**
+ * Turn one earned research or conference sentence back into a feature.
+ * Only the fixed sentences this game generates are recognized. Free text,
+ * and any clue the bot has not been given, stays unused.
+ */
+export function parseResearchClue(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const name = (group) => CLUE_LABELS.find(([label]) => label === group)?.[1] || null;
+  let match = raw.match(new RegExp(`^所有(${CLUE_NAME})都位于一段不超过 (\\d+) 个连续扇区内。$`));
+  if (match && name(match[1])) return { kind: 'band', objectType: name(match[1]), length: Number(match[2]) };
+
+  match = raw.match(new RegExp(`^没有任何(${CLUE_NAME})位于其他\\1的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[1]), relation: 'within', range: Number(match[2]), quantifier: 'none' };
+  }
+  match = raw.match(new RegExp(`^X行星不在任何(${CLUE_NAME})的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1]) && name(match[1]) !== Obj.PLANET_X) {
+    return { kind: 'relation', objectType: Obj.PLANET_X, neighborType: name(match[1]), relation: 'within', range: Number(match[2]), quantifier: 'none' };
+  }
+  match = raw.match(new RegExp(`^X行星位于至少一个(${CLUE_NAME})的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1]) && name(match[1]) !== Obj.PLANET_X) {
+    return { kind: 'relation', objectType: Obj.PLANET_X, neighborType: name(match[1]), relation: 'within', range: Number(match[2]), quantifier: 'some' };
+  }
+  match = raw.match(new RegExp(`^X行星不与任何(${CLUE_NAME})(相邻|正对)。$`));
+  if (match && name(match[1]) && name(match[1]) !== Obj.PLANET_X) {
+    return { kind: 'relation', objectType: Obj.PLANET_X, neighborType: name(match[1]), relation: match[2] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'none' };
+  }
+  match = raw.match(new RegExp(`^X行星与至少一个(${CLUE_NAME})(相邻|正对)。$`));
+  if (match && name(match[1]) && name(match[1]) !== Obj.PLANET_X) {
+    return { kind: 'relation', objectType: Obj.PLANET_X, neighborType: name(match[1]), relation: match[2] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'some' };
+  }
+  match = raw.match(new RegExp(`^没有任何(${CLUE_NAME})位于(${CLUE_NAME})的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1]) && name(match[2])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[2]), relation: 'within', range: Number(match[3]), quantifier: 'none' };
+  }
+  match = raw.match(new RegExp(`^至少有一个(${CLUE_NAME})位于某个(${CLUE_NAME})的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1]) && name(match[2])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[2]), relation: 'within', range: Number(match[3]), quantifier: 'some' };
+  }
+  match = raw.match(new RegExp(`^至少有一个(${CLUE_NAME})位于X行星的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: Obj.PLANET_X, relation: 'within', range: Number(match[2]), quantifier: 'some' };
+  }
+  match = raw.match(new RegExp(`^每个(${CLUE_NAME})都位于至少一个(${CLUE_NAME})的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1]) && name(match[2])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[2]), relation: 'within', range: Number(match[3]), quantifier: 'all' };
+  }
+  match = raw.match(new RegExp(`^每个(${CLUE_NAME})都位于X行星的 (\\d+) 个扇区以内。$`));
+  if (match && name(match[1])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: Obj.PLANET_X, relation: 'within', range: Number(match[2]), quantifier: 'all' };
+  }
+  match = raw.match(new RegExp(`^没有任何(${CLUE_NAME})与(${CLUE_NAME})(相邻|正对)。$`));
+  if (match && name(match[1]) && name(match[2])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[2]), relation: match[3] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'none' };
+  }
+  match = raw.match(new RegExp(`^至少有一个(${CLUE_NAME})与某个(${CLUE_NAME})(相邻|正对)。$`));
+  if (match && name(match[1]) && name(match[2])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[2]), relation: match[3] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'some' };
+  }
+  match = raw.match(new RegExp(`^至少有一个(${CLUE_NAME})与X行星(相邻|正对)。$`));
+  if (match && name(match[1])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: Obj.PLANET_X, relation: match[2] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'some' };
+  }
+  match = raw.match(new RegExp(`^每个(${CLUE_NAME})都与至少一个(${CLUE_NAME})(相邻|正对)。$`));
+  if (match && name(match[1]) && name(match[2])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: name(match[2]), relation: match[3] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'all' };
+  }
+  match = raw.match(new RegExp(`^每个(${CLUE_NAME})都与X行星(相邻|正对)。$`));
+  if (match && name(match[1])) {
+    return { kind: 'relation', objectType: name(match[1]), neighborType: Obj.PLANET_X, relation: match[2] === '相邻' ? 'adjacent' : 'opposite', quantifier: 'all' };
+  }
+  return null;
+}
+
 /**
  * Build a per-sector candidate set the Bot can query for downstream scoring.
  *
  * Sources, in order:
  *  1. bot's initial clues (`view.mySetup.clues`) — private to the bot
- *  2. bot's own surveys — private; count constraints narrow candidate sets
+ *  2. bot's own surveys — private; the log stores the object on `surveyType`
  *  3. bot's own targets — private; apparent fixes or rules out objects
  *  4. publicly revealed theories (correct locks the sector; wrong excludes)
- *  5. global object counts (soft, non-binding prune)
+ *  5. research and conference sentences the bot has already received
+ *  6. public board rules (comet sectors, object counts, adjacency, expert dwarf band)
  *
  * The returned object also exposes `surveyedByBot` so the target heuristic
  * can prefer sectors the bot has narrowed itself.
@@ -363,10 +499,8 @@ export function computeKnowledge(room, botId, view) {
   const mySurveys = (view.knowledge?.surveys || []).filter((survey) => survey.actorId === botId);
   const surveyedByBot = new Set();
   for (const survey of mySurveys) {
+    if (!Number.isInteger(survey.start) || !Number.isInteger(survey.size)) continue;
     for (const sector of arcSectors(survey.start, survey.size, sectors)) surveyedByBot.add(sector);
-    if (survey.type && Number.isInteger(survey.count)) {
-      applySurvey(possible, arcSectors(survey.start, survey.size, sectors), survey.type, survey.count, view.mode);
-    }
   }
 
   const myTargets = (view.knowledge?.targets || []).filter((target) => target.actorId === botId);
@@ -399,7 +533,7 @@ export function computeKnowledge(room, botId, view) {
     }
   }
 
-  applyGlobalCounts(possible, view.mode);
+  tightenCandidates(possible, view, botId, mySurveys);
 
   const frozen = possible.map((set) => Array.from(set));
   return {
@@ -410,35 +544,263 @@ export function computeKnowledge(room, botId, view) {
   };
 }
 
-/**
- * Narrow the candidate set based on the bot's own survey result. count === 0
- * rules the type out everywhere in the range; count === range.length fixes
- * every sector to that type; intermediate counts are uninformative without
- * combinatorics, so we leave them.
- */
-function applySurvey(possible, range, type, count) {
-  if (count === 0) {
-    for (const sector of range) possible[sector]?.delete(type);
-    return;
-  }
-  if (count === range.length) {
-    for (const sector of range) {
-      const set = possible[sector];
-      if (!set) continue;
-      set.clear();
-      set.add(type);
+function tightenCandidates(possible, view, botId, surveys) {
+  const features = earnedFeatures(view, botId);
+  const sectorCount = possible.length;
+  const limit = sectorCount * ALL_OBJECTS.length;
+  for (let guard = 0; guard < limit; guard += 1) {
+    let changed = false;
+    changed = applySurveyConstraints(possible, surveys, sectorCount) || changed;
+    changed = applyBoardRules(possible, view.mode) || changed;
+    for (const feature of features) {
+      if (feature.kind === 'band') changed = applyBand(possible, feature, sectorCount) || changed;
+      else changed = applyRelation(possible, feature, sectorCount) || changed;
     }
+    if (!changed) return;
   }
 }
 
-/**
- * No-op placeholder: the candidate sets the bot derives from private clues,
- * scans, and public theories are already enough for the heuristic. A full
- * constraint solver is out of scope here.
- */
-function applyGlobalCounts(possible, mode) {
-  void possible;
-  void mode;
+function earnedFeatures(view, botId) {
+  const texts = [];
+  for (const clue of view.knowledge?.clues || []) {
+    if (clue.actorId === botId && typeof clue.text === 'string') texts.push(clue.text);
+  }
+  for (const conference of view.knowledge?.conferences || []) {
+    if (typeof conference.text === 'string') texts.push(conference.text);
+  }
+  for (const text of Object.values(view.conferenceRules || {})) {
+    if (typeof text === 'string') texts.push(text);
+  }
+  return texts.map((text) => parseResearchClue(text)).filter(Boolean);
+}
+
+function surveyApparent(survey) {
+  if (typeof survey.surveyType === 'string' && survey.surveyType !== 'survey') return survey.surveyType;
+  if (typeof survey.type === 'string' && survey.type !== 'survey') return survey.type;
+  return null;
+}
+
+function showsApparent(set, apparent) {
+  if (!set) return false;
+  if (apparent === Obj.EMPTY) return set.has(Obj.EMPTY) || set.has(Obj.PLANET_X);
+  return set.has(apparent);
+}
+
+function mustShowApparent(set, apparent) {
+  if (!set || set.size === 0) return false;
+  if (apparent === Obj.EMPTY) {
+    for (const type of set) if (type !== Obj.EMPTY && type !== Obj.PLANET_X) return false;
+    return true;
+  }
+  return set.size === 1 && set.has(apparent);
+}
+
+function forceApparent(set, apparent) {
+  if (!set) return false;
+  if (apparent === Obj.EMPTY) {
+    let changed = false;
+    for (const type of [...set]) {
+      if (type !== Obj.EMPTY && type !== Obj.PLANET_X) {
+        set.delete(type);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  if (!set.has(apparent) || set.size === 1) return false;
+  set.clear();
+  set.add(apparent);
+  return true;
+}
+
+function forbidApparent(set, apparent) {
+  if (!set) return false;
+  if (apparent === Obj.EMPTY) {
+    const droppedEmpty = set.delete(Obj.EMPTY);
+    const droppedX = set.delete(Obj.PLANET_X);
+    return droppedEmpty || droppedX;
+  }
+  return set.delete(apparent);
+}
+
+function forceType(set, type) {
+  if (!set || !set.has(type) || set.size === 1) return false;
+  set.clear();
+  set.add(type);
+  return true;
+}
+
+function applySurveyConstraints(possible, surveys, sectorCount) {
+  let changed = false;
+  for (const survey of surveys) {
+    const apparent = surveyApparent(survey);
+    if (!apparent || !Number.isInteger(survey.count) || !Number.isInteger(survey.start) || !Number.isInteger(survey.size)) continue;
+    const range = arcSectors(survey.start, survey.size, sectorCount);
+    if (survey.count === 0) {
+      for (const sector of range) changed = forbidApparent(possible[sector], apparent) || changed;
+      continue;
+    }
+    const open = range.filter((sector) => showsApparent(possible[sector], apparent));
+    if (open.length === survey.count) {
+      for (const sector of open) changed = forceApparent(possible[sector], apparent) || changed;
+    }
+    const forced = range.filter((sector) => mustShowApparent(possible[sector], apparent));
+    if (forced.length === survey.count && forced.length < range.length) {
+      for (const sector of range) {
+        if (!forced.includes(sector)) changed = forbidApparent(possible[sector], apparent) || changed;
+      }
+    }
+  }
+  return changed;
+}
+
+function applyBoardRules(possible, mode) {
+  const sectorCount = possible.length;
+  const counts = BOARD_COUNTS[mode?.id] || BOARD_COUNTS.standard;
+  let changed = false;
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    if (!isCometSector(mode, sector) && possible[sector].delete(Obj.COMET)) changed = true;
+  }
+  for (const type of ALL_OBJECTS) {
+    const need = counts[type];
+    if (!need) continue;
+    const pinned = [];
+    const open = [];
+    for (let sector = 0; sector < sectorCount; sector += 1) {
+      if (!possible[sector].has(type)) continue;
+      open.push(sector);
+      if (possible[sector].size === 1) pinned.push(sector);
+    }
+    if (pinned.length === need) {
+      for (const sector of open) {
+        if (!pinned.includes(sector) && possible[sector].delete(type)) changed = true;
+      }
+    } else if (open.length === need) {
+      for (const sector of open) changed = forceType(possible[sector], type) || changed;
+    }
+  }
+  changed = applyAdjacency(possible) || changed;
+  if (mode?.id === 'expert') changed = applyDwarfBand(possible) || changed;
+  return changed;
+}
+
+function applyAdjacency(possible) {
+  const sectorCount = possible.length;
+  let changed = false;
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    const set = possible[sector];
+    const left = possible[mod(sector - 1, sectorCount)];
+    const right = possible[mod(sector + 1, sectorCount)];
+    if (set.has(Obj.ASTEROID) && !left.has(Obj.ASTEROID) && !right.has(Obj.ASTEROID)) {
+      set.delete(Obj.ASTEROID);
+      changed = true;
+    }
+    if (set.size === 1 && set.has(Obj.ASTEROID)) {
+      const open = [mod(sector - 1, sectorCount), mod(sector + 1, sectorCount)].filter((neighbor) => possible[neighbor].has(Obj.ASTEROID));
+      if (open.length === 1) changed = forceType(possible[open[0]], Obj.ASTEROID) || changed;
+    }
+    if (set.has(Obj.GAS_CLOUD) && !left.has(Obj.EMPTY) && !right.has(Obj.EMPTY)) {
+      set.delete(Obj.GAS_CLOUD);
+      changed = true;
+    }
+    if (set.size === 1 && set.has(Obj.GAS_CLOUD)) {
+      const open = [mod(sector - 1, sectorCount), mod(sector + 1, sectorCount)].filter((neighbor) => possible[neighbor].has(Obj.EMPTY));
+      if (open.length === 1) changed = forceType(possible[open[0]], Obj.EMPTY) || changed;
+    }
+    if (set.size === 1 && set.has(Obj.DWARF_PLANET)) {
+      if (left.delete(Obj.PLANET_X)) changed = true;
+      if (right.delete(Obj.PLANET_X)) changed = true;
+    }
+    if (set.size === 1 && set.has(Obj.PLANET_X)) {
+      if (left.delete(Obj.DWARF_PLANET)) changed = true;
+      if (right.delete(Obj.DWARF_PLANET)) changed = true;
+    }
+  }
+  return changed;
+}
+
+function applyDwarfBand(possible) {
+  const sectorCount = possible.length;
+  const forced = [];
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    if (possible[sector].size === 1 && possible[sector].has(Obj.DWARF_PLANET)) forced.push(sector);
+  }
+  const windows = [];
+  for (let start = 0; start < sectorCount; start += 1) {
+    const sectors = arcSectors(start, 6, sectorCount);
+    if (!possible[sectors[0]].has(Obj.DWARF_PLANET) || !possible[sectors[5]].has(Obj.DWARF_PLANET)) continue;
+    if (!forced.every((sector) => sectors.includes(sector))) continue;
+    windows.push(sectors);
+  }
+  if (!windows.length) return false;
+  const cover = new Set(windows.flat());
+  let changed = false;
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    if (!cover.has(sector) && possible[sector].delete(Obj.DWARF_PLANET)) changed = true;
+  }
+  return changed;
+}
+
+function applyBand(possible, feature, sectorCount) {
+  const forced = [];
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    if (possible[sector].size === 1 && possible[sector].has(feature.objectType)) forced.push(sector);
+  }
+  const windows = [];
+  for (let start = 0; start < sectorCount; start += 1) {
+    const sectors = arcSectors(start, feature.length, sectorCount);
+    if (forced.every((sector) => sectors.includes(sector))) windows.push(sectors);
+  }
+  if (!windows.length) return false;
+  const cover = new Set(windows.flat());
+  let changed = false;
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    if (!cover.has(sector) && possible[sector].delete(feature.objectType)) changed = true;
+  }
+  return changed;
+}
+
+function applyRelation(possible, feature, sectorCount) {
+  if (feature.quantifier === 'some') return false;
+  const { objectType, neighborType, relation, quantifier } = feature;
+  const reach = relation === 'adjacent' ? 1 : relation === 'opposite' ? sectorCount / 2 : feature.range;
+  if (!Number.isInteger(reach) || reach <= 0) return false;
+  let changed = false;
+  if (quantifier === 'none') {
+    for (let sector = 0; sector < sectorCount; sector += 1) {
+      const set = possible[sector];
+      if (!set || set.size !== 1) continue;
+      if (set.has(objectType)) changed = excludeAround(possible, sector, neighborType, relation, reach, sectorCount) || changed;
+      if (objectType !== neighborType && set.has(neighborType)) {
+        changed = excludeAround(possible, sector, objectType, relation, reach, sectorCount) || changed;
+      }
+    }
+    return changed;
+  }
+  if (quantifier === 'all' && relation === 'adjacent') {
+    for (let sector = 0; sector < sectorCount; sector += 1) {
+      const set = possible[sector];
+      if (!set || set.size !== 1 || !set.has(objectType)) continue;
+      const open = [mod(sector - 1, sectorCount), mod(sector + 1, sectorCount)].filter((neighbor) => possible[neighbor].has(neighborType));
+      if (open.length === 1) changed = forceType(possible[open[0]], neighborType) || changed;
+    }
+  }
+  return changed;
+}
+
+function excludeAround(possible, sector, type, relation, reach, sectorCount) {
+  let changed = false;
+  if (relation === 'opposite') {
+    const opposite = mod(sector + sectorCount / 2, sectorCount);
+    if (possible[opposite]?.delete(type)) changed = true;
+    return changed;
+  }
+  for (let distance = 1; distance <= reach; distance += 1) {
+    for (const neighbor of [mod(sector - distance, sectorCount), mod(sector + distance, sectorCount)]) {
+      if (neighbor !== sector && possible[neighbor]?.delete(type)) changed = true;
+    }
+  }
+  return changed;
 }
 
 // ---- research priority ------------------------------------------------------
