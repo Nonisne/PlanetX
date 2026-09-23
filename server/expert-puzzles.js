@@ -2,6 +2,9 @@ import { Obj } from '../public/src/types.js';
 import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, researchClueText } from './research.js';
 
 const SECTOR_COUNT = 18;
+// A band that covers more than a third of the expert circle barely rules anything out.
+// Dwarf planets are already fixed to an exact six-sector band by the base rules.
+const USEFUL_BAND_LENGTH = 6;
 const FULL_MASK = (1 << SECTOR_COUNT) - 1;
 const MAX_ATTEMPTS = 256;
 const DEFAULT_MAX_NODES = 20000000;
@@ -183,11 +186,19 @@ function certifiedConferences(masks, features, selectIndex) {
 
 function selectResearch(masks, features, selectIndex) {
   const topics = new Map();
+  const tightBands = new Map();
   for (const feature of features) {
     if (researchFeatureValue(feature, masks, SECTOR_COUNT) !== 1) continue;
+    if (feature.kind === 'band') {
+      if (feature.objectType === Obj.DWARF_PLANET || feature.length > USEFUL_BAND_LENGTH) continue;
+      const current = tightBands.get(feature.topicKey);
+      if (!current || feature.length < current.length) tightBands.set(feature.topicKey, feature);
+      continue;
+    }
     if (!topics.has(feature.topicKey)) topics.set(feature.topicKey, []);
     topics.get(feature.topicKey).push(feature);
   }
+  for (const [key, feature] of tightBands) topics.set(key, [feature]);
   if (topics.size < 6) return null;
   const bandTopics = [...topics.keys()].filter((key) => topics.get(key)[0].kind === 'band');
   const relationTopics = [...topics.keys()].filter((key) => topics.get(key)[0].kind === 'relation');
