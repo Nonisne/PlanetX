@@ -1,4 +1,4 @@
-// Friendly launcher: `node start.mjs` (or double-click start-server.cmd).
+// Friendly launcher: `node start.mjs` (or double-click Windows-start-server.cmd).
 //
 //   node start.mjs           -> serves the console to this machine *and* the LAN,
 //                               so a table can join from their own devices
@@ -45,7 +45,7 @@ out(`            其他人点「联机 → 加入房间」输入房间码。`);
 out(`  ${line}`);
 out(`  这个窗口就是服务器：关掉它 = 停止服务，房间会一起消失。`);
 out(`  玩的过程中浏览器刷新没有影响，房间与身份都会保留。`);
-out(`  一键关闭：双击「一键关闭.command」（Mac）或 stop-server.cmd（Windows）。`);
+out(`  一键关闭：双击「mac一键关闭.command」（Mac）或 Windows-stop-server.cmd（Windows）。`);
 out(`  想改端口：${process.platform === 'win32' ? 'set PORT=5180' : 'PORT=5180 node start.mjs'}。`);
 out(`  ${line}`);
 out();

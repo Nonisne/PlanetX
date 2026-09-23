@@ -85,8 +85,8 @@ A–F 只显示一种或两种普通天体名称，不提前泄露关系、量�
 
 | 系统 | 一键启动 | 一键关闭 |
 | --- | --- | --- |
-| **macOS** | 双击 **`一键启动.command`** | 双击 **`一键关闭.command`** |
-| **Windows** | 双击 **`start-server.cmd`** | 双击 **`stop-server.cmd`** |
+| **macOS** | 双击 **`mac一键启动.command`** | 双击 **`mac一键关闭.command`** |
+| **Windows** | 双击 **`Windows-start-server.cmd`** | 双击 **`Windows-stop-server.cmd`** |
 
 启动成功后自动打开游戏页面；**保留启动终端窗口**即可游玩。重复启动会核验并复用本项目已运行的同端口服务，不会重新开服务或清空现有房间。macOS 脚本已设置可执行权限，也会查找当前环境、Homebrew、Volta 或 nvm 中的 Node。
 
@@ -114,7 +114,7 @@ node audit/official-rules.audit.mjs  # 独立官方规则对照
 >
 > `tests/all.test.js` 通过 `spawnSync` 为每个测试文件启动独立进程并继承终端输出，避免 DOM、存储和网络桩互相污染。完整测试含启停与 HTTP/SSE 用例，需要允许监听本机临时端口。受限环境可用 `PLANETX_TEST_TRANSPORT=memory node tests/server.test.js`、同样方式运行 `tests/client.test.js`，验证不监听端口的真实请求处理器与 SSE 序列化；这不等于真实网络或浏览器验收。`tests/tutorial-server.test.js` 默认使用这种内存分派，设置 `PLANETX_TEST_TRANSPORT=http` 可运行真实 HTTP。
 >
-> Windows `.cmd` 文件只放 ASCII，中文提示由 Node 打印。macOS 若因复制文件丢失执行权限，可在项目目录运行 `chmod +x 一键启动.command 一键关闭.command` 后再次双击。
+> Windows `.cmd` 文件只放 ASCII，中文提示由 Node 打印。macOS 若因复制文件丢失执行权限，可在项目目录运行 `chmod +x mac一键启动.command mac一键关闭.command` 后再次双击。
 
 ### 联机怎么开
 
@@ -407,7 +407,7 @@ node server.mjs        # 联机房间 API 由同一个服务器提供
 - `audit/evidence/rules-workspace-final-tests.txt` 记录本轮规则与工作区改进的显式穷举回归：**14 文件、376 项，375 通过、1 失败、0 跳过**。规则、谜题、联机与界面测试均通过；唯一失败是既有 macOS 启动器测试等待浏览器替身文件超时，该用例独立复测通过但间歇失败尚未解决。本轮未修改启动器；不能视为全套通过。详见 `docs/rules-workspace-report.md` 与 `audit/evidence/rules-workspace-launcher-recheck.txt`。
 - `audit/evidence/four-player-limit-tests-2026-09-20.txt` 记录内置人数调整后的显式穷举全量回归：**14 文件、321 项全部通过，0 失败、0 跳过**。验证内置 1–4 人均能准备并开始、第五人加入被拒绝且不改变房间、服务端只预备四组初始线索、界面明确人数包含房主；记录模式人数规则不变。该次启停入口测试全部通过，下面的两项失败属于更早的历史记录。
 - `audit/evidence/research-templates-tests-2026-09-20.txt` 记录研究模板修正后的显式穷举全量回归：**14 文件、318 项，316 通过、2 失败、0 跳过**。谓词测试 37 项、谜题测试 22 项、界面测试 52 项全部通过；独立枚举覆盖 4,446 张合法标准盘及 26,676 组私有初始线索，验证六题各一句、真实空间关系和充分观测后的唯一完整解。
-- 上述研究模板回归当时的两项失败均为启停入口测试：脚本当时名为 `mac一键启动.command`、`mac一键关闭.command`、`Windows-start-server.cmd`、`Windows-stop-server.cmd`，测试仍使用未加平台前缀的文件名，导致文件查找和临时测试启动失败。该次研究模板修正未修改启停脚本或启停测试，当时不能视为全套回归通过。
+- 上述研究模板回归当时的两项失败均为启停入口测试：脚本当时名为 `一键启动.command`、`一键关闭.command`、`start-server.cmd`、`stop-server.cmd`，与测试期望不一致，导致文件查找和临时测试启动失败。该次研究模板修正未修改启停脚本或启停测试，当时不能视为全套回归通过。当前仓库已改为带系统前缀的 `mac一键*.command` / `Windows-*-server.cmd`。
 - `audit/evidence/initial-clue-types-tests-2026-09-20.txt` 记录初始线索修正后的全量回归：**13 文件、277 项，275 通过、2 失败、0 跳过**。初始线索生成与求解、标准／专家准备阶段校验、界面选项和空域观测回归均通过；穷举覆盖 4,446 张合法标准盘、26,676 组私有初始线索。
 - `audit/evidence/one-click-service-tests-2026-09-20.txt` 记录一键启停更新后的显式穷举全量回归：**13 文件、276 项通过，0 失败、0 跳过**。新增 9 项包括并发／重复启动、重复关闭、自定义端口、SSE 连接关闭、令牌与跨站防护、无关服务保护及 macOS Finder PATH／nvm 入口；浏览器打开使用替身验证调用时机和地址，Windows `.cmd` 在当前 Mac 上只做结构检查，未作 Windows 实机验证。
 - `docs/rules-audit-2026-09-20.md` 与 `docs/rules-fix-report-2026-09-20.md` 保留早期规则审计及 16 项修复背景；其中 **177 项回归、23 项独立对照**是当时的结果，不是本次内置版本的总数。
@@ -427,8 +427,8 @@ server/research.js         单／双天体研究谓词、课题名称与中文�
 server/tutorial.js         固定教学盘、当前步骤投影和正式行动驱动的 Bot 脚本
 server/local-control.js    仅本机访问的令牌保护控制通道与启动记录
 start.mjs / stop.mjs       服务启动／关闭入口，支持重复启动保护
-一键启动.command / 一键关闭.command  macOS 双击入口
-start-server.cmd / stop-server.cmd  Windows 双击入口
+mac一键启动.command / mac一键关闭.command  macOS 双击入口
+Windows-start-server.cmd / Windows-stop-server.cmd  Windows 双击入口
 scripts/run-node.sh        macOS Node 环境查找与启动辅助
 public/
   index.html  styles.css   星图优先工作台：左＝参考，中＝星图，右＝行动，底部＝历史与积分
