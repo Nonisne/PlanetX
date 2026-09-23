@@ -16,6 +16,7 @@
 // (`record`, `tutorial`) `decideAction` returns `null` so the controller never
 // acts.
 
+import { crossedEvents } from '../public/src/phases.js';
 import {
   COST,
   arcSectors,
@@ -47,13 +48,14 @@ export function decideAction(room, botId, view) {
   if (room.phase === 'reveal') return null;
   if (room.phase === 'done') return null;
 
-  if (!view.isMyTurn) return null;
-
+  // Declarations and peer reviews are table-wide: a bot that is not the
+  // current pawn must still answer, or a multi-bot room stalls.
   if (Array.isArray(view.myPendingReviews) && view.myPendingReviews.length) {
     return decideReviewAction(room, botId, view);
   }
-
   if (room.research) return decideResearchPhaseAction(room, botId, view);
+
+  if (!view.isMyTurn) return null;
 
   if (room.conference && view.conference && view.conference.sector != null) {
     return { kind: 'conference', sector: view.conference.sector, text: view.conference.text || '（未记录线索内容）' };
@@ -171,17 +173,11 @@ function decideFinalAction(room, botId, view) {
   if (!endgame || !endgame.isMyTurn) return null;
   const knowledge = computeKnowledge(room, botId, view);
 
-  // locate only when X + both neighbours have collapsed to single objects
+  // Locate only when X and both neighbours are each a single object.
+  // Anything less certain is a pass: guessing papers in the final window is
+  // not part of this heuristic.
   const locate = findCertainLocate(knowledge, view);
   if (locate) return { kind: 'locate', sector: locate.sector, left: locate.left, right: locate.right };
-
-  // otherwise publish the most confident papers we still have capacity for
-  const picks = pickTheoryPicks(room, botId, view);
-  const quota = endgame.quota || 0;
-  if (picks.length && quota > 0) {
-    const theories = picks.slice(0, quota).map((pick) => ({ sector: pick.sector, objectType: pick.type }));
-    return { kind: 'final-theories', theories };
-  }
   return { kind: 'final-pass' };
 }
 
@@ -215,12 +211,17 @@ function findCertainLocate(knowledge, view) {
  * (still uncertain but informative) over sectors it has never touched.
  * Research scoring: alphabet-order with a per-bot hash so the room's bots do
  * not all pick the same first topic.
- * Wait: fallback, but suppressed when stepping would cross an unprepared event.
+ * Wait: used when every stronger action would leave an unprepared event.
  */
 function decideTurnAction(room, botId, view) {
   const mode = view.mode;
   const knowledge = computeKnowledge(room, botId, view);
+  const locate = findCertainLocate(knowledge, view);
+  if (locate) return { kind: 'locate', sector: locate.sector, left: locate.left, right: locate.right };
+
   const candidates = [];
+  const seatIndex = Math.max(0, room.players.findIndex((player) => player.id === botId));
+  const preferStart = preferredSurveyStart(botId, seatIndex, mode.sectors);
 
   // ---- surveys ----
   for (const type of SURVEY_TYPES) {
@@ -239,7 +240,13 @@ function decideTurnAction(room, botId, view) {
         let unknown = 0;
         for (const sector of range) if (knowledge.possible(sector).length > 1) unknown += 1;
         if (unknown === 0) continue;
-        candidates.push({ score: unknown / (cost + 1) + (size >= mode.visible ? 0.2 : 0), action: { kind: 'survey', type, start, size, count: 0 } });
+        const forward = (start - preferStart + mode.sectors) % mode.sectors;
+        const backward = (preferStart - start + mode.sectors) % mode.sectors;
+        const distance = Math.min(forward, backward);
+        // Tie-break only: one unknown sector is worth ~0.2, so this cannot
+        // override a genuinely narrower or cheaper arc.
+        const bias = (mode.sectors - distance) * 0.001;
+        candidates.push({ score: unknown / (cost + 1) + (size >= mode.visible ? 0.2 : 0) + bias, action: { kind: 'survey', type, start, size, count: 0 } });
       }
     }
   }
@@ -262,7 +269,6 @@ function decideTurnAction(room, botId, view) {
   // ---- research ----
   if (!view.lastWasResearch) {
     const researched = new Set(view.researched || []);
-    const unresearched = TOPIC_IDS.filter((topic) => !researched.has(topic));
     // give each bot a stable preferred starting topic. The hash uses both the
     // bot id and the bot's seat index so consecutive bot ids (Bot1, Bot2, ...)
     // still spread across the 6 topics.
@@ -281,20 +287,32 @@ function decideTurnAction(room, botId, view) {
     }
   }
 
-  if (!candidates.length) {
-    if (wouldCrossEvent(room, botId, view)) return null;
-    return { kind: 'wait' };
-  }
+  if (!candidates.length) return { kind: 'wait' };
 
   candidates.sort((a, b) => b.score - a.score);
-
-  if (wouldCrossEvent(room, botId, view)) {
-    const nonWait = candidates.find((c) => c.action.kind !== 'wait');
-    if (nonWait) return nonWait.action;
-    return null;
-  }
-
+  const safe = candidates.filter((candidate) => !crossesUnpreparedEvent(room, botId, view, actionCost(candidate.action)));
+  if (safe.length) return safe[0].action;
+  // Every informative action would leave an event the bot is not ready for.
+  // A one-month wait is allowed when it stays on this side of the marker.
+  // If even that leaves the marker, take the best action rather than stall.
+  if (!crossesUnpreparedEvent(room, botId, view, COST.wait)) return { kind: 'wait' };
   return candidates[0].action;
+}
+
+/** Stable preferred survey origin so bots in the same room do not copy one arc. */
+export function preferredSurveyStart(botId, seatIndex, sectorCount) {
+  const count = Math.max(1, sectorCount | 0);
+  return stableHash(botId, seatIndex, 'survey') % count;
+}
+
+function actionCost(action) {
+  if (!action) return 0;
+  if (action.kind === 'survey') return surveyCost(action.size);
+  if (action.kind === 'target') return COST.target;
+  if (action.kind === 'research') return COST.research;
+  if (action.kind === 'locate') return COST.locate;
+  if (action.kind === 'wait') return COST.wait;
+  return 0;
 }
 
 function surveyArcSizes(mode) {
@@ -427,41 +445,45 @@ function applyGlobalCounts(possible, mode) {
  */
 function researchPriority(topic, knowledge, view) {
   void knowledge;
-  void view;
-  return TOPIC_IDS.indexOf(topic) / TOPIC_IDS.length;
+  // Unearned clue text stays in the puzzle and is not readable here. The
+  // public subject name is already on the view; an X-related title is the
+  // only safe signal that this topic is more useful for locating X.
+  const name = String(view.topicNames?.[topic] || '');
+  const mentionsX = name.includes('X') ? 2 : 0;
+  return mentionsX + (TOPIC_IDS.indexOf(topic) / TOPIC_IDS.length);
 }
 
 // ---- event guards -----------------------------------------------------------
 
 /**
- * True when stepping the bot forward would cross a conference or theory
- * sector the bot is not ready for. Used to suppress wait / scan / research
- * choices that would push the shared window past an unprepared event.
+ * True when spending `cost` months would move the shared window off a
+ * conference or theory marker the bot is not ready for.
+ *
+ * Uses the same `crossedEvents` arithmetic as the table. A theory counts as
+ * prepared only when some sector has collapsed to one ordinary object (a
+ * paper worth publishing). A conference counts as prepared once it is
+ * recorded or the shared note is already filled in. Mere legal theory
+ * options, or a missing research-phase capacity, do not count as ready.
  */
-function wouldCrossEvent(room, botId, view) {
-  if (!view.isMyTurn) return false;
-  const mode = view.mode;
-  const windowTime = view.windowTime ?? view.time;
-  const nextTime = windowTime + 1;
-  const nextSector = mod(nextTime, mode.sectors) + 1; // 1-based
-  const theorySectors = mode.id === 'expert' ? [3, 6, 9, 12, 15, 18] : [3, 6, 9, 12];
-  const conferenceSectors = mode.id === 'expert' ? [7, 16] : [10];
-  const isConference = conferenceSectors.includes(nextSector);
-  const isTheory = theorySectors.includes(nextSector);
-  if (!isConference && !isTheory) return false;
+function crossesUnpreparedEvent(room, botId, view, cost) {
+  if (!view.isMyTurn || !Number.isFinite(cost) || cost <= 0) return false;
+  const before = view.windowTime ?? view.time ?? 0;
+  return crossedEvents(view.mode, before, before + cost).some((event) => {
+    if (event.kind === 'conference') return !conferencePrepared(view, event);
+    if (event.kind === 'theory') return !theoryPrepared(room, botId, view);
+    return false;
+  });
+}
 
-  if (isConference) {
-    const alreadyRecorded = (view.knowledge?.conferences || []).some((entry) => entry.sector === nextSector - 1);
-    if (!alreadyRecorded) return true;
-  }
+function conferencePrepared(view, event) {
+  const recorded = (view.knowledge?.conferences || []).some((entry) => entry.sector === event.sector);
+  if (recorded) return true;
+  const note = view.conferenceRules?.[event.sector];
+  return typeof note === 'string' && note.trim().length > 0;
+}
 
-  if (isTheory) {
-    const picks = pickTheoryPicks(room, botId, view);
-    const capacity = view.research ? view.research.maxDeclare : 0;
-    if (picks.length === 0 || capacity === 0) return true;
-  }
-
-  return false;
+function theoryPrepared(room, botId, view) {
+  return pickTheoryPicks(room, botId, view).some((pick) => pick.score >= 100);
 }
 
 // ---- tiny stable hash for diversity ----------------------------------------

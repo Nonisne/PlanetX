@@ -8,10 +8,12 @@ import {
   applyRoomAction,
   CLUE_TYPES,
   createRoom,
+  currentPlayer,
+  hydrateRoom,
+  serializeRoom,
   crossedConferenceSector,
   crossedTheorySector,
   crossedTheorySectors,
-  currentPlayer,
   MAX_SETUP_CLUES,
   playerById,
   playerByToken,
@@ -26,6 +28,8 @@ import {
 /** A room with two players sitting in the lobby. */
 function lobby(modeId = 'standard', initialClueCount = 0) {
   const room = createRoom({ modeId, hostName: '阿甲', initialClueCount });
+  // Keep the historical "host opens" tie-break unless a test sets its own rng.
+  room.rng = () => 1 - Number.EPSILON;
   const host = room.players[0];
   const guest = addPlayer(room, '阿乙');
   return { room, host, guest };
@@ -254,6 +258,41 @@ test('recording is refused until the setup cards are in', () => {
 });
 
 // ---- turn order ------------------------------------------------------------
+
+test('start-game shuffles who opens, and a save keeps that order', () => {
+  const guestFirst = lobby();
+  guestFirst.room.rng = () => 0;
+  assert.equal(applyRoomAction(guestFirst.room, guestFirst.host.id, { kind: 'start-game' }).ok, true);
+  assert.deepEqual(guestFirst.room.openingOrder, [guestFirst.guest.id, guestFirst.host.id]);
+  for (const player of [guestFirst.host, guestFirst.guest]) {
+    assert.equal(applyRoomAction(guestFirst.room, player.id, { kind: 'setup', noClues: true }).ok, true);
+  }
+  assert.equal(currentPlayer(guestFirst.room).id, guestFirst.guest.id);
+
+  const hostFirst = lobby();
+  hostFirst.room.rng = () => 1 - Number.EPSILON;
+  assert.equal(applyRoomAction(hostFirst.room, hostFirst.host.id, { kind: 'start-game' }).ok, true);
+  assert.deepEqual(hostFirst.room.openingOrder, [hostFirst.host.id, hostFirst.guest.id]);
+  for (const player of [hostFirst.host, hostFirst.guest]) {
+    assert.equal(applyRoomAction(hostFirst.room, player.id, { kind: 'setup', noClues: true }).ok, true);
+  }
+  assert.equal(currentPlayer(hostFirst.room).id, hostFirst.host.id);
+
+  const restored = hydrateRoom(serializeRoom(guestFirst.room));
+  assert.deepEqual(restored.openingOrder, guestFirst.room.openingOrder);
+  assert.equal(currentPlayer(restored).id, guestFirst.guest.id);
+});
+
+test('a player who sits down after the opening shuffle acts after that list', () => {
+  const { room, host, guest } = lobby();
+  room.rng = () => 0;
+  assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, true);
+  const late = addPlayer(room, '阿丙');
+  for (const player of [host, guest, late]) {
+    assert.equal(applyRoomAction(room, player.id, { kind: 'setup', noClues: true }).ok, true);
+  }
+  assert.deepEqual(turnOrder(room).map((player) => player.id), [guest.id, host.id, late.id]);
+});
 
 test('only the player whose turn it is may act, and acting passes the turn on', () => {
   const { room, host, guest } = playing();

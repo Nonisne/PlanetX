@@ -41,7 +41,14 @@ const files = [
 
 const results = [];
 for (const file of files) {
-  const res = spawnSync(process.execPath, [path.join(here, file)], { stdio: 'inherit', cwd: repo });
+  // Opening order is shuffled in real games. Pin it here so existing cases
+  // that walk the host's first turn stay deterministic. A test can still set
+  // `room.rng` before start-game to choose someone else.
+  const res = spawnSync(process.execPath, [path.join(here, file)], {
+    stdio: 'inherit',
+    cwd: repo,
+    env: { ...process.env, PLANETX_TEST_PIN_OPENING: '1' },
+  });
   if (res.error) console.error(`${file}: ${res.error.message}`);
   results.push({ file, ok: res.status === 0 });
 }
