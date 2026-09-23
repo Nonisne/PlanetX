@@ -33,6 +33,7 @@ import { scoreWinners } from '../src/score.js';
 import { renderActionHistory } from './history.js';
 import { renderDisclosure } from './disclosure.js';
 import { tutorialExpected, tutorialFocusProps, tutorialTargetProps } from './tutorial.js';
+import { renderTheoriesPanel } from './notesheet.js';
 
 const ALL_SECTOR_CODES = ['planetX', 'asteroid', 'comet', 'gasCloud', 'dwarfPlanet', 'empty'].map((t) => CODE[t]);
 const TOPIC_IDS = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F']);
@@ -244,12 +245,19 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
     h(
       'div',
       { class: 'map-card-body' },
-      h('div', { class: 'board-wrap' }, boardEl, renderMarkPopover({ state, api })),
-      h('div', { class: 'map-side' }, detail, strip, legend,
-        h('div', { class: 'map-meta' }, noteActions,
-          renderDisclosure(
-            { state, api, id: 'map-events', title: '时间轨位置', heading: 'span', className: 'map-event-reference' },
-            h('p', { class: 'muted small' }, `会议扇区 ${(game.conferenceSectors || []).join('、')} · 理论阶段 ${(game.theorySectors || []).join('、')}${hasTheories ? ' · 理论轨道 4→1' : ''}`),
+      h(
+        'aside',
+        { class: 'map-research-rail', 'aria-label': '学术研究提交结果' },
+        renderTheoriesPanel({ state, api, game, onReview: api.recordTheoryReview }),
+      ),
+      h('div', { class: 'map-main' },
+        h('div', { class: 'board-wrap' }, boardEl, renderMarkPopover({ state, api })),
+        h('div', { class: 'map-side' }, detail, strip, legend,
+          h('div', { class: 'map-meta' }, noteActions,
+            renderDisclosure(
+              { state, api, id: 'map-events', title: '时间轨位置', heading: 'span', className: 'map-event-reference' },
+              h('p', { class: 'muted small' }, `会议扇区 ${(game.conferenceSectors || []).join('、')} · 理论阶段 ${(game.theorySectors || []).join('、')}${hasTheories ? ' · 理论轨道 4→1' : ''}`),
+            ),
           ),
         ),
       ),
@@ -1723,13 +1731,17 @@ export function renderModal({ state, api }) {
       ),
     ];
   } else if (modal.kind === 'conference') {
-    title = modal.label || '学术会议';
+    title = modal.label || 'X行星会议';
     body = h(
       'div',
       { class: 'modal-body' },
-      h('p', { class: 'muted' }, '全体与会者同时得知一条关于 X行星的规律：'),
+      Number.isInteger(modal.sector)
+        ? h('p', { class: 'muted' }, `天窗已离开 ${modal.sector} 号会议扇区，全体同时得知一条关于 X行星的规律：`)
+        : h('p', { class: 'muted' }, '全体与会者同时得知一条关于 X行星的规律：'),
       h('blockquote', { class: 'clue-quote' }, modal.text),
+      h('p', { class: 'muted small' }, '线索已写入星图左侧「X行星会议」栏，可随时回看。'),
     );
+    actions = [h('button', { class: 'btn primary', onclick: close }, '知道了')];
   } else if (modal.kind === 'result' && game.kind === 'console') {
     title = '定位已记录';
     const summary = api.consoleSummary();

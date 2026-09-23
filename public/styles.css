@@ -309,6 +309,13 @@ h3 {
   .col-info {
     display: flex;
   }
+  .map-card-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .map-research-rail {
+    max-height: none;
+    order: -1;
+  }
 }
 
 .card {
@@ -330,9 +337,30 @@ h3 {
 /* ---------- star map ---------- */
 .map-card-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
+}
+
+.map-research-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-height: min(72vh, 720px);
+  overflow: auto;
+  padding: 2px 2px 2px 0;
+}
+
+.map-research-rail .theories-card {
+  margin: 0;
+}
+
+.map-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .map-side {
