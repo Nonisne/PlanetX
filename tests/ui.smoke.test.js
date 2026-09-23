@@ -777,7 +777,8 @@ test('the record console walks an action: launch → pick on the map → fill in
   finishAppPhases(app);
 
   assert.equal(findButton(root, '提交学术研究'), undefined, 'ordinary actions do not include publishing');
-  for (let i = 0; i < 12 && !state.game.theoryPhaseOpen; i++) fire(findButton(root, '前进 1 个时间单位'), 'click');
+  assert.equal(findButton(root, '前进 1 个时间单位'), undefined, 'record mode has no one-step wait');
+  for (let i = 0; i < 12 && !state.game.theoryPhaseOpen; i++) assert.equal(api.consoleAction({ kind: 'wait' }).ok, true);
   assert.equal(state.game.theoryPhaseOpen, true, 'the visible-window start left a research marker');
   fire(findButton(root, '提交学术研究'), 'click');
   assert.equal(state.ui.action, 'theory');
@@ -1163,7 +1164,7 @@ test('official local phases survive reload and explicitly finish even without pa
   assert.deepEqual(restored.session.theoryPhases, app.session.theoryPhases);
   assert.equal(restored.state.game.theoryPhaseOpen, true);
   assert.equal(findButton(restoredRoot, '记录定位结果'), undefined);
-  assert.ok(Object.hasOwn(findButton(restoredRoot, '前进 1 个时间单位').attributes, 'disabled'));
+  assert.equal(findButton(restoredRoot, '前进 1 个时间单位'), undefined);
   const finish = findButton(restoredRoot, '完成本阶段');
   assert.ok(finish, 'a crossed phase must offer explicit zero-paper completion');
   fire(finish, 'click');
@@ -1206,7 +1207,8 @@ test('official local locate uses string answers and reaches reveal before final 
   assert.ok(findButton(root, '提交揭示结果'));
   assert.equal(findButton(root, '记录定位结果'), undefined);
   assert.equal(app.state.game.scores.finished, false);
-  for (const label of ['前进 1 个时间单位', '天窗 ◀', '天窗 ▶', '撤销最后一条']) {
+  assert.equal(findButton(root, '前进 1 个时间单位'), undefined);
+  for (const label of ['天窗 ◀', '天窗 ▶', '撤销最后一条']) {
     assert.ok(Object.hasOwn(findButton(root, label).attributes, 'disabled'), `${label} must be disabled during reveal`);
   }
 
