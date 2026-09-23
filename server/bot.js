@@ -38,7 +38,7 @@ const SURVEY_ARC_SIZES = [1, 2, 3, 6];
  * @param {object} view  `viewFor(room, botId)` — the bot's redacted perspective
  */
 export function decideAction(room, botId, view) {
-  if (!room || !view) return null;
+  if (!room || !view || room.playMode !== 'builtin') return null;
   if (room.phase === 'lobby') return null;
   if (room.phase === 'setup') return decideSetupAction(room, botId, view);
   if (room.phase === 'final') return decideFinalAction(room, botId, view);
@@ -68,26 +68,7 @@ export function decideAction(room, botId, view) {
 function decideSetupAction(room, botId, view) {
   const card = view.mySetup;
   if (card && card.ready) return null; // already submitted
-
-  if (room.playMode === 'builtin') {
-    return { kind: 'setup' };
-  }
-
-  // record mode: pick the first `initialClueCount` initial clues
-  const count = room.initialClueCount || 0;
-  const clues = [];
-  for (let sector = 0; sector < room.session.mode.sectors && clues.length < count; sector += 1) {
-    clues.push({ sector, type: Obj.ASTEROID });
-  }
-  const action = { kind: 'setup', clues: count ? clues : undefined, noClues: count === 0 };
-  // the host fills the table-wide topic / conference names
-  if (view.amHost) {
-    action.topics = {
-      A: 'Bot 课题 A', B: 'Bot 课题 B', C: 'Bot 课题 C',
-      D: 'Bot 课题 D', E: 'Bot 课题 E', F: 'Bot 课题 F',
-    };
-  }
-  return action;
+  return { kind: 'setup' };
 }
 
 // ---- research phase: declare + submit --------------------------------------

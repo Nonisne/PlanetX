@@ -979,6 +979,24 @@ test('GET archive exports the room and POST restore rehydrates a missing room', 
   assert.ok(view.body.view.recordCount >= 1);
 });
 
+test('record rooms reject withBots and restored record seats lose the bot flag', async () => {
+  const rejected = await api('/api/rooms', { method: 'POST', body: { name: '记录', playMode: 'record', initialClueCount: 0, withBots: 1 } });
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.body.error, /内置谜题/);
+
+  const created = await api('/api/rooms', { method: 'POST', body: { name: '记录', playMode: 'record', initialClueCount: 0 } });
+  assert.equal(created.status, 200);
+  const archive = await api(`/api/rooms/${created.body.roomId}/archive`, { token: created.body.token });
+  archive.body.room.players[0].bot = true;
+  rooms.delete(created.body.roomId);
+  const restored = await api('/api/rooms/restore', { method: 'POST', body: { room: archive.body.room } });
+  assert.equal(restored.status, 200);
+  const room = rooms.get(created.body.roomId);
+  assert.equal(room.playMode, 'record');
+  assert.equal(room.players.every((player) => !player.bot), true);
+  assert.equal(room.__botController, undefined);
+});
+
 test('builtin withBots creates bot seats and SSE receives bot actions', async (context) => {
   const previousTick = process.env.BOT_TICK_MS;
   process.env.BOT_TICK_MS = '40';
