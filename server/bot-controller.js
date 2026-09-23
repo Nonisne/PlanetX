@@ -25,6 +25,9 @@ function botPlayers(room) {
 /**
  * Start the controller for `room` if it is not already running.
  *
+ * No-op outside builtin mode: bots never run in record / tutorial rooms,
+ * even if a player has been flagged with `bot = true` (e.g. by an old save).
+ *
  * @param {object} room       the live room
  * @param {object} [options]
  * @param {number} [options.tickMs] override the default 3000ms decision interval
@@ -34,6 +37,7 @@ function botPlayers(room) {
  */
 export function attachBotController(room, { tickMs = DEFAULT_TICK_MS, onApplied } = {}) {
   if (!room) return () => {};
+  if (room.playMode !== 'builtin' || room.tutorialState) return () => {};
   if (room.__botController) {
     if (typeof onApplied === 'function') room.__botController.onApplied = onApplied;
     return room.__botController.teardown;
@@ -96,6 +100,11 @@ function stepBots(room, controller) {
 }
 
 function tickBot(room, bot, controller) {
+  // defensive: the player may carry `bot = true` from an old save even in
+  // record mode. The room guards at attach-time catch the common case, but
+  // individual ticks need to also refuse to act.
+  if (room.playMode !== 'builtin' || room.tutorialState) return;
+
   if (room.phase === 'lobby') return;
 
   const view = viewFor(room, bot.id);
