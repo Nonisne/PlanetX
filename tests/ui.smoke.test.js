@@ -623,33 +623,24 @@ test('topbar exposes manual save and load archive actions', async () => {
   app.state.notes = { '2:A': 'no' };
   app.persist();
 
-  const downloads = [];
-  const originalCreate = globalThis.URL?.createObjectURL;
-  const originalRevoke = globalThis.URL?.revokeObjectURL;
-  globalThis.URL = globalThis.URL || {};
-  globalThis.URL.createObjectURL = () => 'blob:archive-test';
-  globalThis.URL.revokeObjectURL = () => {};
-  const originalCreateElement = document.createElement;
-  document.createElement = (tag) => {
-    const el = originalCreateElement(tag);
-    if (tag === 'a') {
-      el.click = () => downloads.push({ href: el.href, download: el.download });
-    }
-    return el;
-  };
-  try {
-    const saved = await app.api.saveArchive();
-    assert.equal(saved.ok, true);
-    assert.equal(downloads.length, 1);
-    assert.match(downloads[0].download, /planetx-console/);
-  } finally {
-    document.createElement = originalCreateElement;
-    if (originalCreate) globalThis.URL.createObjectURL = originalCreate;
-    else delete globalThis.URL.createObjectURL;
-    if (originalRevoke) globalThis.URL.revokeObjectURL = originalRevoke;
-    else delete globalThis.URL.revokeObjectURL;
-  }
+  const saved = await app.api.saveArchive();
+  assert.equal(saved.ok, true);
+  assert.ok(saved.slot?.id);
+  assert.equal(app.api.listArchiveSlots().length, 1);
 
+  fire(findButton(root, '加载存档'), 'click');
+  assert.equal(app.state.ui.modal?.kind, 'archives');
+  assert.ok(findButton(root, '加载'), 'library load button');
+  assert.ok(findButton(root, '删除'), 'library delete button');
+  assert.ok(findButton(root, '从文件导入'), 'optional file import');
+
+  app.api.requestDeleteArchiveSlot(saved.slot.id);
+  assert.equal(app.state.ui.modal.pendingDeleteId, saved.slot.id);
+  assert.ok(collectText(root).join('').includes('确认删除'));
+  app.api.confirmDeleteArchiveSlot(saved.slot.id);
+  assert.equal(app.api.listArchiveSlots().length, 0);
+
+  const { addArchiveSlot } = await import('../public/src/archive.js');
   const pack = {
     version: 1,
     kind: 'console',
@@ -671,7 +662,9 @@ test('topbar exposes manual save and load archive actions', async () => {
     },
     notes: { '5:C': 'yes' },
   };
-  const loaded = await app.api.loadArchive(pack);
+  const imported = addArchiveSlot(pack, { label: '专家测试' });
+  assert.equal(imported.ok, true);
+  const loaded = await app.api.loadArchiveSlot(imported.slot.id);
   assert.equal(loaded.ok, true);
   assert.equal(app.session.mode.id, 'expert');
   assert.equal(app.session.entries.length, 2);

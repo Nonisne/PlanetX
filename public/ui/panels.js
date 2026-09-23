@@ -320,7 +320,7 @@ export function renderHeader({ state, api }) {
       ),
       h('button', { class: 'btn ghost', 'data-modal-trigger': 'help', onclick: () => api.setUi({ modal: { kind: 'help' } }) }, '规则'),
       h('button', { class: 'btn ghost', onclick: () => api.saveArchive() }, '存档'),
-      h('button', { class: 'btn ghost', 'data-modal-trigger': 'load-archive', onclick: () => api.pickArchiveFile() }, '加载存档'),
+      h('button', { class: 'btn ghost', 'data-modal-trigger': 'archives', onclick: () => api.openArchiveLibrary() }, '加载存档'),
       h('button', { class: 'btn ghost', 'data-modal-trigger': 'start', onclick: () => api.setUi({ modal: { kind: 'start' } }) }, '新对局'),
     ),
   );
@@ -1632,7 +1632,7 @@ export function renderModal({ state, api }) {
       ),
       h('h3', {}, '最后机会与揭示'),
       h('p', {}, '首次正确定位后冻结天窗。落后 1–3 格的玩家可提交最多 1 篇理论，落后 4–5 格可提交最多 2 篇；也可改为定位或放弃，均不移动棋子。全部完成后，内置谜题自动揭晓棋盘；记录模式由房主填写官方 app 答案。剩余理论统一结算，不再罚时。内置单人是独立解谜，不含官方单人机器人。'),
-      h('p', { class: 'muted small' }, '旧记录的数值耗时不变，仅按棋盘格数重新显示圈／格。内置谜题答案保存在本地服务进程中，刷新可恢复；服务重启后可用顶栏「存档／加载存档」手动恢复房间。'),
+      h('p', { class: 'muted small' }, '旧记录的数值耗时不变，仅按棋盘格数重新显示圈／格。内置谜题答案保存在本地服务进程中，刷新可恢复；服务重启后可用顶栏「存档／加载存档」从本机存档库恢复房间。'),
     );
   } else if (modal.kind === 'locate') {
     title = game.playMode === 'builtin' ? '定位 X行星' : '记录定位结果';
@@ -1784,7 +1784,7 @@ export function renderModal({ state, api }) {
         : h('div', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '新一局用哪块棋盘'), modePicker({ value: picked.id, onPick: (id) => api.setUi({ modeId: id }) })),
       playMode === 'builtin' && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
       playMode === 'builtin' && h('div', { class: 'builtin-mode-note' }, h('strong', {}, `${picked.name} ${picked.sectors} 扇区 · 单人解谜`), h('p', { class: 'muted small' }, '初始线索 → 观测／研究 → 论文评审 → 定位 → 自动揭晓。需要本地服务保持运行；多人可到「联机」创建内置谜题房间。不会覆盖你的本地记录存档。')),
-      playMode === 'record' && h('p', { class: 'muted small' }, '开始新记录局会清空本地记录与手写笔记，时间回到第 1 圈／第 1 格。可用顶栏「加载存档」恢复以前下载的 JSON。'),
+      playMode === 'record' && h('p', { class: 'muted small' }, '开始新记录局会清空本地记录与手写笔记，时间回到第 1 圈／第 1 格。可用顶栏「加载存档」从本机存档库恢复。'),
       state.remote && playMode !== 'tutorial' && h('p', { class: 'muted small' }, '开始新局会离开当前房间视图，但不会删除房间或影响其他玩家。'),
       lobby.error && h('p', { class: 'lobby-error' }, lobby.error),
     );
@@ -1948,10 +1948,68 @@ export function renderModal({ state, api }) {
         !tutorial && h('div', { class: 'lobby-actions' }, joinButton),
         !tutorial && h('p', { class: 'muted small' }, '房主给你的 6 位房间码，大小写都行、粘贴时带了空格或横线也没关系；填好按钮就会亮，回车同样可以加入。'),
         lobby.error ? h('p', { class: 'lobby-error' }, lobby.error) : null,
-        h('p', { class: 'muted small' }, '房间保存在服务器内存里：服务器重启后房间会消失。可用顶栏「存档」下载 JSON，再用「加载存档」恢复并选择身份。'),
+        h('p', { class: 'muted small' }, '房间保存在服务器内存里：服务器重启后房间会消失。可用顶栏「存档」写入本机存档库，再用「加载存档」恢复并选择身份。'),
       );
       actions = [h('button', { class: 'btn ghost', onclick: close }, '关闭')];
     }
+  } else if (modal.kind === 'archives') {
+    const slots = typeof api.listArchiveSlots === 'function' ? api.listArchiveSlots() : [];
+    const pendingDeleteId = modal.pendingDeleteId || null;
+    const lobby = ui.lobby || {};
+    title = '我的存档';
+    body = h(
+      'div',
+      { class: 'modal-body' },
+      h('p', { class: 'muted' }, '存档保存在本浏览器中。点「加载」恢复对局；联机存档还会让你选择座位身份。'),
+      slots.length
+        ? h(
+            'div',
+            { class: 'archive-list' },
+            ...slots.map((slot) => {
+              const pending = pendingDeleteId === slot.id;
+              return h(
+                'div',
+                { class: `archive-row${pending ? ' pending-delete' : ''}` },
+                h(
+                  'div',
+                  { class: 'archive-row-main' },
+                  h('strong', {}, slot.label || '未命名存档'),
+                  h('p', { class: 'muted small' }, `${slot.kind === 'online' ? '联机' : '单机'} · ${slot.summary || ''}`),
+                ),
+                pending
+                  ? h(
+                      'div',
+                      { class: 'archive-row-actions' },
+                      h('span', { class: 'muted small' }, '确认删除？'),
+                      h('button', { type: 'button', class: 'btn small', onclick: () => api.cancelDeleteArchiveSlot() }, '取消'),
+                      h('button', { type: 'button', class: 'btn small bad', onclick: () => api.confirmDeleteArchiveSlot(slot.id) }, '删除'),
+                    )
+                  : h(
+                      'div',
+                      { class: 'archive-row-actions' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          class: 'btn small primary',
+                          disabled: lobby.busy,
+                          onclick: () => api.loadArchiveSlot(slot.id),
+                        },
+                        '加载',
+                      ),
+                      h('button', { type: 'button', class: 'btn small ghost', onclick: () => api.exportArchiveSlot(slot.id) }, '导出'),
+                      h('button', { type: 'button', class: 'btn small ghost', onclick: () => api.requestDeleteArchiveSlot(slot.id) }, '删除'),
+                    ),
+              );
+            }),
+          )
+        : h('p', { class: 'archive-empty muted' }, '还没有存档。对局中点顶栏「存档」即可写入这里。'),
+      lobby.error ? h('p', { class: 'lobby-error' }, lobby.error) : null,
+    );
+    actions = [
+      h('button', { class: 'btn ghost', onclick: () => api.importArchiveFile() }, '从文件导入'),
+      h('button', { class: 'btn', onclick: close }, '关闭'),
+    ];
   } else if (modal.kind === 'archive-seat') {
     const archive = modal.archive;
     const seats = archive?.seats || (archive?.room?.players || []).map((player) => ({

@@ -27,9 +27,13 @@ import { renderBoard } from './board.js';
 import { renderConferencesPanel, renderTopicsPanel } from './notesheet.js';
 import { renderTutorialGuide } from './tutorial.js';
 import {
+  addArchiveSlot,
   applyConsoleArchive,
   buildArchive,
+  deleteArchiveSlot,
   downloadArchive,
+  getArchiveSlot,
+  listArchiveSlots,
   notesForSeat,
   parseArchive,
   readArchiveFile,
@@ -785,7 +789,7 @@ export function createApp(root) {
     };
   }
 
-  const BLOCKING_MODALS = new Set(['help', 'start', 'lobby', 'locate', 'result', 'archive-seat']);
+  const BLOCKING_MODALS = new Set(['help', 'start', 'lobby', 'locate', 'result', 'archives', 'archive-seat']);
 
   /** Popup when a new conference clue becomes public so it is not only a silent left-rail update. */
   function noticeNewConferences(prev, next) {
@@ -1174,16 +1178,33 @@ export function createApp(root) {
       } else {
         archive = buildArchive({ session, notes: state.notes });
       }
-      downloadArchive(archive, `planetx-${archive.kind}-${archive.kind === 'online' ? archive.room.id : session.mode.id}-${Date.now()}.json`);
-      toast('存档已下载到本机', 'ok');
-      return { ok: true };
+      const stored = addArchiveSlot(archive);
+      if (!stored.ok) throw new Error(stored.error || '无法写入存档库');
+      toast(`已保存到「我的存档」：${stored.slot.label}`, 'ok');
+      if (state.ui.modal?.kind === 'archives') {
+        state.ui.modal = { kind: 'archives', pendingDeleteId: null };
+        render();
+      }
+      return { ok: true, slot: stored.slot };
     } catch (error) {
       toast(error.message || '存档失败', 'bad');
       return { ok: false, error: error.message };
     }
   }
 
-  function pickArchiveFile() {
+  function openArchiveLibrary() {
+    state.ui.modal = { kind: 'archives', pendingDeleteId: null };
+    render();
+  }
+
+  function refreshArchiveLibrary(pendingDeleteId = null) {
+    if (state.ui.modal?.kind === 'archives') {
+      state.ui.modal = { kind: 'archives', pendingDeleteId };
+      render();
+    }
+  }
+
+  function importArchiveFile() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -1196,12 +1217,59 @@ export function createApp(root) {
           toast(parsed.error || '存档无效', 'bad');
           return;
         }
-        await loadArchive(parsed.archive);
+        const stored = addArchiveSlot(parsed.archive);
+        if (!stored.ok) {
+          toast(stored.error || '无法导入存档', 'bad');
+          return;
+        }
+        toast(`已导入：${stored.slot.label}`, 'ok');
+        openArchiveLibrary();
       } catch (error) {
         toast(error.message || '读取存档失败', 'bad');
       }
     };
     input.click();
+  }
+
+  async function loadArchiveSlot(id) {
+    const slot = getArchiveSlot(id);
+    if (!slot?.archive) {
+      toast('存档不存在或已删除', 'bad');
+      refreshArchiveLibrary();
+      return { ok: false, error: '存档不存在' };
+    }
+    return loadArchive(slot.archive);
+  }
+
+  function requestDeleteArchiveSlot(id) {
+    refreshArchiveLibrary(id);
+  }
+
+  function cancelDeleteArchiveSlot() {
+    refreshArchiveLibrary(null);
+  }
+
+  function confirmDeleteArchiveSlot(id) {
+    const result = deleteArchiveSlot(id);
+    if (!result.ok) {
+      toast(result.error || '删除失败', 'bad');
+      refreshArchiveLibrary();
+      return result;
+    }
+    toast('存档已删除', 'ok');
+    refreshArchiveLibrary(null);
+    return result;
+  }
+
+  function exportArchiveSlot(id) {
+    const slot = getArchiveSlot(id);
+    if (!slot?.archive) {
+      toast('存档不存在或已删除', 'bad');
+      return { ok: false };
+    }
+    downloadArchive(slot.archive, `planetx-${slot.kind}-${Date.now()}.json`);
+    toast('已导出 JSON 文件', 'ok');
+    return { ok: true };
   }
 
   async function loadArchive(archive) {
@@ -1296,7 +1364,14 @@ export function createApp(root) {
     toggleNote,
     clearNotes,
     saveArchive,
-    pickArchiveFile,
+    openArchiveLibrary,
+    importArchiveFile,
+    loadArchiveSlot,
+    requestDeleteArchiveSlot,
+    cancelDeleteArchiveSlot,
+    confirmDeleteArchiveSlot,
+    exportArchiveSlot,
+    listArchiveSlots,
     loadArchive,
     selectArchiveSeat,
     startAction,
