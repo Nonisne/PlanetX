@@ -211,9 +211,80 @@ export function createApp(root) {
     persist();
   }
 
+  function loadTheorySync(key) {
+    const parsed = loadNotes(key);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { signature: '', owned: {} };
+    return {
+      signature: typeof parsed.signature === 'string' ? parsed.signature : '',
+      owned: parsed.owned && typeof parsed.owned === 'object' && !Array.isArray(parsed.owned) ? parsed.owned : {},
+    };
+  }
+
+  function theorySync() {
+    if (state.remote) {
+      if (!state.remote.theorySync) state.remote.theorySync = loadTheorySync(`${notesKey(state.remote)}.theories`);
+      return state.remote.theorySync;
+    }
+    if (!state.theorySync) state.theorySync = loadTheorySync(`${NOTES_KEY}.theories`);
+    return state.theorySync;
+  }
+
+  /**
+   * A revealed academic paper is a fact about one sector. Correct means that
+   * object is there; wrong means it is not. Already-applied facts stay put so
+   * a later handwritten mark is not overwritten on the next refresh.
+   */
+  function syncRevealedTheories(game) {
+    if (!game?.mode || game.tutorial) return;
+    const desired = new Map();
+    for (const theory of game.knowledge?.theories || []) {
+      if (!theory.revealed || (theory.review !== 'correct' && theory.review !== 'wrong')) continue;
+      if (!Number.isInteger(theory.sector) || theory.sector < 0 || theory.sector >= game.mode.sectors) continue;
+      const code = CODE[theory.objectType];
+      if (!code) continue;
+      if (theory.objectType === Obj.COMET && !isCometSector(game.mode, theory.sector)) continue;
+      const key = `${theory.sector}:${code}`;
+      const mark = theory.review === 'correct' ? 'yes' : 'no';
+      if (desired.get(key) !== 'yes') desired.set(key, mark);
+    }
+    const signature = JSON.stringify([...desired.entries()].sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)));
+    const sync = theorySync();
+    if (sync.signature === signature) {
+      let restored = false;
+      for (const [key, mark] of Object.entries(sync.owned || {})) {
+        if (state.notes[key] === undefined && (mark === 'yes' || mark === 'no')) {
+          state.notes[key] = mark;
+          restored = true;
+        }
+      }
+      if (restored) persist();
+      return;
+    }
+    let prior = [];
+    try { prior = JSON.parse(sync.signature || '[]'); } catch { prior = []; }
+    if (!Array.isArray(prior)) prior = [];
+    const priorMarks = new Map(prior.filter((entry) => Array.isArray(entry) && entry.length === 2));
+    const owned = sync.owned && typeof sync.owned === 'object' ? { ...sync.owned } : {};
+    for (const [key, oldMark] of Object.entries(owned)) {
+      if (desired.has(key)) continue;
+      if (state.notes[key] === oldMark) delete state.notes[key];
+      delete owned[key];
+    }
+    for (const [key, mark] of desired) {
+      if (priorMarks.get(key) === mark) continue;
+      state.notes[key] = mark;
+      owned[key] = mark;
+    }
+    sync.signature = signature;
+    sync.owned = owned;
+    persist();
+  }
+
   function writeNote(key, markState) {
     const sync = state.remote?.initialClueSync;
     if (sync?.owned) sync.owned = sync.owned.filter((ownedKey) => ownedKey !== key);
+    const theories = theorySync();
+    if (theories?.owned) delete theories.owned[key];
     if (markState === 'yes' || markState === 'no') state.notes[key] = markState;
     else delete state.notes[key];
   }
@@ -235,6 +306,7 @@ export function createApp(root) {
   function view() {
     state.game = state.remote ? adoptRemote(state.remote.view) : consoleView(session);
     syncInitialClues(state.game);
+    syncRevealedTheories(state.game);
     syncTutorialMark(state.game);
     const options = state.game.theoryOptions || [];
     const selected = options.find((option) => option.sector === state.ui.theorySector) || options[0];
@@ -292,6 +364,7 @@ export function createApp(root) {
           if (state.remote.pendingTutorialMark) localStorage.setItem(pendingKey, JSON.stringify(state.remote.pendingTutorialMark));
           else localStorage.removeItem(pendingKey);
         }
+        if (state.remote.theorySync) localStorage.setItem(`${notesKey(state.remote)}.theories`, JSON.stringify(state.remote.theorySync));
       } catch {
         /* storage unavailable */
       }
@@ -318,6 +391,7 @@ export function createApp(root) {
         }),
       );
       localStorage.setItem(NOTES_KEY, JSON.stringify(state.notes));
+      if (state.theorySync) localStorage.setItem(`${NOTES_KEY}.theories`, JSON.stringify(state.theorySync));
     } catch {
       /* storage unavailable: keep playing without persistence */
     }
@@ -655,6 +729,7 @@ export function createApp(root) {
     state.netStatus = 'offline';
     clearRoom();
     state.notes = loadNotes(NOTES_KEY);
+    state.theorySync = null;
     state.ui.modal = null;
     state.ui.setup = null;
     state.ui.finalTheories = [];
@@ -1147,6 +1222,8 @@ export function createApp(root) {
   function clearNotes() {
     state.notes = {};
     if (state.remote?.initialClueSync) state.remote.initialClueSync.owned = [];
+    if (state.remote?.theorySync) state.remote.theorySync.owned = {};
+    if (state.theorySync) state.theorySync.owned = {};
     if (state.remote) state.remote.pendingTutorialMark = null;
     persist();
     render();
@@ -1158,6 +1235,7 @@ export function createApp(root) {
     clearHistoryResults();
     Object.assign(session, createConsole({ modeId: modeId || session.mode.id }), { seq: 1 });
     state.notes = {};
+    state.theorySync = { signature: '', owned: {} };
     state.ui.modal = null;
     state.ui.selectedSector = null;
     state.ui.researchTopic = null;
