@@ -936,3 +936,44 @@ for (const modeId of ['standard', 'expert']) {
     assert.deepEqual(repeated.body.view, completed[1]);
   });
 }
+
+test('GET archive exports the room and POST restore rehydrates a missing room', async () => {
+  const created = await api('/api/rooms', { method: 'POST', body: { name: '存档甲', playMode: 'record', initialClueCount: 0 } });
+  assert.equal(created.status, 200);
+  const host = created.body;
+  const guest = (await api(`/api/rooms/${host.roomId}/join`, { method: 'POST', body: { name: '存档乙' } })).body;
+  await acceptedAction(host, { kind: 'start-game' });
+  for (const player of [host, guest]) {
+    await acceptedAction(player, { kind: 'setup', noClues: true });
+  }
+  await acceptedAction(host, { kind: 'wait' });
+
+  const archive = await api(`/api/rooms/${host.roomId}/archive`, { token: host.token });
+  assert.equal(archive.status, 200);
+  assert.equal(archive.body.room.id, host.roomId);
+  assert.equal(archive.body.room.phase, 'play');
+  assert.ok(archive.body.room.players.every((player) => player.token));
+  assert.equal(JSON.stringify(archive.body).includes('"listeners"'), false);
+
+  const denied = await api(`/api/rooms/${host.roomId}/archive`);
+  assert.equal(denied.status, 403);
+
+  rooms.delete(host.roomId);
+  assert.equal(rooms.has(host.roomId), false);
+
+  const restored = await api('/api/rooms/restore', { method: 'POST', body: { room: archive.body.room } });
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.restored, true);
+  assert.equal(restored.body.roomId, host.roomId);
+  assert.ok(rooms.has(host.roomId));
+
+  const again = await api('/api/rooms/restore', { method: 'POST', body: { room: archive.body.room } });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.restored, false);
+
+  const view = await api(`/api/rooms/${host.roomId}/view`, { token: guest.token });
+  assert.equal(view.status, 200);
+  assert.equal(view.body.view.me, guest.playerId);
+  assert.equal(view.body.view.phase, 'play');
+  assert.ok(view.body.view.recordCount >= 1);
+});

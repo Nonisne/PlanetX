@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { addPlayer, applyRoomAction, createRoom, playerByToken, roomSummary, viewFor } from './public/src/room.js';
+import { addPlayer, applyRoomAction, createRoom, hydrateRoom, playerByToken, roomSummary, serializeRoom, viewFor } from './public/src/room.js';
 import { BUILTIN_MAX_PLAYERS, INITIAL_CLUE_COUNTS, MODES } from './public/src/rules.js';
 import { createPuzzle, initialCluesFor } from './server/puzzles.js';
 import { applyTutorialAction, createTutorialRoom } from './server/tutorial.js';
@@ -135,6 +135,31 @@ async function handleApi(req, res, url) {
     return true;
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/rooms/restore') {
+    const body = await readJson(req);
+    let room;
+    try {
+      room = hydrateRoom(body.room);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message || '存档房间无效' });
+      return true;
+    }
+    const existing = rooms.get(String(room.id || '').toUpperCase());
+    if (existing) {
+      sendJson(res, 200, {
+        roomId: existing.id,
+        restored: false,
+        occupied: existing.listeners.size > 0,
+        summary: roomSummary(existing),
+      });
+      return true;
+    }
+    room.id = String(room.id).toUpperCase();
+    rooms.set(room.id, room);
+    sendJson(res, 200, { roomId: room.id, restored: true, occupied: false, summary: roomSummary(room) });
+    return true;
+  }
+
   if (parts[1] === 'rooms' && parts[2]) {
     const room = rooms.get(parts[2].toUpperCase());
     if (!room) {
@@ -174,6 +199,11 @@ async function handleApi(req, res, url) {
     const player = playerByToken(room, token);
     if (!player || (room.tutorialState && player.id !== room.tutorialState.humanId)) {
       sendJson(res, 403, { error: '身份已失效，请重新加入房间' });
+      return true;
+    }
+
+    if (req.method === 'GET' && parts[3] === 'archive') {
+      sendJson(res, 200, { room: serializeRoom(room) });
       return true;
     }
 

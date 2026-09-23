@@ -1126,4 +1126,51 @@ export function roomSummary(room) {
   };
 }
 
+/** JSON-safe room snapshot for manual archives (SSE listeners are runtime-only). */
+export function serializeRoom(room) {
+  if (!room || typeof room !== 'object') throw new Error('房间无效');
+  const copy = structuredClone({
+    id: room.id,
+    createdAt: room.createdAt,
+    modeId: room.modeId,
+    playMode: room.playMode || 'record',
+    initialClueCount: room.initialClueCount,
+    puzzle: room.puzzle,
+    session: room.session,
+    players: room.players,
+    playerTopics: room.playerTopics,
+    topicNames: room.topicNames,
+    conferenceNames: room.conferenceNames,
+    conferenceRules: room.conferenceRules,
+    phase: room.phase,
+    research: room.research,
+    conference: room.conference,
+    pendingResearch: room.pendingResearch || null,
+    pendingConferences: room.pendingConferences || null,
+    setup: room.setup,
+    hostId: room.hostId,
+    endgame: room.endgame || null,
+    revision: room.revision || 0,
+    tutorialState: room.tutorialState || null,
+    tutorialView: room.tutorialView || null,
+  });
+  return copy;
+}
+
+/** Rebuild an in-memory room from {@link serializeRoom} output. */
+export function hydrateRoom(plain) {
+  if (!plain || typeof plain !== 'object' || !plain.id || !Array.isArray(plain.players) || !plain.session) {
+    throw new Error('存档房间数据不完整');
+  }
+  const room = structuredClone(plain);
+  room.listeners = new Set();
+  room.revision = Number.isInteger(room.revision) ? room.revision : 0;
+  room.createdAt = Number.isFinite(room.createdAt) ? room.createdAt : Date.now();
+  room.playerTopics = room.playerTopics || {};
+  room.setup = room.setup || {};
+  room.pendingResearch = room.pendingResearch || null;
+  room.pendingConferences = room.pendingConferences || null;
+  return room;
+}
+
 export { MODES, consoleView, consoleSummary };

@@ -26,7 +26,30 @@ import {
 import { renderBoard } from './board.js';
 import { renderConferencesPanel, renderTopicsPanel } from './notesheet.js';
 import { renderTutorialGuide } from './tutorial.js';
-import { clearRoom, clearTutorialReturn, createRoom, fetchView, joinRoom, loadRoom, loadTutorialReturn, openStream, saveRoom, saveTutorialReturn, sendAction } from '../src/online.js';
+import {
+  applyConsoleArchive,
+  buildArchive,
+  downloadArchive,
+  notesForSeat,
+  parseArchive,
+  readArchiveFile,
+  seatToken,
+} from '../src/archive.js';
+import {
+  clearRoom,
+  clearTutorialReturn,
+  createRoom,
+  fetchRoomArchive,
+  fetchView,
+  joinRoom,
+  loadRoom,
+  loadTutorialReturn,
+  openStream,
+  restoreArchivedRoom,
+  saveRoom,
+  saveTutorialReturn,
+  sendAction,
+} from '../src/online.js';
 import {
   renderActionPanel,
   renderHeader,
@@ -85,6 +108,7 @@ export function createApp(root) {
     session.undoBarrier = Number.isInteger(save.undoBarrier) ? save.undoBarrier : 0;
     session.revealedObjects = Array.isArray(save.revealedObjects) ? save.revealedObjects : null;
     session.windowTime = Number.isFinite(save.windowTime) ? save.windowTime : null;
+    session.frozenTimes = save.frozenTimes || null;
   }
 
   const state = {
@@ -285,6 +309,7 @@ export function createApp(root) {
           undoBarrier: session.undoBarrier,
           revealedObjects: session.revealedObjects,
           windowTime: session.windowTime,
+          frozenTimes: session.frozenTimes || null,
         }),
       );
       localStorage.setItem(NOTES_KEY, JSON.stringify(state.notes));
@@ -760,7 +785,7 @@ export function createApp(root) {
     };
   }
 
-  const BLOCKING_MODALS = new Set(['help', 'start', 'lobby', 'locate', 'result']);
+  const BLOCKING_MODALS = new Set(['help', 'start', 'lobby', 'locate', 'result', 'archive-seat']);
 
   /** Popup when a new conference clue becomes public so it is not only a silent left-rail update. */
   function noticeNewConferences(prev, next) {
@@ -1140,6 +1165,120 @@ export function createApp(root) {
     render();
   }
 
+  async function saveArchive() {
+    try {
+      let archive;
+      if (state.remote) {
+        const roomSnapshot = await fetchRoomArchive(state.remote);
+        archive = buildArchive({ remote: state.remote, notes: state.notes, roomSnapshot });
+      } else {
+        archive = buildArchive({ session, notes: state.notes });
+      }
+      downloadArchive(archive, `planetx-${archive.kind}-${archive.kind === 'online' ? archive.room.id : session.mode.id}-${Date.now()}.json`);
+      toast('存档已下载到本机', 'ok');
+      return { ok: true };
+    } catch (error) {
+      toast(error.message || '存档失败', 'bad');
+      return { ok: false, error: error.message };
+    }
+  }
+
+  function pickArchiveFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      try {
+        const parsed = await readArchiveFile(file);
+        if (!parsed.ok) {
+          toast(parsed.error || '存档无效', 'bad');
+          return;
+        }
+        await loadArchive(parsed.archive);
+      } catch (error) {
+        toast(error.message || '读取存档失败', 'bad');
+      }
+    };
+    input.click();
+  }
+
+  async function loadArchive(archive) {
+    const checked = parseArchive(archive);
+    if (!checked.ok) {
+      toast(checked.error || '存档无效', 'bad');
+      return { ok: false, error: checked.error };
+    }
+    const pack = checked.archive;
+    if (pack.kind === 'console') {
+      if (state.remote?.view.tutorial) await exitTutorial();
+      else if (state.remote) await detachRoom();
+      const applied = applyConsoleArchive(session, pack);
+      state.notes = applied.notes;
+      state.ui.modal = null;
+      state.ui.action = 'idle';
+      state.ui.pick = [];
+      state.ui.mark = null;
+      state.ui.locate = null;
+      state.ui.finalTheories = [];
+      state.ui.revealObjects = [];
+      state.ui.playMode = 'record';
+      persist();
+      toast('已加载单机存档', 'ok');
+      render();
+      return { ok: true };
+    }
+
+    beginLobbyRequest();
+    try {
+      const result = await restoreArchivedRoom(pack.room);
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: null };
+      state.ui.modal = { kind: 'archive-seat', archive: pack };
+      toast(
+        result.restored
+          ? `房间 ${result.roomId} 已从存档恢复，请选择自己的身份`
+          : `房间 ${result.roomId} 仍在服务上，请选择自己的身份`,
+        'clue',
+      );
+      render();
+      return { ok: true, restored: Boolean(result.restored) };
+    } catch (error) {
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: error.message || '无法恢复房间' };
+      toast(state.ui.lobby.error, 'bad');
+      render();
+      return { ok: false, error: state.ui.lobby.error };
+    }
+  }
+
+  async function selectArchiveSeat(playerId) {
+    const modal = state.ui.modal;
+    if (modal?.kind !== 'archive-seat' || !modal.archive) return { ok: false, error: '没有待选身份的存档' };
+    const archive = modal.archive;
+    const token = seatToken(archive, playerId);
+    if (!token) {
+      toast('该座位缺少身份令牌，存档可能已损坏', 'bad');
+      return { ok: false, error: '缺少令牌' };
+    }
+    const seat = (archive.seats || archive.room.players || []).find((entry) => entry.id === playerId);
+    beginLobbyRequest();
+    try {
+      const room = { roomId: String(archive.room.id).toUpperCase(), playerId, token };
+      const view = await fetchView(room);
+      await enterRoom(room, view);
+      state.notes = notesForSeat(archive, playerId);
+      persist();
+      toast(seat?.name ? `已以「${seat.name}」身份进入房间` : '已进入房间', 'ok');
+      render();
+      return { ok: true };
+    } catch (error) {
+      state.ui.lobby = { ...state.ui.lobby, busy: false, error: error.message || '无法进入座位' };
+      toast(state.ui.lobby.error, 'bad');
+      render();
+      return { ok: false, error: state.ui.lobby.error };
+    }
+  }
+
   const api = {
     setUi,
     setUiQuiet,
@@ -1156,6 +1295,10 @@ export function createApp(root) {
     setMark,
     toggleNote,
     clearNotes,
+    saveArchive,
+    pickArchiveFile,
+    loadArchive,
+    selectArchiveSeat,
     startAction,
     cancelAction,
     confirmAction,
