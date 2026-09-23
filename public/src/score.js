@@ -6,7 +6,7 @@
 //
 //   * every confirmed theory is worth its object's points (rules.js THEORY_POINTS)
 //   * the first player to publish a *correct* theory about a sector gets the leader bonus
-import { LEADER_BONUS, LOCATE_POINTS, locatePointsFor, theoryPointsFor } from './rules.js';
+import { COST, LEADER_BONUS, LOCATE_POINTS, locatePointsFor, theoryPointsFor } from './rules.js';
 
 /** True when this paper's author was told it was right. */
 function isCorrect(entry) {
@@ -33,8 +33,13 @@ function successfulLocates(entries) {
 /**
  * The score table: one row per player, plus the totals.
  * `players` may be omitted for the offline console, where everything is yours.
+ * `frozenTimes` (optional): explicit `{ [playerId]: timeUnits }` map of the frozen clock
+ * values captured at the moment the first player correctly located Planet X. When provided,
+ * later-finders' scores use these frozen values directly. When absent, falls back to
+ * `(firstFind.time + COST.locate - myFind.time)` — equivalent only when the first finder's
+ * cost equals the official locate cost (5); the fallback keeps the offline console working.
  */
-export function scoreBoard(state, players) {
+export function scoreBoard(state, players, frozenTimes) {
   const entries = state.entries || [];
   const list = players && players.length ? players : [{ id: 'me', name: '我' }];
   const solo = list.length === 1;
@@ -59,7 +64,13 @@ export function scoreBoard(state, players) {
       ? 0
       : myFind === firstFind
         ? LOCATE_POINTS.first
-        : locatePointsFor(myFind.distanceBehind ?? ((firstFind.time || 0) + (firstFind.cost ?? 5) - (myFind.time || 0)));
+        : locatePointsFor(
+            myFind.distanceBehind ??
+            (frozenTimes && firstFind && myFind
+              ? (frozenTimes[firstFind.actorId] ?? firstFind.time + COST.locate) - (frozenTimes[ownerOf(myFind)] ?? myFind.time)
+              : (firstFind.time || 0) + (firstFind.cost ?? COST.locate) - (myFind.time || 0)
+            )
+          );
     return {
       id: player.id,
       name: player.name,
