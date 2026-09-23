@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addPlayer, applyRoomAction, createRoom, viewFor } from '../public/src/room.js';
-import { CODE, Obj } from '../public/src/types.js';
+import { CODE, Obj, THEORY_TYPES } from '../public/src/types.js';
 import { createServer, rooms } from '../server.mjs';
 import { inMemoryFetch } from './server-dispatch.js';
 import { createRoom as createOnlineRoom, fetchView, loadRoom, loadTutorialReturn, saveRoom } from '../public/src/online.js';
@@ -56,6 +56,48 @@ function setupTable() {
   return { room, guest, host, identity, app };
 }
 
+function puzzleFixture() {
+  const objects = [Obj.ASTEROID, Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.PLANET_X, Obj.COMET, Obj.GAS_CLOUD, Obj.EMPTY, Obj.DWARF_PLANET, Obj.ASTEROID, Obj.ASTEROID];
+  // Reconstruct the startingClues pool the same way builtin-room.test.js does
+  const pool = objects.flatMap((actual, sector) =>
+    THEORY_TYPES
+      .filter((objectType) => objectType !== actual && (objectType !== Obj.COMET || [1, 2, 4, 6, 10].includes(sector)))
+      .map((objectType) => ({ sector, type: objectType }))).slice(0, 12);
+  return {
+    objects,
+    topics: Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((topic) => [topic, { name: `研究 ${topic}`, clue: `私有线索 ${topic}` }])),
+    conferences: { 10: 'X行星会议专属线索' },
+    startingClues: [pool],
+  };
+}
+
+function setupBuiltinPlayTable(context) {
+  const server = createServer();
+  globalThis.fetch = inMemoryFetch(server);
+  context.after(() => server.close());
+  const puzzle = puzzleFixture();
+  const room = createRoom({ playMode: 'builtin', puzzle, hostName: '甲', initialClueCount: 4 });
+  const host = room.players[0];
+  // Advance from lobby → play: start-game then each player claims clues and confirms ready
+  assert.equal(applyRoomAction(room, host.id, { kind: 'start-game' }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'claim-initial-clues', count: 4 }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'setup' }).ok, true);
+  assert.equal(room.phase, 'play');
+  const identity = { roomId: room.id, playerId: host.id, token: host.token };
+  let revision = 0;
+  globalThis.fetch = async (url, options) => {
+    const action = JSON.parse(options.body).action;
+    const result = applyRoomAction(room, host.id, action);
+    if (result.ok) revision += 1;
+    return { status: result.ok ? 200 : 400, json: async () => ({ ...result, view: { ...viewFor(room, host.id), revision } }) };
+  };
+  const app = createApp(makeElement('div'));
+  app.state.remote = { ...identity, view: viewFor(room, host.id) };
+  app.state.notes = {};
+  app.render();
+  return { room, host, identity, app };
+}
+
 const validClues = [
   { sector: 0, type: Obj.GAS_CLOUD }, { sector: 1, type: Obj.ASTEROID },
   { sector: 2, type: Obj.COMET }, { sector: 3, type: Obj.DWARF_PLANET },
@@ -72,6 +114,44 @@ test('rejected record setup keeps the draft and never auto-marks rejected clues'
   assert.equal(result.ok, false);
   assert.deepEqual(app.state.notes, notes);
   assert.deepEqual(app.state.ui.setup, draft);
+});
+
+test('a zero-count multi-sector survey auto-marks every surveyed sector as "no" for that type', async (context) => {
+  withServer(context);
+  const { app } = setupBuiltinPlayTable(context);
+  // pick sectors 3 and 5 → size 3 covering 3/4/5; all visible in window 1-6.
+  // Sector 3=EMPTY, 4=PLANET_X, 5=COMET → ASTEROID count = 0 → all marked "no".
+  app.api.setUi({ action: 'survey', surveyType: Obj.ASTEROID, pick: [3, 5] });
+  const result = await app.api.confirmAction();
+  assert.equal(result.ok, true, result.error);
+  assert.equal(app.state.notes[`3:${CODE[Obj.ASTEROID]}`], 'no');
+  assert.equal(app.state.notes[`4:${CODE[Obj.ASTEROID]}`], 'no');
+  assert.equal(app.state.notes[`5:${CODE[Obj.ASTEROID]}`], 'no');
+  // Other object types in those sectors remain untouched
+  assert.equal(app.state.notes[`3:${CODE[Obj.COMET]}`], undefined);
+  assert.equal(app.state.notes[`4:${CODE[Obj.GAS_CLOUD]}`], undefined);
+});
+
+test('a zero-count single-sector survey marks that one sector as "no"', async (context) => {
+  withServer(context);
+  const { app } = setupBuiltinPlayTable(context);
+  // pick sector 5 twice → single-sector range (size 1); sector 5=COMET, ASTEROID count=0
+  app.api.setUi({ action: 'survey', surveyType: Obj.ASTEROID, pick: [5, 5] });
+  const result = await app.api.confirmAction();
+  assert.equal(result.ok, true, result.error);
+  assert.equal(app.state.notes[`5:${CODE[Obj.ASTEROID]}`], 'no');
+});
+
+test('a non-zero multi-sector survey does not auto-mark anything', async (context) => {
+  withServer(context);
+  const { app } = setupBuiltinPlayTable(context);
+  // pick sectors 2 and 4 → size 3 covering 2/3/4, all visible (window 1-6)
+  app.api.setUi({ action: 'survey', surveyType: Obj.GAS_CLOUD, pick: [2, 4] });
+  const result = await app.api.confirmAction();
+  assert.equal(result.ok, true, result.error);
+  for (const offset of [2, 3, 4]) {
+    assert.equal(app.state.notes[`${offset}:${CODE[Obj.GAS_CLOUD]}`], undefined, `sector ${offset} must remain unmarked when count > 0`);
+  }
 });
 
 test('accepted record clues synchronize, survive refresh, and preserve later manual marks', async () => {

@@ -931,9 +931,21 @@ export function createApp(root) {
       if (state.game.playMode === 'builtin' && payload.apparent === Obj.EMPTY) {
         for (const objectType of SURVEY_TYPES.filter((type) => type !== Obj.EMPTY)) writeNote(`${payload.sector}:${CODE[objectType]}`, 'no');
       } else if (CODE[payload.apparent]) writeNote(`${payload.sector}:${CODE[payload.apparent]}`, 'yes');
-    } else if (kind === 'survey' && payload.size === 1) {
-      if (!(state.game.playMode === 'builtin' && payload.type === Obj.EMPTY && payload.count === 1)) {
-        writeNote(`${payload.start}:${CODE[payload.type]}`, payload.count === 1 ? 'yes' : 'no');
+    } else if (kind === 'survey') {
+      if (state.game.playMode === 'builtin' && payload.type === Obj.EMPTY && payload.count === 1) {
+        // built-in single-sector empty survey: confirmed truly empty, no auto-mark
+      } else if (payload.count === 1 && payload.size === 1) {
+        writeNote(`${payload.start}:${CODE[payload.type]}`, 'yes');
+      } else if (payload.count === 0 && payload.size >= 1) {
+        // zero count means none of the surveyed sectors have this object type
+        // Only auto-mark in builtin mode where the count is authoritative
+        if (state.game.playMode === 'builtin') {
+          const n = state.game.mode.sectors;
+          for (let offset = 0; offset < payload.size; offset++) {
+            const sector = (payload.start + offset) % n;
+            writeNote(`${sector}:${CODE[payload.type]}`, 'no');
+          }
+        }
       }
     }
     state.ui.action = 'idle';
