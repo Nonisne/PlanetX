@@ -17,7 +17,6 @@ import { addPlayer, applyRoomAction, createRoom, currentPlayer, playerById, view
 import { BUILTIN_MAX_PLAYERS } from '../public/src/rules.js';
 import { Obj } from '../public/src/types.js';
 import { computeKnowledge, decideAction, preferredSurveyStart } from '../server/bot.js';
-import { crossedEvents } from '../public/src/phases.js';
 import { attachBotController, detachBotController } from '../server/bot-controller.js';
 
 // ---- fixtures ---------------------------------------------------------------
@@ -523,13 +522,14 @@ test('multiple bots do not all pick the same first research topic', () => {
 
 // ---- event guard -----------------------------------------------------------
 
-test('bot does not survey across an unprepared theory marker when waiting would stay short of it', () => {
+test('bot never waits, and still acts when a survey would leave an unprepared marker', () => {
   const room = builtinWithBots(1);
   startGame(room);
   const bot = room.players.find((p) => p.bot);
-  // Host opens, then the bot researches (cost 1). Host steps again so the bot
-  // is the laggard at month 1, with research blocked as the previous action.
-  // A survey from there crosses theory sector 3; a wait does not.
+  // Host opens, then the bot researches (cost 1, a real action that does not
+  // leave the theory marker). Host steps again so the bot is the laggard with
+  // research blocked. A survey from there does leave the marker, but the
+  // official game has no 1-time wait, so the bot must survey or scan.
   assert.equal(applyRoomAction(room, room.hostId, { kind: 'wait' }).ok, true);
   const research = decideAction(room, bot.id, viewFor(room, bot.id));
   assert.equal(research.kind, 'research');
@@ -539,11 +539,33 @@ test('bot does not survey across an unprepared theory marker when waiting would 
   const view = viewFor(room, bot.id);
   const action = decideAction(room, bot.id, view);
   assert.ok(action);
-  assert.notEqual(action.kind, 'survey');
-  assert.notEqual(action.kind, 'target');
-  const cost = action.kind === 'research' || action.kind === 'wait' ? 1 : 99;
-  const crossed = crossedEvents(view.mode, view.windowTime, view.windowTime + cost);
-  assert.equal(crossed.some((event) => event.kind === 'theory' || event.kind === 'conference'), false);
+  assert.notEqual(action.kind, 'wait');
+  assert.ok(action.kind === 'survey' || action.kind === 'target', action.kind);
+  const result = applyRoomAction(room, bot.id, action);
+  assert.equal(result.ok, true, result.error);
+});
+
+test('a builtin bot does not record a wait over a stretch of turns', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const kinds = new Set();
+  for (let guard = 0; guard < 24; guard += 1) {
+    if (room.research) { passResearchPhase(room); continue; }
+    const turn = currentPlayer(room);
+    if (!turn) break;
+    if (turn.id !== bot.id) {
+      applyRoomAction(room, turn.id, { kind: 'wait' });
+      continue;
+    }
+    const action = decideAction(room, bot.id, viewFor(room, bot.id));
+    assert.ok(action, 'the bot should take a real action');
+    assert.notEqual(action.kind, 'wait');
+    kinds.add(action.kind);
+    const result = applyRoomAction(room, bot.id, action);
+    assert.equal(result.ok, true, result.error);
+  }
+  assert.ok(kinds.size >= 1);
 });
 
 // ---- controller wiring -----------------------------------------------------
