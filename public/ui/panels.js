@@ -460,6 +460,7 @@ export function renderConsoleStatus({ state, api }) {
               h('span', { class: 'dot', style: { background: p.color } }),
               p.name,
               p.host ? h('span', { class: 'muted small' }, ' · 房主') : null,
+              p.bot ? h('span', { class: 'muted small' }, ' · Bot') : null,
               p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
               p.spectator ? null : h('span', { class: 'pawn-time' }, `${p.timeLabel} · ${p.sector} 号`),
               p.isTurn ? h('span', { class: 'muted small' }, ' · 行动中') : null,
@@ -640,6 +641,38 @@ function initialCluePicker({ value = 4, onPick, readOnly = false }) {
   );
 }
 
+function botOpponentPicker({ value = 0, onPick, max = BUILTIN_MAX_PLAYERS - 1 }) {
+  const counts = Array.from({ length: max + 1 }, (_, i) => i);
+  return h(
+    'div',
+    { class: 'lobby-field bot-opponent-settings' },
+    h('span', { class: 'muted small' }, 'Bot 对手（可选）'),
+    h(
+      'div',
+      { class: 'chips', role: 'group', 'aria-label': 'Bot 对手数量' },
+      counts.map((count) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            class: `chip chip-select${count === value ? ' active' : ''}`,
+            'data-with-bots': count,
+            'aria-pressed': String(count === value),
+            onclick: () => onPick(count),
+          },
+          count === 0 ? '无' : `${count} 个`,
+        ),
+      ),
+    ),
+    h('p', { class: 'muted small' }, countHint(value, max)),
+  );
+}
+
+function countHint(value, max) {
+  if (!value) return `可不加 Bot，也可与真人合计最多 ${max + 1} 人（含你）。Bot 用启发式策略，看不到谜底。`;
+  return `将创建 ${value} 个 Bot 对手，与你合计 ${value + 1} 人（上限 ${max + 1}）。开局后 Bot 自动行动。`;
+}
+
 function lobbyCard({ game, api }) {
   const players = game.players || [];
   const seated = players.filter((p) => !p.spectator);
@@ -663,6 +696,7 @@ function lobbyCard({ game, api }) {
             h('span', { class: 'dot', style: { background: p.color } }),
             p.name,
             p.host ? h('span', { class: 'muted small' }, ' · 房主') : null,
+            p.bot ? h('span', { class: 'muted small' }, ' · Bot') : null,
             p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
             p.id === game.me ? h('span', { class: 'muted small' }, ' · 你') : null,
           ),
@@ -1778,12 +1812,13 @@ export function renderModal({ state, api }) {
         { class: 'muted' },
         '先选择游玩方式。内置谜题可以独立完成一整局；记录模式用于同步实体版或官方 app。',
       ),
-      playModePicker({ value: playMode, onPick: nextMode => api.setUi({ playMode: nextMode, ...(nextMode === 'tutorial' ? { modeId: 'standard', initialClueCount: 4 } : {}) }) }),
+      playModePicker({ value: playMode, onPick: nextMode => api.setUi({ playMode: nextMode, ...(nextMode === 'tutorial' ? { modeId: 'standard', initialClueCount: 4, withBots: 0 } : nextMode !== 'builtin' ? { withBots: 0 } : {}) }) }),
       playMode === 'tutorial'
         ? h('div', { class: 'builtin-mode-note' }, h('strong', {}, '标准 12 扇区 · 固定 4 条初始线索'), h('p', { class: 'muted small' }, '固定一名真人与 Bot「领航员」。按教学指南完成真实行动，手动观看 Bot 演示，直到定位与结算；退出后恢复原房间与笔记。需要本地服务保持运行。'))
         : h('div', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '新一局用哪块棋盘'), modePicker({ value: picked.id, onPick: (id) => api.setUi({ modeId: id }) })),
       playMode === 'builtin' && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
-      playMode === 'builtin' && h('div', { class: 'builtin-mode-note' }, h('strong', {}, `${picked.name} ${picked.sectors} 扇区 · 单人解谜`), h('p', { class: 'muted small' }, '初始线索 → 观测／研究 → 论文评审 → 定位 → 自动揭晓。需要本地服务保持运行；多人可到「联机」创建内置谜题房间。不会覆盖你的本地记录存档。')),
+      playMode === 'builtin' && botOpponentPicker({ value: ui.withBots ?? 0, onPick: count => api.setUi({ withBots: count }) }),
+      playMode === 'builtin' && h('div', { class: 'builtin-mode-note' }, h('strong', {}, `${picked.name} ${picked.sectors} 扇区 · 单人解谜`), h('p', { class: 'muted small' }, '初始线索 → 观测／研究 → 论文评审 → 定位 → 自动揭晓。需要本地服务保持运行；可加 Bot 对手，或多人对到「联机」创建内置谜题房间。不会覆盖你的本地记录存档。')),
       playMode === 'record' && h('p', { class: 'muted small' }, '开始新记录局会清空本地记录与手写笔记，时间回到第 1 圈／第 1 格。可用顶栏「加载存档」从本机存档库恢复。'),
       state.remote && playMode !== 'tutorial' && h('p', { class: 'muted small' }, '开始新局会离开当前房间视图，但不会删除房间或影响其他玩家。'),
       lobby.error && h('p', { class: 'lobby-error' }, lobby.error),
@@ -1864,6 +1899,7 @@ export function renderModal({ state, api }) {
               h('span', { class: 'dot', style: { background: p.color } }),
               p.name,
               p.host ? h('span', { class: 'muted small' }, ' · 房主') : null,
+              p.bot ? h('span', { class: 'muted small' }, ' · Bot') : null,
               p.spectator ? h('span', { class: 'muted small' }, ' · 观战') : null,
             ),
           ),
@@ -1897,12 +1933,13 @@ export function renderModal({ state, api }) {
         { class: 'modal-body' },
         h('p', { class: 'muted' }, tutorial ? '固定一名真人与 Bot「领航员」，逐步完成观测、论文、会议与定位。' : '一台设备开房间，其他人用房间码加入：时间轨与天窗共享，观测结果各自保密。'),
         h('label', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '你的名字'), nameInput),
-        playModePicker({ value: playMode, onPick: nextMode => api.setUi({ playMode: nextMode, ...(nextMode === 'tutorial' ? { modeId: 'standard', initialClueCount: 4 } : {}) }) }),
+        playModePicker({ value: playMode, onPick: nextMode => api.setUi({ playMode: nextMode, ...(nextMode === 'tutorial' ? { modeId: 'standard', initialClueCount: 4, withBots: 0 } : nextMode !== 'builtin' ? { withBots: 0 } : {}) }) }),
         tutorial
           ? h('p', { class: 'builtin-mode-note small' }, '标准 12 扇区 · 固定 4 条初始线索。教学期间按步骤操作，退出后恢复原房间与笔记。')
           : h('div', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '棋盘（房主选，全桌一致）'), modePicker({ value: ui.modeId, onPick: (id) => api.setUi({ modeId: id }) })),
         !tutorial && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
-        playMode === 'builtin' && h('p', { class: 'builtin-mode-note small' }, `支持标准／专家棋盘 · 1–${BUILTIN_MAX_PLAYERS} 人（含房主），可单人开始。开局后锁定玩家；系统自动分发初始线索并处理谜题与结算。`),
+        playMode === 'builtin' && botOpponentPicker({ value: ui.withBots ?? 0, onPick: count => api.setUi({ withBots: count }) }),
+        playMode === 'builtin' && h('p', { class: 'builtin-mode-note small' }, `支持标准／专家棋盘 · 1–${BUILTIN_MAX_PLAYERS} 人（含房主与 Bot），可单人开始。开局后锁定玩家；系统自动分发初始线索并处理谜题与结算。`),
         h(
           'div',
           { class: 'lobby-actions' },

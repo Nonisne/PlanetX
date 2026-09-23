@@ -118,6 +118,69 @@ test('setup reuses an already-ready card instead of resubmitting', () => {
   assert.equal(action, null);
 });
 
+test('during research phase, every bot declares even when it is not the turn cursor', () => {
+  const room = builtinWithBots(2);
+  startGame(room);
+  for (let guard = 0; guard < 50; guard++) {
+    if (room.research) break;
+    const turn = currentPlayer(room);
+    applyRoomAction(room, turn.id, { kind: 'wait' });
+  }
+  assert.ok(room.research, 'a research phase should have opened');
+  const phaseId = room.research.id;
+  const bots = room.players.filter((player) => player.bot);
+  assert.equal(bots.length, 2);
+  for (const bot of bots) {
+    const view = viewFor(room, bot.id);
+    // neither bot needs to be currentPlayer for a declaration
+    const action = decideAction(room, bot.id, view);
+    assert.ok(action, `bot ${bot.name} should declare without waiting for isMyTurn`);
+    assert.equal(action.kind, 'research-declare');
+    assert.equal(action.phaseId, phaseId);
+    const result = applyRoomAction(room, bot.id, action);
+    assert.ok(result.ok, result.error);
+  }
+  assert.equal(Object.keys(room.research.declares).filter((id) => bots.some((bot) => bot.id === id)).length, 2);
+});
+
+test('controller onApplied fires after a successful bot action', async () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const notices = [];
+  const teardown = attachBotController(room, {
+    tickMs: 20,
+    onApplied(_live, bot, action) {
+      notices.push({ botId: bot.id, kind: action.kind });
+    },
+  });
+  for (let guard = 0; guard < 60; guard++) {
+    if (currentPlayer(room)?.bot) break;
+    const turn = currentPlayer(room);
+    if (room.research) {
+      const phaseId = room.research.id;
+      for (const player of room.players) {
+        if (!room.research || room.research.id !== phaseId) break;
+        if (Object.hasOwn(room.research.declares, player.id)) continue;
+        applyRoomAction(room, player.id, { kind: 'research-declare', phaseId, count: 0 });
+      }
+      continue;
+    }
+    applyRoomAction(room, turn.id, { kind: 'wait' });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  teardown();
+  assert.ok(notices.length >= 1, 'onApplied should observe at least one bot action');
+});
+
+test('detach clears the timer so cleanup can drop expired rooms safely', () => {
+  const room = builtinWithBots(1);
+  attachBotController(room, { tickMs: 50 });
+  assert.ok(room.__botController);
+  detachBotController(room);
+  assert.equal(room.__botController, null);
+  detachBotController(room);
+});
+
 test('during research phase, the bot declares then submits when at the cursor', () => {
   const room = builtinWithBots(1);
   startGame(room);
@@ -167,7 +230,7 @@ test('detach is idempotent and safe to call on a room with no controller', () =>
   const room = builtinWithBots(1);
   detachBotController(room);
   detachBotController(room);
-  assert.equal(room.__botController, undefined);
+  assert.ok(!room.__botController);
 });
 
 test('bot never reveals puzzle truth (no reference to objects, clues, or conferences)', () => {

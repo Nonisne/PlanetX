@@ -28,13 +28,18 @@ function botPlayers(room) {
  * @param {object} room       the live room
  * @param {object} [options]
  * @param {number} [options.tickMs] override the default 3000ms decision interval
+ * @param {Function} [options.onApplied] called after a successful bot action
+ *   so the host server can bump revision and SSE-broadcast
  * @returns {Function} a teardown function that stops the controller
  */
-export function attachBotController(room, { tickMs = DEFAULT_TICK_MS } = {}) {
+export function attachBotController(room, { tickMs = DEFAULT_TICK_MS, onApplied } = {}) {
   if (!room) return () => {};
-  if (room.__botController) return room.__botController.teardown;
+  if (room.__botController) {
+    if (typeof onApplied === 'function') room.__botController.onApplied = onApplied;
+    return room.__botController.teardown;
+  }
 
-  const controller = { room, tickMs, timer: null, busy: false, teardown: null };
+  const controller = { room, tickMs, timer: null, busy: false, teardown: null, onApplied: typeof onApplied === 'function' ? onApplied : null };
 
   controller.teardown = () => {
     if (controller.timer) {
@@ -48,7 +53,7 @@ export function attachBotController(room, { tickMs = DEFAULT_TICK_MS } = {}) {
     if (controller.busy) return;
     controller.busy = true;
     try {
-      stepBots(room);
+      stepBots(room, controller);
     } catch (error) {
       // never let a bot crash the server — log to stderr and keep ticking
       // eslint-disable-next-line no-console
@@ -79,46 +84,37 @@ export function detachBotController(room) {
  * a single tick may need to step more than one bot forward (e.g. when a
  * human has been waiting and the laggard changes).
  */
-function stepBots(room) {
+function stepBots(room, controller) {
   if (!room || room.tutorialState) return; // the tutorial script runs its own bot
   const bots = botPlayers(room);
   if (!bots.length) return;
 
   for (const bot of bots) {
     if (!room.players.includes(bot)) continue;
-    tickBot(room, bot);
+    tickBot(room, bot, controller);
   }
 }
 
-function tickBot(room, bot) {
-  if (room.phase === 'lobby' || room.phase === 'setup') {
-    const view = viewFor(room, bot.id);
-    const setupAction = decideAction(room, bot.id, view);
-    if (setupAction) applyRoomAction(room, bot.id, setupAction);
-    return;
-  }
-  if (room.phase === 'final' || room.phase === 'reveal' || room.phase === 'done') {
-    const view = viewFor(room, bot.id);
-    const action = decideAction(room, bot.id, view);
-    if (action) applyRoomAction(room, bot.id, action);
-    return;
-  }
-  // play phase: only act when it is the bot's turn (or there is a research phase)
-  if (!room.research && !viewIsMyTurn(room, bot.id)) return;
+function tickBot(room, bot, controller) {
+  if (room.phase === 'lobby') return;
+
   const view = viewFor(room, bot.id);
+  if (room.phase === 'play') {
+    const needsOffTurn = Boolean(room.research) || Boolean(view.myPendingReviews?.length);
+    if (!needsOffTurn && !view.isMyTurn) return;
+  }
+
   const action = decideAction(room, bot.id, view);
   if (!action) return;
   const result = applyRoomAction(room, bot.id, action);
+  if (result.ok) {
+    controller?.onApplied?.(room, bot, action, result);
+    return;
+  }
   // a transient refusal is fine — the engine enforces turn order / cooldown,
   // so the next tick will retry when conditions allow
-  if (!result.ok && process.env.BOT_DEBUG) {
+  if (process.env.BOT_DEBUG) {
     // eslint-disable-next-line no-console
     console.log(`[bot] ${bot.name} refused ${action.kind}: ${result.error}`);
   }
-}
-
-/** True when it is the bot's normal turn (the engine's currentPlayer is the bot). */
-function viewIsMyTurn(room, botId) {
-  const view = viewFor(room, botId);
-  return Boolean(view && view.isMyTurn);
 }
