@@ -54,6 +54,7 @@ export function createConsole({ modeId = 'standard', actorId = null } = {}) {
     windowOffset: 0,
     windowTime: null,
     revealedObjects: null,
+    frozenTimes: null,
     undoBarrier: 0,
     topics: emptyTopics(),
     theoryPhases: [],

@@ -372,7 +372,7 @@ export function viewFor(room, playerId) {
   const mineState = stateFor(room, playerId);
   view.theoryOptions = theoryOptionsFor(mineState, { phaseId: room.research?.id || room.endgame?.publicationPhase || null });
   view.rounds = actionRounds(mineState, view.players.filter((p) => !p.spectator));
-  view.scores = scoreBoard(mineState, view.players.filter((p) => !p.spectator));
+  view.scores = scoreBoard(mineState, view.players.filter((p) => !p.spectator), mineState.frozenTimes);
 
   // The sky window is one shared dial and it follows the pawn that is furthest behind:
   // its sector is the window's first visible sector, so the whole table observes from
@@ -828,6 +828,7 @@ function beginEndgame(room, finder, windowTime, entry) {
     const behind = frozenTimes[finder.id] - frozenTimes[player.id];
     return { id: player.id, name: player.name, behind, quota: behind <= 3 ? 1 : 2, done: false, choice: null };
   });
+  room.session.frozenTimes = frozenTimes;
   room.endgame = { firstFinderId: finder.id, firstFinderName: finder.name, frozenTimes, windowTime, publicationPhase: `final:${entry.id}`, players };
   room.research = null;
   room.pendingResearch = null;
