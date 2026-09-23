@@ -134,9 +134,14 @@ test('record conference headings are independently editable and invalid metadata
   const before = structuredClone(room);
   assert.equal(applyRoomAction(room, room.hostId, { kind: 'setup', noClues: true, topics: { A: '不应保存' }, conferenceNames: [] }).ok, false);
   assert.deepEqual(room, before);
-  accepted(room, room.hostId, { kind: 'setup', noClues: true, topics: { A: '小行星' }, conferenceNames: { 7: ' X行星与气体云 ', 16: '', 10: '忽略' } });
+  const blank = applyRoomAction(room, room.hostId, { kind: 'setup', noClues: true, topics: { A: '小行星' }, conferenceNames: { 7: ' X行星与气体云 ', 16: '', 10: '忽略' } });
+  assert.equal(blank.ok, false);
+  assert.match(blank.error, /课题|会议名称/);
+  assert.deepEqual(room, before);
+  const topics = Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((id) => [id, id === 'A' ? '小行星' : `课题${id}`]));
+  accepted(room, room.hostId, { kind: 'setup', noClues: true, topics, conferenceNames: { 7: ' X行星与气体云 ', 16: '矮行星之间', 10: '忽略' } });
   const view = viewFor(room, guest.id);
-  assert.deepEqual(view.conferenceNames, { 7: 'X行星与气体云', 16: 'X行星会议 · 16 号' });
+  assert.deepEqual(view.conferenceNames, { 7: 'X行星与气体云', 16: '矮行星之间' });
   assert.deepEqual(view.conferenceRules, {});
   assert.equal(applyRoomAction(room, guest.id, { kind: 'set-conference-names', names: {} }).ok, false);
   accepted(room, room.hostId, { kind: 'set-conference-names', names: { 16: 'X行星与矮行星' } });

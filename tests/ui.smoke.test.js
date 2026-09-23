@@ -102,6 +102,17 @@ const { renderBoard, GEOMETRY, sectorAngles } = await import('../public/ui/board
 const { renderTopicsPanel, renderTheoriesPanel } = await import('../public/ui/notesheet.js');
 const { renderModal, renderStatus, renderActionPanel, renderKnowledgePanel, renderLogPanel, renderMapPanel, renderScorePanel } = await import('../public/ui/panels.js');
 
+function finishSoloSetup(api, state) {
+  const sectors = state.game.conferenceSectors || [];
+  api.patchSetup({
+    noClues: (state.game.initialClueCount ?? 0) === 0,
+    clues: [],
+    topicNames: Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((id) => [id, `课题${id}`])),
+    conferenceNames: Object.fromEntries(sectors.map((sector) => [sector, `会议${sector}`])),
+  });
+  return api.submitSetup();
+}
+
 test('mode selection offers standard and expert builtin puzzles plus fixed tutorial entry', () => {
   storage.clear();
   tabStorage.clear();
@@ -273,7 +284,9 @@ test('builtin app creates a solo room, uses actual query answers, and preserves 
     tabStorage.clear();
   });
   const app = createApp(makeEl('div'));
+  app.api.setUi({ initialClueCount: 0 });
   app.api.newSession('expert');
+  finishSoloSetup(app.api, app.state);
   app.api.consoleAction({ kind: 'wait' });
   app.api.setMark(17, CODE.asteroid, 'no');
   const offlineSave = storage.get('planetx.save.v3');
@@ -1527,8 +1540,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   assert.equal(findButton(root, '+ 添加一条线索'), undefined, 'no fifth clue when the host selected four');
 
   const nameInput = (id) => findAll(root, (n) => n.attributes.placeholder === `课题 ${id} 的名称`)[0];
-  typeInto(nameInput('C'), '小行星带');
-  typeInto(nameInput('D'), '气体云走廊');
+  for (const id of ['A', 'B', 'C', 'D', 'E', 'F']) typeInto(nameInput(id), id === 'C' ? '小行星带' : id === 'D' ? '气体云走廊' : `课题${id}`);
   assert.equal(state.ui.setup.topicNames.C, '小行星带', 'typing goes into the shared draft');
   assert.equal(state.ui.setup.topicNames.D, '气体云走廊', 'and a second field does not drop the first');
   typeInto(findAll(root, element => Number(element.attributes['data-conference-name']) === 10)[0], '彗星的邻居');
@@ -1541,7 +1553,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   await api.submitSetup();
   assert.deepEqual(room.setup[room.hostId].clues, initialClues, 'all four distinct draft clues reached the server');
   assert.equal(room.topicNames.C, '小行星带', 'the host’s A–F names became the table’s');
-  assert.equal(room.topicNames.A, '', 'and the guest’s attempt to name A was ignored');
+  assert.equal(room.topicNames.A, '课题A', 'and the guest’s attempt to name A was ignored');
   assert.equal(room.conferenceRules[10], 'X行星紧邻一颗彗星', 'the conference note is shared');
   const guestView = viewFor(room, guest.id);
   assert.equal(guestView.topicNames.C, '小行星带', 'the guest reads the same subject names');
@@ -1575,7 +1587,7 @@ test('the pre-game flow walks lobby → setup → first turn', async () => {
   assert.equal(state.ui.action, 'research');
   text = collectText(root).join('');
   assert.ok(text.includes('小行星带'), 'the subject name from setup is offered');
-  assert.ok(text.includes('未命名'), 'and the unnamed ones are still pickable');
+  assert.ok(text.includes('课题A'), 'every subject named at the start is offered');
 
   // ---- the other player's screen waits its turn ----
   api.cancelAction(); // a different screen: nothing is open there
@@ -1626,12 +1638,15 @@ test('the solo console can be started on the 18 sector board', () => {
   const { api, state } = app;
   assert.equal(state.game.mode.sectors, 12, 'a fresh console is the standard board');
 
-  api.setUi({ modal: { kind: 'start' } });
+  api.setUi({ modal: { kind: 'start' }, initialClueCount: 0 });
   const options = findAll(root, (n) => (n.className || '').split(/\s+/).includes('mode-option'));
   assert.equal(options.length, 2, 'both boards are offered offline too');
   assert.ok(collectText(root).join('').includes('记录模式'));
+  assert.equal(findAll(root, (node) => node.attributes['data-initial-clue-count'] !== undefined).length, 4, 'solo record can choose the clue count');
   fire(findAll(options[1], (n) => n.tagName === 'input')[0], 'change');
   fire(findButton(root, '开始'), 'click');
+  assert.equal(state.game.phase, 'setup');
+  finishSoloSetup(api, state);
 
   assert.equal(state.session.mode.id, 'expert');
   assert.equal(state.game.mode.sectors, 18, 'the console switched to the expert board');
@@ -1652,6 +1667,50 @@ test('the solo console can be started on the 18 sector board', () => {
   assert.equal(api.consoleAction({ kind: 'target', sector: 17, apparent: Obj.EMPTY }).ok, false, 'sector 18 sits outside the month-1 window');
   const win = state.game.visible;
   assert.equal(api.consoleAction({ kind: 'target', sector: win[win.length - 1], apparent: Obj.EMPTY }).ok, true, 'a visible expert sector scans fine');
+});
+
+test('solo record setup requires every subject and conference name, and clues only when the count is not zero', async () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  const { api, state } = app;
+  api.setUi({ modal: { kind: 'start' }, playMode: 'record', modeId: 'standard' });
+  const zero = findAll(root, (node) => Number(node.attributes['data-initial-clue-count']) === 0)[0];
+  fire(zero, 'click');
+  assert.equal(state.ui.initialClueCount, 0);
+  fire(findButton(root, '开始'), 'click');
+  assert.equal(state.game.phase, 'setup');
+  assert.match(collectText(root).join(''), /研究课题名称/);
+  assert.match(collectText(root).join(''), /X行星会议/);
+  assert.match(collectText(root).join(''), /不用填/);
+  assert.equal(findButton(root, '完成，开始第一轮').attributes.disabled, '');
+  assert.equal((await api.submitSetup()).ok, false);
+  for (const id of ['A', 'B', 'C', 'D', 'E', 'F']) typeInto(findAll(root, (node) => node.attributes.placeholder === `课题 ${id} 的名称`)[0], `课题${id}`);
+  typeInto(findAll(root, (node) => Number(node.attributes['data-conference-name']) === 10)[0], '会议10');
+  assert.equal(findButton(root, '完成，开始第一轮').attributes.disabled, undefined, 'typing the names enables the button without a redraw');
+  fire(findButton(root, '完成，开始第一轮'), 'click');
+  assert.equal(state.game.phase, undefined);
+  assert.equal(state.session.topics.A.name, '课题A');
+  assert.equal(state.session.conferenceNames[10], '会议10');
+  assert.equal(state.session.initialClues.length, 0);
+
+  api.setUi({ initialClueCount: 4 });
+  api.newSession('standard');
+  assert.equal(state.game.initialClueCount, 4);
+  assert.match(collectText(root).join(''), /有效线索 0\/4/);
+  for (let index = 0; index < 4; index += 1) fire(findButton(root, '+ 添加一条线索'), 'click');
+  assert.equal((await api.submitSetup()).ok, false, 'names are still required');
+  for (const id of ['A', 'B', 'C', 'D', 'E', 'F']) {
+    typeInto(findAll(root, (node) => node.attributes.placeholder === `课题 ${id} 的名称`)[0], `课题${id}`);
+  }
+  typeInto(findAll(root, (node) => Number(node.attributes['data-conference-name']) === 10)[0], '彗星的邻居');
+  assert.equal(findButton(root, '完成，开始第一轮').attributes.disabled, undefined, 'the last typed name enables submit');
+  fire(findButton(root, '完成，开始第一轮'), 'click');
+  assert.equal(state.session.initialClues.length, 4);
+  const clue = state.session.initialClues[0];
+  assert.equal(state.notes[`${clue.sector}:${CODE[clue.type]}`], 'no');
+  assert.equal(collectText(root).join('').includes(`${clue.sector + 1} 号没有`), true);
 });
 
 test('the online research phase renders declare → publish → review', async () => {
@@ -1912,7 +1971,10 @@ test('the setup card can be filled in again, and an expert table asks for two co
 
   for (let index = 0; index < 4; index += 1) fire(findButton(root, '+ 添加一条线索'), 'click');
   const initialClues = state.ui.setup.clues.map(clue => ({ ...clue }));
-  typeInto(findAll(root, (n) => n.attributes.placeholder === '课题 A 的名称')[0], '小行星带');
+  for (const id of ['A', 'B', 'C', 'D', 'E', 'F']) {
+    typeInto(findAll(root, (n) => n.attributes.placeholder === `课题 ${id} 的名称`)[0], id === 'A' ? '小行星带' : `课题${id}`);
+  }
+  typeInto(findAll(root, (element) => Number(element.attributes['data-conference-name']) === 10)[0], '彗星的邻居');
   await api.submitSetup();
   assert.equal(room.phase, 'setup', 'the guest has not finished');
   assert.equal(room.setup[room.hostId].ready, true);
@@ -1969,6 +2031,11 @@ test('the setup card can be filled in again, and an expert table asks for two co
   assert.equal(expertApp.state.ui.setup.conferences[7], 'X行星在两颗矮行星之间', 'the first conference note');
   typeInto(confInputs[1], 'X行星不与气体云相邻');
   assert.equal(expertApp.state.ui.setup.conferences[16], 'X行星不与气体云相邻', 'the second one, without losing the first');
+  for (const id of ['A', 'B', 'C', 'D', 'E', 'F']) {
+    typeInto(findAll(expertRoot, (node) => node.attributes.placeholder === `课题 ${id} 的名称`)[0], `课题${id}`);
+  }
+  typeInto(findAll(expertRoot, (node) => Number(node.attributes['data-conference-name']) === 7)[0], '矮行星之间');
+  typeInto(findAll(expertRoot, (node) => Number(node.attributes['data-conference-name']) === 16)[0], '远离气体云');
   await expertApp.api.submitSetup();
   assert.deepEqual(expert.conferenceRules, { 7: 'X行星在两颗矮行星之间', 16: 'X行星不与气体云相邻' });
 
@@ -2203,7 +2270,9 @@ test('new sessions reset reused history result ids without clearing panel prefer
   result.open = true;
   fire(result, 'toggle');
   app.api.setUiQuiet({ panels: { ...app.state.ui.panels, history: true, 'basic-rules': false } });
+  app.api.setUi({ initialClueCount: 0 });
   app.api.newSession('standard');
+  finishSoloSetup(app.api, app.state);
   assert.equal(app.api.consoleAction({ kind: 'research', topic: 'A', text: '第二局线索' }).ok, true);
   const nextResult = findAll(root, element => element.attributes['data-disclosure'] === 'history-result-1')[0];
   assert.equal(nextResult.attributes.open, undefined);

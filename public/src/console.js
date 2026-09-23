@@ -194,6 +194,43 @@ export function consoleView(state) {
     // the log as a table of rounds, and the running score
     rounds: actionRounds(state),
     scores: scoreBoard(state),
+    ...setupView(state),
+  };
+}
+
+/** Solo record games pause on an opening sheet before the first action. */
+function setupView(state) {
+  const opening = state.localSetup;
+  const clues = Array.isArray(state.initialClues) ? state.initialClues : null;
+  const named = state.conferenceNames && typeof state.conferenceNames === 'object';
+  if (!opening && !clues && !named) return {};
+  const count = opening?.initialClueCount ?? state.initialClueCount ?? 0;
+  const topicNames = {};
+  for (const id of TOPIC_IDS) topicNames[id] = state.topics?.[id]?.name || '';
+  const sheet = {
+    initialClueCount: count,
+    topicNames,
+    conferenceNames: { ...(state.conferenceNames || {}) },
+    mySetup: {
+      clues: clues || [],
+      noClues: count === 0,
+      initialClueCount: count,
+      cluesClaimed: !opening && Boolean(clues),
+      ready: !opening && Boolean(clues),
+    },
+  };
+  if (!opening) return sheet;
+  return {
+    ...sheet,
+    phase: 'setup',
+    playMode: 'record',
+    amHost: true,
+    me: 'solo',
+    playerCount: 1,
+    readyCount: 0,
+    conferenceRules: {},
+    mySetup: { ...sheet.mySetup, cluesClaimed: false, ready: false },
+    players: [{ id: 'solo', name: '我', host: true, color: '#f5b942', ready: false, isMe: true }],
   };
 }
 

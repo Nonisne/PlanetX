@@ -423,7 +423,7 @@ export function renderConsoleStatus({ state, api }) {
     game.phase === 'lobby' ? h('div', { class: 'turn-banner' }, '开局前：等房主点「开始游戏」') : null,
     game.amSpectator ? h('div', { class: 'turn-banner' }, '观战中：可查看所有人行动结果，不参与操作也不占用游戏名额') : null,
     game.phase === 'setup' && !game.amSpectator
-      ? h('div', { class: 'turn-banner' }, `开局准备：${game.playMode === 'builtin' ? `每人自动分发 ${game.initialClueCount ?? 4} 条初始线索，请确认准备` : `填写全桌统一的 ${game.initialClueCount ?? 4} 条初始线索，房主填写课题与会议标题`}（已提交 ${game.readyCount || 0}/${game.playerCount || 0}）`)
+      ? h('div', { class: 'turn-banner' }, `开局准备：${setupBanner(game)}（已提交 ${game.readyCount || 0}/${game.playerCount || 0}）`)
       : null,
     frozen ? h('div', { class: 'turn-banner' }, game.phase === 'final' ? `最后机会：等待 ${game.endgame?.cursorName || '其他玩家'}；普通行动已关闭` : game.status === 'finished' ? '全盘已揭示，本局已结束' : '等待填写官方 app 的完整答案，之后结算全部理论') : null,
     renderDisclosure(
@@ -712,7 +712,7 @@ function lobbyCard({ game, api }) {
         ? h(
             'p',
             { class: 'muted small' },
-            game.amHost ? (game.tutorial ? '教学固定使用标准棋盘与 4 条初始线索。' : game.playMode === 'builtin' ? '可以单人开始，也可以先邀请朋友。开始后系统按全桌统一数量自动分发私有初始线索，每人确认准备；开局后不再接受新玩家（观战仍可中途加入）。' : '人齐了就可以开始。开始后每人填写指定数量的初始线索，由房主填写全桌课题名称，然后进入第一轮。') : '等房主点「开始游戏」。',
+            game.amHost ? (game.tutorial ? '教学固定使用标准棋盘与 4 条初始线索。' : game.playMode === 'builtin' ? '可以单人开始，也可以先邀请朋友。开始后系统按全桌统一数量自动分发私有初始线索，每人确认准备；开局后不再接受新玩家（观战仍可中途加入）。' : '人齐了就可以开始。开始后房主要填写全部课题名称和 X行星会议名称；初始线索不为 0 时，每人再填写自己的初始线索。') : '等房主点「开始游戏」。',
           )
         : h('p', { class: 'muted small' }, '至少需要 2 名玩家才能开始；单人玩请用「离开房间」回到单机记录台。'),
       h(
@@ -743,6 +743,51 @@ function spectatorCard({ game }) {
   );
 }
 
+function setupBanner(game) {
+  const count = game.initialClueCount ?? 4;
+  if (game.playMode === 'builtin') return `每人自动分发 ${count} 条初始线索，请确认准备`;
+  if (count === 0) return '房主填写全部课题名称和 X行星会议名称';
+  return `每人填写自己的 ${count} 条初始线索，房主填写全部课题名称和会议名称`;
+}
+
+/** The host cannot leave a subject or a conference title blank. Guests only fill their own clues. */
+function sharedNamesReady(game, draft) {
+  if (!game.amHost) return true;
+  const topics = (draft && draft.topicNames) || {};
+  const headings = (draft && draft.conferenceNames) || {};
+  const sectors = game.conferenceRuleSectors || game.conferenceSectors || [];
+  return TOPIC_IDS.every((id) => String(topics[id] || '').trim())
+    && sectors.every((sector) => String(headings[sector] || '').trim());
+}
+
+function setupClueProgress(game, draft) {
+  const count = game.initialClueCount ?? 4;
+  const clues = (draft && draft.clues) || [];
+  const allowed = (sector) => CLUE_TYPES.filter((type) => type !== Obj.COMET || isCometSector(game.mode, sector));
+  const validClues = clues.filter((clue) => Number.isInteger(clue.sector) && clue.sector >= 0 && clue.sector < game.mode.sectors && allowed(clue.sector).includes(clue.type));
+  const uniqueCount = new Set(validClues.map((clue) => `${clue.sector}:${clue.type}`)).size;
+  const namesReady = sharedNamesReady(game, draft);
+  const cluesReady = count === 0 || (clues.length === count && uniqueCount === count);
+  return { count, clues, validClues, uniqueCount, namesReady, cluesReady };
+}
+
+/** Typing keeps the caret, so the submit control has to follow the draft without a full redraw. */
+function setControlDisabled(el, disabled) {
+  if (!el) return;
+  el.disabled = disabled;
+  if (disabled) el.setAttribute('disabled', '');
+  else if (typeof el.removeAttribute === 'function') el.removeAttribute('disabled');
+  else delete el.attributes.disabled;
+}
+
+function setControlHidden(el, hidden) {
+  if (!el) return;
+  el.hidden = hidden;
+  if (hidden) el.setAttribute('hidden', '');
+  else if (typeof el.removeAttribute === 'function') el.removeAttribute('hidden');
+  else delete el.attributes.hidden;
+}
+
 /** After the start: initial clues + the six subject names, then the first round. */
 function setupCard({ state, api }) {
   const { game, ui } = state;
@@ -768,8 +813,20 @@ function setupCard({ state, api }) {
   }
   const draft = ui.setup || api.setupDraft();
   // edits merge into the live draft (not a stale render-time copy), so several
-  // text fields can be typed into without clobbering each other
-  const patch = (fnOrPatch, quiet = false) => api.patchSetup(fnOrPatch, quiet);
+  // text fields can be typed into without clobbering each other. Quiet edits do
+  // not redraw, so the submit button is refreshed from the draft directly.
+  let submitButton = null;
+  let namesHint = null;
+  const patch = (fnOrPatch, quiet = false) => {
+    const next = api.patchSetup(fnOrPatch, quiet);
+    syncSubmit(next);
+    return next;
+  };
+  const syncSubmit = (nextDraft) => {
+    const progress = setupClueProgress(game, nextDraft);
+    setControlDisabled(submitButton, ui.actionBusy || !progress.namesReady || !progress.cluesReady);
+    setControlHidden(namesHint, progress.namesReady);
+  };
 
   if (mine.ready) {
     return h(
@@ -789,9 +846,8 @@ function setupCard({ state, api }) {
 
   const clues = draft.clues || [];
   const clueTypes = sector => CLUE_TYPES.filter(type => type !== Obj.COMET || isCometSector(game.mode, sector));
-  const validClues = clues.filter(clue => Number.isInteger(clue.sector) && clue.sector >= 0 && clue.sector < game.mode.sectors && clueTypes(clue.sector).includes(clue.type));
-  const uniqueCount = new Set(validClues.map(clue => `${clue.sector}:${clue.type}`)).size;
-  const canSubmit = !ui.actionBusy && (count === 0 || (clues.length === count && uniqueCount === count));
+  const { validClues, uniqueCount, namesReady, cluesReady } = setupClueProgress(game, draft);
+  const canSubmit = !ui.actionBusy && namesReady && cluesReady;
   const clueRows = clues.map((clue, index) =>
     h(
       'div',
@@ -837,9 +893,9 @@ function setupCard({ state, api }) {
         'h3',
         {},
         '① 初始线索',
-        h('span', { class: 'muted small' }, ` 全桌统一 ${count} 条，请填写相同数量的不同排除线索`),
+        h('span', { class: 'muted small' }, count === 0 ? ' 本局不发初始线索' : ` 每人填写自己的 ${count} 条，互不相同`),
       ),
-      count === 0 ? h('p', { class: 'muted small' }, '房主设置了 0 条初始线索，无需填写。') : clueRows,
+      count === 0 ? h('p', { class: 'muted small' }, '初始线索数为 0 条，这一项不用填。') : clueRows,
       count === 0
         ? null
         : h(
@@ -864,18 +920,21 @@ function setupCard({ state, api }) {
     ),
     sharedInfoBlock({ game, api, readOnly: !game.amHost, draft, onPatch: (fn) => patch(fn, true) }),
     readyList(game),
+    (namesHint = h('p', { class: 'pick-status', role: 'status', hidden: namesReady }, '请填写全部 A–F 课题名称，以及每一场 X行星会议的名称')),
     h(
       'div',
       { class: 'action-buttons' },
-      h(
+      (submitButton = h(
         'button',
         { class: 'btn primary', disabled: !canSubmit, onclick: () => {
-          if (!canSubmit) return;
+          const live = state.ui.setup || api.setupDraft();
+          const progress = setupClueProgress(game, live);
+          if (state.ui.actionBusy || !progress.namesReady || !progress.cluesReady) return;
           patch({ noClues: count === 0, ...(count === 0 ? { clues: [] } : {}) }, true);
           api.submitSetup();
         } },
         game.readyCount + 1 >= game.playerCount ? '完成，开始第一轮' : '完成，等其他人',
-      ),
+      )),
     ),
   );
 }
@@ -944,13 +1003,13 @@ function sharedInfoBlock({ game, api, readOnly, onPatch, draft }) {
       'h3',
       {},
       '② 研究课题名称',
-      h('span', { class: 'muted small' }, readOnly ? ' 全桌一致，由房主填写' : ' A–F 六个课题名，全桌一致，只有房主填'),
+      h('span', { class: 'muted small' }, readOnly ? ' 全桌一致，由房主填写' : ' A–F 六个名称都要填，全桌一致，只有房主填'),
     ),
     nameInputs,
     h(
       'h3',
       { class: 'shared-gap' },
-      '③ X行星会议',
+      '③ X行星会议名称',
       h('span', { class: 'muted small' }, confSectors.length > 1 ? ` 本局 2 场：${confSectors.join('、')} 号扇区` : ` 本局 1 场：${confSectors.join('、')} 号扇区`),
     ),
     confInputs,
@@ -959,7 +1018,7 @@ function sharedInfoBlock({ game, api, readOnly, onPatch, draft }) {
       { class: 'muted small' },
       readOnly
         ? '标题全桌可见；会议召开后才公开线索正文，可在行动栏补记。'
-        : '标题从开局就公开，留空使用默认名称。线索正文与标题分开记录，会议召开后才公开；也可以开会时在行动栏补记。',
+        : '每一场会议都要填写名称，开局后全桌可见。线索正文可以现在写，也可以等会议召开时再补。',
     ),
   );
 }
@@ -1816,9 +1875,10 @@ export function renderModal({ state, api }) {
         ? h('div', { class: 'builtin-mode-note' }, h('strong', {}, '标准 12 扇区 · 固定 4 条初始线索'), h('p', { class: 'muted small' }, '固定一名真人与 Bot「领航员」。按教学指南完成真实行动，手动观看 Bot 演示，直到定位与结算；退出后恢复原房间与笔记。需要本地服务保持运行。'))
         : h('div', { class: 'lobby-field' }, h('span', { class: 'muted small' }, '新一局用哪块棋盘'), modePicker({ value: picked.id, onPick: (id) => api.setUi({ modeId: id }) })),
       playMode === 'builtin' && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
+      playMode === 'record' && initialCluePicker({ value: ui.initialClueCount ?? 4, onPick: count => api.setUi({ initialClueCount: count }) }),
       playMode === 'builtin' && botOpponentPicker({ value: ui.withBots ?? 0, onPick: count => api.setUi({ withBots: count }) }),
       playMode === 'builtin' && h('div', { class: 'builtin-mode-note' }, h('strong', {}, `${picked.name} ${picked.sectors} 扇区 · 单人解谜`), h('p', { class: 'muted small' }, '初始线索 → 观测／研究 → 论文评审 → 定位 → 自动揭晓。需要本地服务保持运行；可加 Bot 对手，或多人对到「联机」创建内置谜题房间。不会覆盖你的本地记录存档。')),
-      playMode === 'record' && h('p', { class: 'muted small' }, '开始新记录局会清空本地记录与手写笔记，时间回到第 1 圈／第 1 格。可用顶栏「加载存档」从本机存档库恢复。'),
+      playMode === 'record' && h('p', { class: 'muted small' }, '开始后先填写全部研究课题名称和 X行星会议名称。初始线索不为 0 时，还要写下自己的初始线索。本地记录与手写笔记会清空，时间回到第 1 圈／第 1 格。'),
       state.remote && playMode !== 'tutorial' && h('p', { class: 'muted small' }, '开始新局会离开当前房间视图，但不会删除房间或影响其他玩家。'),
       lobby.error && h('p', { class: 'lobby-error' }, lobby.error),
     );

@@ -5,7 +5,7 @@
 // time-track events (X planet conferences and theory phases).
 import { h, mount } from './dom.js';
 import { Obj, CODE, LABEL, SURVEY_TYPES, INITIAL_CLUE_TYPES } from '../src/types.js';
-import { arcSectors, isCometSector, mod, visibleSectorsAt } from '../src/rules.js';
+import { arcSectors, INITIAL_CLUE_COUNTS, isCometSector, mod, visibleSectorsAt } from '../src/rules.js';
 import {
   completeTheoryPhase,
   consoleSummary,
@@ -21,6 +21,7 @@ import {
   recordTheory,
   recordWait,
   revealObjects,
+  TOPIC_IDS,
   undoLast,
 } from '../src/console.js';
 import { renderBoard } from './board.js';
@@ -54,6 +55,7 @@ import {
   saveTutorialReturn,
   sendAction,
 } from '../src/online.js';
+import { validateRecordSetup } from '../src/room.js';
 import {
   renderActionPanel,
   renderHeader,
@@ -113,6 +115,14 @@ export function createApp(root) {
     session.revealedObjects = Array.isArray(save.revealedObjects) ? save.revealedObjects : null;
     session.windowTime = Number.isFinite(save.windowTime) ? save.windowTime : null;
     session.frozenTimes = save.frozenTimes || null;
+    if (INITIAL_CLUE_COUNTS.includes(save.initialClueCount)) session.initialClueCount = save.initialClueCount;
+    if (Array.isArray(save.initialClues)) session.initialClues = save.initialClues;
+    if (save.conferenceNames && typeof save.conferenceNames === 'object' && !Array.isArray(save.conferenceNames)) {
+      session.conferenceNames = save.conferenceNames;
+    }
+    if (save.localSetup && INITIAL_CLUE_COUNTS.includes(save.localSetup.initialClueCount)) {
+      session.localSetup = { initialClueCount: save.localSetup.initialClueCount };
+    }
   }
 
   const state = {
@@ -174,15 +184,29 @@ export function createApp(root) {
     return view;
   }
 
+  function clueSyncBag() {
+    if (state.remote) {
+      if (!state.remote.initialClueSync) {
+        const cached = loadNotes(`${notesKey(state.remote)}.initial-clues`);
+        state.remote.initialClueSync = cached && typeof cached === 'object' && !Array.isArray(cached) ? cached : { signature: '', owned: [] };
+      }
+      return state.remote.initialClueSync;
+    }
+    if (!state.initialClueSync) {
+      const cached = loadNotes(`${NOTES_KEY}.initial-clues`);
+      state.initialClueSync = cached && typeof cached === 'object' && !Array.isArray(cached) ? cached : { signature: '', owned: [] };
+    }
+    return state.initialClueSync;
+  }
+
   function syncInitialClues(game) {
-    if (!state.remote || game.me !== state.remote.playerId || !game.mySetup?.cluesClaimed) return;
+    if (!game?.mySetup?.cluesClaimed) return;
+    if (state.remote && game.me !== state.remote.playerId) return;
     const keys = [...new Set((game.mySetup.clues || [])
       .filter((clue) => Number.isInteger(clue.sector) && clue.sector >= 0 && clue.sector < game.mode.sectors && INITIAL_CLUE_TYPES.includes(clue.type) && (clue.type !== Obj.COMET || isCometSector(game.mode, clue.sector)))
       .map((clue) => `${clue.sector}:${CODE[clue.type]}`))].sort();
     const signature = JSON.stringify(keys);
-    const cached = state.remote.initialClueSync || loadNotes(`${notesKey(state.remote)}.initial-clues`);
-    const previous = cached && typeof cached === 'object' && !Array.isArray(cached) ? cached : {};
-    state.remote.initialClueSync = previous;
+    const previous = clueSyncBag();
     const owned = new Set(Array.isArray(previous.owned) ? previous.owned : []);
     let restored = false;
     for (const key of owned) {
@@ -207,12 +231,13 @@ export function createApp(root) {
       state.notes[key] = 'no';
       owned.add(key);
     }
-    state.remote.initialClueSync = { signature, owned: [...owned] };
+    previous.signature = signature;
+    previous.owned = [...owned];
     persist();
   }
 
   function writeNote(key, markState) {
-    const sync = state.remote?.initialClueSync;
+    const sync = state.remote?.initialClueSync || state.initialClueSync;
     if (sync?.owned) sync.owned = sync.owned.filter((ownedKey) => ownedKey !== key);
     if (markState === 'yes' || markState === 'no') state.notes[key] = markState;
     else delete state.notes[key];
@@ -315,9 +340,14 @@ export function createApp(root) {
           revealedObjects: session.revealedObjects,
           windowTime: session.windowTime,
           frozenTimes: session.frozenTimes || null,
+          initialClueCount: session.initialClueCount ?? null,
+          initialClues: session.initialClues || null,
+          conferenceNames: session.conferenceNames || null,
+          localSetup: session.localSetup || null,
         }),
       );
       localStorage.setItem(NOTES_KEY, JSON.stringify(state.notes));
+      if (state.initialClueSync) localStorage.setItem(`${NOTES_KEY}.initial-clues`, JSON.stringify(state.initialClueSync));
     } catch {
       /* storage unavailable: keep playing without persistence */
     }
@@ -682,6 +712,7 @@ export function createApp(root) {
 
   /** Submit my initial clues — plus, for the host, the table-wide subjects and notes. */
   async function submitSetup() {
+    if (!state.remote) return submitLocalSetup();
     const ui = state.ui;
     const mine = state.game.mySetup || {};
     const draft = (state.game.playMode !== 'builtin' && ui.setup) || {
@@ -702,6 +733,37 @@ export function createApp(root) {
     if (res.ok && state.ui.setup === submittedDraft) state.ui.setup = null;
     render();
     return res;
+  }
+
+  /** Solo record mode: the only player is the host, so one card starts the sheet. */
+  function submitLocalSetup() {
+    if (!session.localSetup) return { ok: false, error: '现在不是填写开局信息的阶段' };
+    const draft = state.ui.setup || setupDraft();
+    const count = session.localSetup.initialClueCount;
+    const checked = validateRecordSetup(session.mode, {
+      clues: draft.clues,
+      noClues: count === 0,
+      initialClueCount: count,
+      topics: draft.topicNames,
+      conferenceNames: draft.conferenceNames,
+      requireNames: true,
+    });
+    if (!checked.ok) {
+      toast(checked.error, 'bad');
+      return checked;
+    }
+    for (const id of TOPIC_IDS) {
+      session.topics[id] = { ...(session.topics[id] || { clue: '' }), name: checked.topicNames[id], clue: session.topics[id]?.clue || '' };
+    }
+    session.conferenceNames = checked.conferenceNames;
+    session.initialClues = checked.clues;
+    session.initialClueCount = count;
+    session.localSetup = null;
+    state.ui.setup = null;
+    persist();
+    render();
+    toast(count ? `已记录 ${count} 条初始线索，并标到星图` : '课题名称和会议名称已记下', 'ok');
+    return { ok: true };
   }
 
   /** Fill my setup card in again — the other players just keep waiting. */
@@ -733,16 +795,25 @@ export function createApp(root) {
     return { name: '', code: '', busy: false, error: null, spectator: false };
   }
 
+  /** Placeholder titles are not something the host typed, so the opening form starts blank. */
+  function typedConferenceName(sector, value) {
+    const text = String(value || '').trim();
+    return text === `X行星会议 · ${sector} 号` ? '' : text;
+  }
+
   /** The setup card's draft, seeded from the server view the first time it is touched. */
   function setupDraft() {
     const g = state.game || {};
     const mine = g.mySetup || {};
+    const sectors = g.conferenceRuleSectors || g.conferenceSectors || [];
+    const conferenceNames = {};
+    for (const sector of sectors) conferenceNames[sector] = typedConferenceName(sector, g.conferenceNames?.[sector]);
     return {
       clues: (mine.clues || []).map((c) => ({ ...c })),
-      noClues: Boolean(mine.noClues),
+      noClues: Boolean(mine.noClues) || (g.initialClueCount ?? 4) === 0,
       topicNames: { ...(g.topicNames || {}) },
       conferences: { ...(g.conferenceRules || {}) },
-      conferenceNames: { ...(g.conferenceNames || {}) },
+      conferenceNames,
     };
   }
 
@@ -868,6 +939,11 @@ export function createApp(root) {
 
   function consoleAction(action) {
     if (state.remote) return remoteAction(action);
+    if (session.localSetup) {
+      const error = '请先完成开局准备：填写课题名称、会议名称，以及自己的初始线索';
+      toast(error, 'bad');
+      return { ok: false, error };
+    }
     const prevConferences = (consoleView(session).knowledge?.conferences || []).map((entry) => entry.sector);
     const res =
       action.kind === 'survey'
@@ -1147,6 +1223,7 @@ export function createApp(root) {
   function clearNotes() {
     state.notes = {};
     if (state.remote?.initialClueSync) state.remote.initialClueSync.owned = [];
+    if (state.initialClueSync) state.initialClueSync.owned = [];
     if (state.remote) state.remote.pendingTutorialMark = null;
     persist();
     render();
@@ -1156,8 +1233,15 @@ export function createApp(root) {
     if (state.remote?.view.tutorial) return exitTutorial();
     if (state.remote) leaveRoom();
     clearHistoryResults();
+    const count = INITIAL_CLUE_COUNTS.includes(state.ui.initialClueCount) ? state.ui.initialClueCount : 4;
     Object.assign(session, createConsole({ modeId: modeId || session.mode.id }), { seq: 1 });
+    session.localSetup = { initialClueCount: count };
+    session.initialClueCount = count;
+    session.initialClues = [];
+    session.conferenceNames = {};
     state.notes = {};
+    state.initialClueSync = { signature: '', owned: [] };
+    state.ui.setup = null;
     state.ui.modal = null;
     state.ui.selectedSector = null;
     state.ui.researchTopic = null;

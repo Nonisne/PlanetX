@@ -399,7 +399,7 @@ test('a room can be created, joined and played over HTTP', async () => {
   const hostCard = await api(`/api/rooms/${roomId}/action`, {
     method: 'POST',
     token,
-    body: { action: { kind: 'setup', clues: initialClues, topics: { A: '小行星带' } } },
+    body: { action: { kind: 'setup', clues: initialClues, topics: { A: '小行星带', B: '课题B', C: '课题C', D: '课题D', E: '课题E', F: '课题F' }, conferenceNames: { 10: '彗星邻居' } } },
   });
   assert.equal(hostCard.body.ok, true);
   assert.equal(hostCard.body.view.phase, 'setup', 'still waiting for the seated guest, not the spectator');
@@ -447,7 +447,7 @@ test('HTTP room create join play continues with subject names after spectator co
   const hostCard = await api(`/api/rooms/${roomId}/action`, {
     method: 'POST',
     token,
-    body: { action: { kind: 'setup', clues: initialClues, topics: { A: '小行星带' } } },
+    body: { action: { kind: 'setup', clues: initialClues, topics: { A: '小行星带', B: '课题B', C: '课题C', D: '课题D', E: '课题E', F: '课题F' }, conferenceNames: { 10: '彗星邻居' } } },
   });
   assert.equal(hostCard.body.ok, true);
   assert.deepEqual(hostCard.body.view.mySetup.clues, initialClues, 'my own initial clues come back');
@@ -670,15 +670,20 @@ test('the host picks the board when the room is created', async () => {
 });
 
 test('the SSE stream pushes the shared state to every player', async (context) => {
-  const created = await api('/api/rooms', { method: 'POST', body: { name: '观测者' } });
+  const created = await api('/api/rooms', { method: 'POST', body: { name: '观测者', initialClueCount: 0 } });
   const { roomId, token } = created.body;
   const guest = (await api(`/api/rooms/${roomId}/join`, { method: 'POST', body: { name: '同行者' } })).body;
   await api(`/api/rooms/${roomId}/action`, { method: 'POST', token, body: { action: { kind: 'start-game' } } });
-  await api(`/api/rooms/${roomId}/action`, { method: 'POST', token, body: { action: { kind: 'setup', noClues: true, topics: {} } } });
+  const hostReady = await api(`/api/rooms/${roomId}/action`, {
+    method: 'POST',
+    token,
+    body: { action: { kind: 'setup', noClues: true, topics: { A: '课题A', B: '课题B', C: '课题C', D: '课题D', E: '课题E', F: '课题F' }, conferenceNames: { 10: '彗星邻居' } } },
+  });
+  assert.equal(hostReady.body.ok, true, hostReady.body.error);
   await api(`/api/rooms/${roomId}/action`, {
     method: 'POST',
     token: guest.token,
-    body: { action: { kind: 'setup', noClues: true, topics: {} } },
+    body: { action: { kind: 'setup', noClues: true } },
   });
 
   const stream = await openViewStream(context, created.body);

@@ -75,7 +75,15 @@ function setupState(modeId = 'standard', initialClueCount = 4) {
     },
     submitSetup() {
       calls.push(state.ui.setup);
-      return applyRoomAction(room, room.hostId, { kind: 'setup', ...state.ui.setup });
+      const draft = state.ui.setup || {};
+      return applyRoomAction(room, room.hostId, {
+        kind: 'setup',
+        clues: draft.clues,
+        noClues: draft.noClues,
+        topics: draft.topicNames,
+        conferences: draft.conferences,
+        conferenceNames: draft.conferenceNames,
+      });
     },
   };
   return { room, state, api, calls };
@@ -130,10 +138,10 @@ test('tutorial creation is fixed to standard and four clues without inviting oth
   }
 });
 
-test('record room creation offers shared counts without adding an unused control to solo record reset', () => {
+test('record creation offers the shared clue count for a solo sheet and a room', () => {
   const state = stateFor({}, { playMode: 'record', modal: { kind: 'start' }, initialClueCount: 8 });
   let modal = renderModal({ state, api: {} });
-  assert.equal(elements(modal, element => element.attributes?.['data-initial-clue-count'] !== undefined).length, 0);
+  assert.equal(elements(modal, element => element.attributes?.['data-initial-clue-count'] !== undefined).length, 4);
   state.ui.modal.kind = 'lobby';
   modal = renderModal({ state, api: {} });
   assert.equal(elements(modal, element => element.attributes?.['data-initial-clue-count'] !== undefined).length, 4);
@@ -198,6 +206,11 @@ test('record setup requires exactly the shared count of unique valid exclusions 
     assert.ok(state.ui.setup.clues.every(clue => clue.type !== Obj.COMET || isCometSector(state.game.mode, clue.sector)));
     panel = render();
     assert.equal(button(panel, '+ 添加一条线索'), undefined);
+    assert.equal(button(panel, '完成').attributes.disabled, '', 'names are still required');
+    const sectors = state.game.conferenceRuleSectors || state.game.conferenceSectors || [];
+    state.ui.setup.topicNames = Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((id) => [id, `课题${id}`]));
+    state.ui.setup.conferenceNames = Object.fromEntries(sectors.map((sector) => [sector, `会议${sector}`]));
+    panel = render();
     assert.equal(button(panel, '完成').attributes.disabled, undefined);
     const validClues = state.ui.setup.clues.map(clue => ({ ...clue }));
     state.ui.setup.clues[3] = { ...state.ui.setup.clues[0] };
@@ -207,7 +220,8 @@ test('record setup requires exactly the shared count of unique valid exclusions 
     fire(button(panel, '完成'), 'click');
     assert.equal(calls.length, 0);
     state.ui.setup.clues = validClues;
-    fire(button(render(), '完成'), 'click');
+    const submitted = api.submitSetup();
+    assert.equal(submitted.ok, true, submitted.error);
     assert.equal(calls.length, 1);
     assert.equal(room.setup[room.hostId].ready, true);
     assert.deepEqual(room.setup[room.hostId].clues, validClues);
@@ -230,10 +244,14 @@ test('record exclusion selectors omit impossible comets and clear a stale comet 
 
 test('zero-clue record setup needs no personal opt-out or extra rows', () => {
   const { state, api, calls } = setupState('standard', 0);
-  const panel = renderActionPanel({ state, api });
+  let panel = renderActionPanel({ state, api });
   assert.match(textOf(panel), /0 条/);
   assert.equal(button(panel, '+ 添加一条线索'), undefined);
   assert.equal(elements(panel, element => element.attributes?.type === 'checkbox').length, 0);
+  assert.equal(button(panel, '完成').attributes.disabled, '');
+  state.ui.setup.topicNames = Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((id) => [id, `课题${id}`]));
+  state.ui.setup.conferenceNames = { 10: '彗星的邻居' };
+  panel = renderActionPanel({ state, api });
   fire(button(panel, '完成'), 'click');
   assert.equal(calls.length, 1);
 });

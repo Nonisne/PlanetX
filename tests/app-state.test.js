@@ -98,6 +98,11 @@ function setupBuiltinPlayTable(context) {
   return { room, host, identity, app };
 }
 
+const recordNames = {
+  topicNames: Object.fromEntries(['A', 'B', 'C', 'D', 'E', 'F'].map((id) => [id, `课题${id}`])),
+  conferenceNames: { 10: '彗星的邻居' },
+  conferences: {},
+};
 const validClues = [
   { sector: 0, type: Obj.GAS_CLOUD }, { sector: 1, type: Obj.ASTEROID },
   { sector: 2, type: Obj.COMET }, { sector: 3, type: Obj.DWARF_PLANET },
@@ -156,7 +161,7 @@ test('a non-zero multi-sector survey does not auto-mark anything', async (contex
 
 test('accepted record clues synchronize, survive refresh, and preserve later manual marks', async () => {
   const { app, room, host, identity } = setupTable();
-  app.api.setUi({ setup: { clues: validClues, noClues: false, topicNames: {}, conferences: {} } });
+  app.api.setUi({ setup: { clues: validClues, noClues: false, ...recordNames } });
   assert.equal((await app.api.submitSetup()).ok, true);
   for (const clue of validClues) assert.equal(app.state.notes[keyOf(clue)], 'no');
   assert.equal(app.state.ui.setup, null);
@@ -173,7 +178,7 @@ test('accepted record clues synchronize, survive refresh, and preserve later man
 
 test('record resubmission removes only revoked automatic exclusions, including after reload', async () => {
   const { app, room, host, identity } = setupTable();
-  app.api.setUi({ setup: { clues: validClues, noClues: false } });
+  app.api.setUi({ setup: { clues: validClues, noClues: false, ...recordNames } });
   assert.equal((await app.api.submitSetup()).ok, true);
   app.api.setMark(0, CODE[Obj.GAS_CLOUD], 'no');
   const refreshed = createApp(makeElement('div'));
@@ -182,7 +187,7 @@ test('record resubmission removes only revoked automatic exclusions, including a
   refreshed.render();
   assert.equal((await refreshed.api.reopenSetup()).ok, true);
   const changed = [validClues[2], validClues[3], { sector: 4, type: Obj.DWARF_PLANET }, { sector: 5, type: Obj.ASTEROID }];
-  refreshed.api.setUi({ setup: { clues: changed, noClues: false } });
+  refreshed.api.setUi({ setup: { clues: changed, noClues: false, ...recordNames } });
   assert.equal((await refreshed.api.submitSetup()).ok, true);
   assert.equal(refreshed.state.notes[keyOf(validClues[0])], 'no', 'an explicitly retained manual mark is not removed');
   assert.equal(refreshed.state.notes[keyOf(validClues[1])], undefined, 'the revoked automatic mark is removed');
@@ -199,7 +204,7 @@ test('another player setup view never marks the current player notes', () => {
 
 test('refresh repairs missing automatic marks but not deliberately cleared manual marks', async () => {
   const { app, room, host, identity } = setupTable();
-  app.api.setUi({ setup: { clues: validClues, noClues: false } });
+  app.api.setUi({ setup: { clues: validClues, noClues: false, ...recordNames } });
   assert.equal((await app.api.submitSetup()).ok, true);
   await app.api.setMark(validClues[0].sector, CODE[validClues[0].type], 'maybe');
   const refreshed = createApp(makeElement('div'));
@@ -212,7 +217,7 @@ test('refresh repairs missing automatic marks but not deliberately cleared manua
 
 test('invalid initial-mark metadata does not prevent accepted clues from restoring', async () => {
   const { app, room, host, identity } = setupTable();
-  app.api.setUi({ setup: { clues: validClues, noClues: false } });
+  app.api.setUi({ setup: { clues: validClues, noClues: false, ...recordNames } });
   assert.equal((await app.api.submitSetup()).ok, true);
   storage.set(`planetx.notes.${room.id}.${host.id}.initial-clues`, 'null');
   const refreshed = createApp(makeElement('div'));

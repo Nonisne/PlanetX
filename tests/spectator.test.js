@@ -51,7 +51,7 @@ function recordPlaying() {
   const guest = addPlayer(room, '选手');
   accept(room, host, { kind: 'start-game' });
   for (const player of [host, guest]) {
-    accept(room, player, { kind: 'setup', noClues: true, topics: { A: '课题' } });
+    accept(room, player, { kind: 'setup', noClues: true });
   }
   return { room, host, guest };
 }
@@ -121,7 +121,7 @@ test('spectators do not block research declarations or setup readiness', () => {
   assert.equal(Object.keys(room.setup).length, 2);
   assert.equal(room.setup[host.id] != null, true);
   for (const player of [host, guest]) {
-    accept(room, player, { kind: 'setup', noClues: true, topics: { A: '课题' } });
+    accept(room, player, { kind: 'setup', noClues: true });
   }
   assert.equal(room.phase, 'play');
   assert.equal(viewFor(room, host.id).playerCount, 2);
