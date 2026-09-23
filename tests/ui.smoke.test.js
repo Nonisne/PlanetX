@@ -610,6 +610,75 @@ test('app renders the record console', () => {
   globalThis.__root = root;
 });
 
+test('topbar exposes manual save and load archive actions', async () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  assert.ok(findButton(root, '存档'), 'save archive button');
+  assert.ok(findButton(root, '加载存档'), 'load archive button');
+
+  app.session.entries = [{ id: 1, type: 'wait', cost: 1 }];
+  app.session.seq = 2;
+  app.state.notes = { '2:A': 'no' };
+  app.persist();
+
+  const downloads = [];
+  const originalCreate = globalThis.URL?.createObjectURL;
+  const originalRevoke = globalThis.URL?.revokeObjectURL;
+  globalThis.URL = globalThis.URL || {};
+  globalThis.URL.createObjectURL = () => 'blob:archive-test';
+  globalThis.URL.revokeObjectURL = () => {};
+  const originalCreateElement = document.createElement;
+  document.createElement = (tag) => {
+    const el = originalCreateElement(tag);
+    if (tag === 'a') {
+      el.click = () => downloads.push({ href: el.href, download: el.download });
+    }
+    return el;
+  };
+  try {
+    const saved = await app.api.saveArchive();
+    assert.equal(saved.ok, true);
+    assert.equal(downloads.length, 1);
+    assert.match(downloads[0].download, /planetx-console/);
+  } finally {
+    document.createElement = originalCreateElement;
+    if (originalCreate) globalThis.URL.createObjectURL = originalCreate;
+    else delete globalThis.URL.createObjectURL;
+    if (originalRevoke) globalThis.URL.revokeObjectURL = originalRevoke;
+    else delete globalThis.URL.revokeObjectURL;
+  }
+
+  const pack = {
+    version: 1,
+    kind: 'console',
+    savedAt: new Date().toISOString(),
+    console: {
+      modeId: 'expert',
+      entries: [{ id: 1, type: 'wait', cost: 1 }, { id: 2, type: 'wait', cost: 1 }],
+      locate: null,
+      status: 'open',
+      windowOffset: 2,
+      windowTime: null,
+      topics: {},
+      seq: 3,
+      theoryPhases: [],
+      completedTheoryPhases: [],
+      undoBarrier: 0,
+      revealedObjects: null,
+      frozenTimes: null,
+    },
+    notes: { '5:C': 'yes' },
+  };
+  const loaded = await app.api.loadArchive(pack);
+  assert.equal(loaded.ok, true);
+  assert.equal(app.session.mode.id, 'expert');
+  assert.equal(app.session.entries.length, 2);
+  assert.equal(app.session.windowOffset, 2);
+  assert.deepEqual(app.state.notes, { '5:C': 'yes' });
+});
+
 test('the record console renders the action launcher and the time-track markers', () => {
   const { api, state } = globalThis.__app;
   api.setUi({ modal: null });

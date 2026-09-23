@@ -27,6 +27,7 @@ const files = [
   'official-rules.test.js',
   'review-order.test.js',
   'room.test.js',
+  'archive.test.js',
   'server.test.js',
   'client.test.js',
   'client-config.test.js',

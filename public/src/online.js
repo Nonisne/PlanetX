@@ -43,6 +43,20 @@ export async function createRoom({ name, modeId = 'standard', playMode = 'record
   return res;
 }
 
+/** Fetch a full room snapshot for a manual archive (includes tokens / puzzle). */
+export async function fetchRoomArchive(room) {
+  const res = await request(`/rooms/${room.roomId}/archive?token=${encodeURIComponent(room.token)}`);
+  if (!res.room) throw Object.assign(new Error(res.error || '无法导出房间存档'), { status: res.status });
+  return res.room;
+}
+
+/** Put an archived room back into server memory if the code is free. */
+export async function restoreArchivedRoom(snapshot) {
+  const res = await request('/rooms/restore', { method: 'POST', body: { room: snapshot } });
+  if (!res.roomId) throw Object.assign(new Error(res.error || '无法恢复房间'), { status: res.status });
+  return res;
+}
+
 export async function joinRoom(roomId, name, { spectator = false } = {}) {
   const res = await request(`/rooms/${String(roomId || '').trim().toUpperCase()}/join`, {
     method: 'POST',

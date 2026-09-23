@@ -1378,6 +1378,27 @@ select {
   flex: 1 1 100%;
 }
 
+.archive-seat-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.archive-seat-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  text-align: left;
+  border-width: 2px;
+}
+
+.archive-seat-btn .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 .player-chip {
   display: inline-flex;
   align-items: center;
