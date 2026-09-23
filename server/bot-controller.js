@@ -85,7 +85,7 @@ export function detachBotController(room) {
  * human has been waiting and the laggard changes).
  */
 function stepBots(room, controller) {
-  if (!room || room.tutorialState) return; // the tutorial script runs its own bot
+  if (!room || room.playMode !== 'builtin' || room.tutorialState) return;
   const bots = botPlayers(room);
   if (!bots.length) return;
 

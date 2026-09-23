@@ -59,6 +59,26 @@ function passResearchPhase(room) {
   assert.equal(room.research, null);
 }
 
+test('record mode bots never act, even if a seat is marked bot', () => {
+  const room = createRoom({ playMode: 'record', hostName: '甲', initialClueCount: 0 });
+  const marked = addPlayer(room, 'Bot1');
+  marked.bot = true;
+  applyRoomAction(room, room.hostId, { kind: 'start-game' });
+  applyRoomAction(room, room.hostId, { kind: 'setup', noClues: true });
+  applyRoomAction(room, marked.id, { kind: 'setup', noClues: true });
+  assert.equal(room.phase, 'play');
+  assert.equal(decideAction(room, marked.id, viewFor(room, marked.id)), null);
+  const before = room.session.entries.length;
+  attachBotController(room, { tickMs: 20 });
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      detachBotController(room);
+      assert.equal(room.session.entries.length, before);
+      resolve();
+    }, 80);
+  });
+});
+
 test('a bot-driven builtin room completes its setup before any turn action', () => {
   const room = builtinWithBots(1);
   applyRoomAction(room, room.hostId, { kind: 'start-game' });

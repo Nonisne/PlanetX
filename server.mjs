@@ -96,9 +96,10 @@ function cleanupRooms() {
   }
 }
 
-/** Wire bot actions into the same revision / SSE path humans use. */
+/** Wire bot actions into the same revision / SSE path humans use. Record mode never runs bots. */
 function attachRoomBots(room) {
-  if (!room?.players?.some((player) => player.bot)) return;
+  if (!room || room.playMode !== 'builtin' || room.tutorialState) return;
+  if (!room.players?.some((player) => player.bot)) return;
   const tickMs = Number(process.env.BOT_TICK_MS);
   attachBotController(room, {
     ...(Number.isFinite(tickMs) && tickMs > 0 ? { tickMs } : {}),
@@ -152,8 +153,8 @@ async function handleApi(req, res, url) {
         return true;
       }
     } else if (body.withBots != null && body.withBots !== 0 && body.withBots !== false) {
-      // record / tutorial: bots are not supported, but treat as a soft ignore
-      requestedBots = 0;
+      sendJson(res, 400, { error: 'Bot 对手只用于内置谜题，记录模式和教学不接受 withBots' });
+      return true;
     }
     const room = playMode === 'tutorial' ? createTutorialRoom({ hostName: body.name })
       : createRoom({ modeId, hostName: body.name, playMode, puzzle, initialClueCount });
@@ -191,6 +192,9 @@ async function handleApi(req, res, url) {
       return true;
     }
     room.id = String(room.id).toUpperCase();
+    if (room.playMode !== 'builtin') {
+      for (const player of room.players || []) player.bot = false;
+    }
     rooms.set(room.id, room);
     attachRoomBots(room);
     sendJson(res, 200, { roomId: room.id, restored: true, occupied: false, summary: roomSummary(room) });
