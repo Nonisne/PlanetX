@@ -218,7 +218,42 @@ export function spendKey(room, player) {
   for (const entry of room.session.entries) {
     if (entry.actorId === player.id && (entry.cost || 0) > 0) last = Math.max(last, entry.id);
   }
-  return { clock: timeOf(room.session, player.id), last, join: room.players.indexOf(player) };
+  return { clock: timeOf(room.session, player.id), last, join: openingTieBreak(room, player) };
+}
+
+/**
+ * Who goes first when every pawn is still on the same month and nobody has
+ * spent time yet. `openingOrder` is shuffled at start-game; players who sit
+ * down afterwards sort after that list. Without a shuffle, join order is used.
+ */
+function openingTieBreak(room, player) {
+  const join = room.players.indexOf(player);
+  const order = room.openingOrder;
+  if (!Array.isArray(order) || !order.length) return join;
+  const index = order.indexOf(player.id);
+  if (index >= 0) return index;
+  return order.length + (join < 0 ? 0 : join);
+}
+
+/** Fisher–Yates. `random` returns a number in [0, 1). */
+export function shuffleIds(ids, random = Math.random) {
+  const out = ids.slice();
+  for (let index = out.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    const swap = out[index];
+    out[index] = out[swapIndex];
+    out[swapIndex] = swap;
+  }
+  return out;
+}
+
+function openingRandom(room) {
+  if (typeof room.rng === 'function') return room.rng;
+  // Browser pages have no `process`. The pin exists so the Node test suite
+  // keeps a stable host-first tie-break unless a room sets `room.rng`.
+  const env = typeof process !== 'undefined' && process.env ? process.env.PLANETX_TEST_PIN_OPENING : '';
+  if (env === '1') return () => 1 - Number.EPSILON;
+  return Math.random;
 }
 
 /** Earlier arrival inside one sector wins: both the turn and the publishing order use it. */
@@ -609,6 +644,13 @@ function applyAction(room, playerId, action) {
     }
     room.setup = cards;
     room.phase = 'setup';
+    // Record and builtin both shuffle the opening tie-break. Seat index (and
+    // therefore which builtin starting clues a player receives) stays put.
+    // Tutorial rooms set `room.rng` to a constant so the scripted human still opens.
+    room.openingOrder = shuffleIds(seated.map((participant) => participant.id), openingRandom(room));
+    // `rng` is a function and must not stay on the room: saves and
+    // structuredClone copies used by tests cannot clone functions.
+    delete room.rng;
     return { ok: true, phase: room.phase };
   }
 
@@ -1150,6 +1192,7 @@ export function serializeRoom(room) {
     pendingConferences: room.pendingConferences || null,
     setup: room.setup,
     hostId: room.hostId,
+    openingOrder: Array.isArray(room.openingOrder) ? room.openingOrder.slice() : null,
     endgame: room.endgame || null,
     revision: room.revision || 0,
     tutorialState: room.tutorialState || null,

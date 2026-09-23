@@ -193,6 +193,8 @@ export function createTutorialRoom({ hostName = '新手' } = {}) {
   const room = createRoom({ modeId: 'standard', hostName, playMode: 'builtin', puzzle: createTutorialPuzzle(), initialClueCount: 4 });
   const bot = addPlayer(room, '领航员 Bot');
   bot.bot = true;
+  // The lesson script assumes the human opens. Keep that tie-break fixed.
+  room.rng = () => 1 - Number.EPSILON;
   for (const [playerId, action] of [
     [room.hostId, { kind: 'start-game' }],
     [room.hostId, { kind: 'setup' }],

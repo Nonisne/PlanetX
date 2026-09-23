@@ -16,7 +16,8 @@ import assert from 'node:assert/strict';
 import { addPlayer, applyRoomAction, createRoom, currentPlayer, playerById, viewFor } from '../public/src/room.js';
 import { BUILTIN_MAX_PLAYERS } from '../public/src/rules.js';
 import { Obj } from '../public/src/types.js';
-import { computeKnowledge, decideAction } from '../server/bot.js';
+import { computeKnowledge, decideAction, preferredSurveyStart } from '../server/bot.js';
+import { crossedEvents } from '../public/src/phases.js';
 import { attachBotController, detachBotController } from '../server/bot-controller.js';
 
 // ---- fixtures ---------------------------------------------------------------
@@ -64,6 +65,7 @@ function builtinWithBots(botCount = 1, opts = {}) {
 }
 
 function startGame(room) {
+  if (typeof room.rng !== 'function') room.rng = () => 1 - Number.EPSILON;
   applyRoomAction(room, room.hostId, { kind: 'start-game' });
   for (const player of room.players) {
     applyRoomAction(room, player.id, { kind: 'claim-initial-clues', count: 4 });
@@ -398,7 +400,7 @@ test('bot does not locate without enough evidence', () => {
   assert.ok(room.players.includes(bot));
 });
 
-test('final-theories publishes confident picks instead of final-pass when capacity allows', () => {
+test('final action locates a certain X or otherwise passes', () => {
   const room = builtinWithBots(1);
   startGame(room);
   const bot = room.players.find((p) => p.bot);
@@ -521,34 +523,27 @@ test('multiple bots do not all pick the same first research topic', () => {
 
 // ---- event guard -----------------------------------------------------------
 
-test('bot does not step forward across an unprepared event sector', () => {
+test('bot does not survey across an unprepared theory marker when waiting would stay short of it', () => {
   const room = builtinWithBots(1);
   startGame(room);
   const bot = room.players.find((p) => p.bot);
-  // walk to a bot turn
-  while (currentPlayer(room)?.id !== bot.id) {
-    const turn = currentPlayer(room);
-    if (!turn) break;
-    applyRoomAction(room, turn.id, { kind: 'wait' });
-  }
-  for (let guard = 0; guard < 30; guard++) {
-    const turn = currentPlayer(room);
-    if (!turn || turn.id !== bot.id) break;
-    const view = viewFor(room, turn.id);
-    const action = decideAction(room, turn.id, view);
-    if (action && action.kind === 'wait') {
-      const windowTime = view.windowTime ?? view.time;
-      const nextSector = (windowTime + 1) % view.mode.sectors + 1;
-      const theorySectors = view.mode.id === 'expert' ? [3, 6, 9, 12, 15, 18] : [3, 6, 9, 12];
-      const conferenceSectors = view.mode.id === 'expert' ? [7, 16] : [10];
-      const wouldCrossTheory = theorySectors.includes(nextSector);
-      const wouldCrossConference = conferenceSectors.includes(nextSector);
-      assert.equal(wouldCrossTheory || wouldCrossConference, false, `bot waited across an unprepared event sector ${nextSector}`);
-    }
-    if (!action) break;
-    const result = applyRoomAction(room, bot.id, action);
-    assert.ok(result.ok, result.error);
-  }
+  // Host opens, then the bot researches (cost 1). Host steps again so the bot
+  // is the laggard at month 1, with research blocked as the previous action.
+  // A survey from there crosses theory sector 3; a wait does not.
+  assert.equal(applyRoomAction(room, room.hostId, { kind: 'wait' }).ok, true);
+  const research = decideAction(room, bot.id, viewFor(room, bot.id));
+  assert.equal(research.kind, 'research');
+  assert.equal(applyRoomAction(room, bot.id, research).ok, true);
+  assert.equal(applyRoomAction(room, room.hostId, { kind: 'wait' }).ok, true);
+  assert.equal(currentPlayer(room).id, bot.id);
+  const view = viewFor(room, bot.id);
+  const action = decideAction(room, bot.id, view);
+  assert.ok(action);
+  assert.notEqual(action.kind, 'survey');
+  assert.notEqual(action.kind, 'target');
+  const cost = action.kind === 'research' || action.kind === 'wait' ? 1 : 99;
+  const crossed = crossedEvents(view.mode, view.windowTime, view.windowTime + cost);
+  assert.equal(crossed.some((event) => event.kind === 'theory' || event.kind === 'conference'), false);
 });
 
 // ---- controller wiring -----------------------------------------------------
@@ -572,6 +567,70 @@ test('controller onApplied fires after a successful bot action', async () => {
   await new Promise((resolve) => setTimeout(resolve, 250));
   teardown();
   assert.ok(notices.length >= 1, 'onApplied should observe at least one bot action');
+});
+
+test('builtin opening order can give the first turn to a bot', () => {
+  const room = builtinWithBots(1);
+  room.rng = () => 0;
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  assert.deepEqual(room.openingOrder, [bot.id, room.hostId]);
+  assert.equal(currentPlayer(room).id, bot.id);
+});
+
+test('a bot declares research even when it is not the turn cursor', () => {
+  const room = builtinWithBots(2);
+  startGame(room);
+  for (let guard = 0; guard < 80 && !room.research; guard += 1) {
+    const turn = currentPlayer(room);
+    if (!turn) break;
+    assert.equal(applyRoomAction(room, turn.id, { kind: 'wait' }).ok, true);
+  }
+  assert.ok(room.research, 'a research phase must open');
+  const bot = room.players.find((player) => player.bot && player.id !== currentPlayer(room)?.id);
+  assert.ok(bot, 'one bot should be waiting while someone else holds the cursor');
+  const view = viewFor(room, bot.id);
+  assert.equal(view.isMyTurn, false);
+  const action = decideAction(room, bot.id, view);
+  assert.equal(action && action.kind, 'research-declare');
+  assert.equal(applyRoomAction(room, bot.id, action).ok, true);
+});
+
+test('bot locates on its turn when X and both neighbours are each a single object', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  view.knowledge = {
+    surveys: [],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.GAS_CLOUD, review: 'correct', revealed: true },
+      { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
+      { sector: 6, objectType: Obj.ASTEROID, review: 'correct', revealed: true },
+    ],
+  };
+  const action = decideAction(room, bot.id, view);
+  assert.deepEqual(action, { kind: 'locate', sector: 5, left: Obj.GAS_CLOUD, right: Obj.ASTEROID });
+});
+
+test('without a certain locate the final action is a pass', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  room.phase = 'final';
+  const view = viewFor(room, bot.id);
+  view.endgame = { isMyTurn: true, quota: 2 };
+  const action = decideAction(room, bot.id, view);
+  assert.equal(action.kind, 'final-pass');
+});
+
+test('bots in the same room prefer different survey origins', () => {
+  const starts = [0, 1, 2].map((seat) => preferredSurveyStart(`bot-${seat}`, seat, 12));
+  assert.ok(new Set(starts).size >= 2, `survey origins collided: ${starts.join(',')}`);
 });
 
 test('detach clears the timer and the controller reference', () => {
