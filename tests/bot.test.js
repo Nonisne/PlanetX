@@ -14,9 +14,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { addPlayer, applyRoomAction, createRoom, currentPlayer, playerById, viewFor } from '../public/src/room.js';
-import { BUILTIN_MAX_PLAYERS } from '../public/src/rules.js';
+import { BUILTIN_MAX_PLAYERS, isCometSector } from '../public/src/rules.js';
 import { Obj } from '../public/src/types.js';
-import { computeKnowledge, decideAction, preferredSurveyStart } from '../server/bot.js';
+import { buildConferenceFeatures, buildResearchFeatures, researchClueText } from '../server/research.js';
+import { computeKnowledge, decideAction, parseResearchClue, pickTheoryPicks, preferredSurveyStart } from '../server/bot.js';
 import { attachBotController, detachBotController } from '../server/bot-controller.js';
 
 // ---- fixtures ---------------------------------------------------------------
@@ -172,19 +173,20 @@ test('bot views never expose other players private surveys / scans', () => {
 
 // ---- knowledge model --------------------------------------------------------
 
-test('computeKnowledge starts with all six objects possible in every sector', () => {
+test('computeKnowledge starts from public comet sectors and otherwise leaves sectors open', () => {
   const room = builtinWithBots(1);
   startGame(room);
   const bot = room.players.find((p) => p.bot);
   const view = viewFor(room, bot.id);
-  // the bot starts with clues that only touch a handful of sectors, so most
-  // sectors should still have the full 6-object candidate set
   const k = computeKnowledge(room, bot.id, view);
+  const clued = new Set((view.mySetup?.clues || []).map((clue) => clue.sector));
   let untouched = 0;
   for (let sector = 0; sector < view.mode.sectors; sector += 1) {
-    if (k.possible(sector).length === 6) untouched += 1;
+    const possible = k.possible(sector);
+    if (!isCometSector(view.mode, sector)) assert.equal(possible.includes(Obj.COMET), false, `sector ${sector + 1} cannot hold a comet`);
+    if (!clued.has(sector) && isCometSector(view.mode, sector) && possible.length === 6) untouched += 1;
   }
-  assert.ok(untouched >= 8, `expected most sectors to remain untouched; only ${untouched}/12 untouched`);
+  assert.ok(untouched >= 1, 'a comet sector the opening clues never touch still has all six objects');
 });
 
 test('computeKnowledge drops objects excluded by the bot initial clues', () => {
@@ -250,6 +252,81 @@ test('computeKnowledge shrinks a sector when the bot survey reports count === ra
   assert.deepEqual(k.possible(0), [Obj.ASTEROID], 'survey count === range length locks the sector to that type');
 });
 
+test('computeKnowledge reads the surveyType field stored on a real survey', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((p) => p.bot);
+  room.session.entries.push({
+    id: room.session.seq++,
+    type: 'survey',
+    surveyType: Obj.GAS_CLOUD,
+    start: 4,
+    size: 1,
+    count: 0,
+    actorId: bot.id,
+    cost: 4,
+    time: 0,
+  });
+  const k = computeKnowledge(room, bot.id, viewFor(room, bot.id));
+  assert.equal(k.possible(4).includes(Obj.GAS_CLOUD), false);
+});
+
+test('an asteroid next to a sector that cannot be an asteroid forces the other neighbour', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((p) => p.bot);
+  const view = viewFor(room, bot.id);
+  view.mySetup = { ...view.mySetup, clues: [...(view.mySetup?.clues || []), { sector: 4, type: Obj.ASTEROID }] };
+  view.knowledge = {
+    ...view.knowledge,
+    surveys: [{ actorId: bot.id, surveyType: Obj.ASTEROID, start: 5, size: 1, count: 1 }],
+  };
+  const k = computeKnowledge(room, bot.id, view);
+  assert.deepEqual(k.possible(5), [Obj.ASTEROID]);
+  assert.deepEqual(k.possible(6), [Obj.ASTEROID]);
+});
+
+test('a band clue plus known asteroids rules out sectors the band cannot cover', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((p) => p.bot);
+  const view = viewFor(room, bot.id);
+  view.knowledge = {
+    ...view.knowledge,
+    surveys: [
+      { actorId: bot.id, surveyType: Obj.ASTEROID, start: 0, size: 1, count: 1 },
+      { actorId: bot.id, surveyType: Obj.ASTEROID, start: 1, size: 1, count: 1 },
+    ],
+    clues: [{ actorId: bot.id, type: 'research', text: '所有小行星都位于一段不超过 6 个连续扇区内。', topic: 'A' }],
+  };
+  const k = computeKnowledge(room, bot.id, view);
+  assert.equal(k.possible(0).includes(Obj.ASTEROID), true);
+  assert.equal(k.possible(6).includes(Obj.ASTEROID), false);
+  assert.equal(k.possible(7).includes(Obj.ASTEROID), false);
+});
+
+test('parseResearchClue understands every published research and conference sentence', () => {
+  const counts = { asteroid: 4, comet: 2, gasCloud: 2, dwarfPlanet: 4, empty: 5, planetX: 1 };
+  const features = [...buildResearchFeatures(18, counts), ...buildConferenceFeatures(18)];
+  assert.ok(features.length > 20);
+  for (const feature of features) {
+    const parsed = parseResearchClue(researchClueText(feature));
+    assert.equal(parsed?.kind, feature.kind, researchClueText(feature));
+    assert.equal(parsed?.objectType, feature.objectType, researchClueText(feature));
+    if (feature.kind === 'band') {
+      assert.equal(parsed.length, feature.length);
+    } else {
+      assert.equal(parsed.neighborType, feature.neighborType, researchClueText(feature));
+      assert.equal(parsed.relation, feature.relation, researchClueText(feature));
+      // "X行星与至少一个小行星相邻" is what both some and all publish, so the
+      // sentence itself only supports the weaker reading.
+      const quantifier = feature.objectType === Obj.PLANET_X && feature.quantifier !== 'none' ? 'some' : feature.quantifier;
+      assert.equal(parsed.quantifier, quantifier, researchClueText(feature));
+      if (feature.relation === 'within') assert.equal(parsed.range, feature.range, researchClueText(feature));
+    }
+  }
+});
+
 // ---- scan prioritisation ---------------------------------------------------
 
 test('bot only scans sectors it has narrowed to 2 or 3 candidates', () => {
@@ -265,14 +342,13 @@ test('bot only scans sectors it has narrowed to 2 or 3 candidates', () => {
       const view = viewFor(room, turn.id);
       const action = decideAction(room, turn.id, view);
       if (!action) continue;
-      const result = applyRoomAction(room, turn.id, action);
-      assert.ok(result.ok, result.error);
       if (action.kind === 'target') {
-        const k = computeKnowledge(room, bot.id, viewFor(room, bot.id));
-        const possible = k.possible(action.sector);
+        const possible = computeKnowledge(room, bot.id, view).possible(action.sector);
         assert.ok(possible.length >= 2 && possible.length <= 3, `target sector ${action.sector} should have 2-3 candidates, has ${possible.length}`);
         scanned = true;
       }
+      const result = applyRoomAction(room, turn.id, action);
+      assert.ok(result.ok, result.error);
     } else {
       applyRoomAction(room, turn.id, { kind: 'wait' });
     }
@@ -297,15 +373,15 @@ test('bot prefers to scan sectors it has itself narrowed via survey', () => {
       const view = viewFor(room, turn.id);
       const action = decideAction(room, turn.id, view);
       if (!action) continue;
+      if (action.kind === 'target') {
+        // the scan must be on a sector the bot itself surveyed (within the bot's narrowed set)
+        const possible = computeKnowledge(room, bot.id, view).possible(action.sector);
+        assert.equal(possible.length >= 2 && possible.length <= 3, true, `target sector ${action.sector} should be narrowed; possible = ${JSON.stringify(possible)}`);
+        scanDone = true;
+      }
       const result = applyRoomAction(room, turn.id, action);
       assert.ok(result.ok, result.error);
       if (action.kind === 'survey' && action.size === 1) botSurveyedSector = action.start;
-      if (action.kind === 'target') {
-        // the scan must be on a sector the bot itself surveyed (within the bot's narrowed set)
-        const k = computeKnowledge(room, bot.id, viewFor(room, bot.id));
-        assert.equal(k.possible(action.sector).length >= 2 && k.possible(action.sector).length <= 3, true, `target sector ${action.sector} should be narrowed; possible = ${JSON.stringify(k.possible(action.sector))}`);
-        scanDone = true;
-      }
     } else {
       applyRoomAction(room, turn.id, { kind: 'wait' });
     }
@@ -315,6 +391,44 @@ test('bot prefers to scan sectors it has itself narrowed via survey', () => {
 });
 
 // ---- theory selection -------------------------------------------------------
+
+test('bot declares no theory when it has no positive evidence', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((p) => p.bot);
+  const picks = pickTheoryPicks(room, bot.id, viewFor(room, bot.id));
+  assert.deepEqual(picks, []);
+});
+
+test('bot publishes the sector a one-sector survey identified, not sector 1', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((p) => p.bot);
+  const view = viewFor(room, bot.id);
+  view.knowledge = {
+    ...view.knowledge,
+    surveys: [{ actorId: bot.id, surveyType: Obj.GAS_CLOUD, start: 7, size: 1, count: 1 }],
+  };
+  const picks = pickTheoryPicks(room, bot.id, view);
+  assert.ok(picks.length >= 1);
+  assert.equal(picks[0].sector, 7);
+  assert.equal(picks[0].type, Obj.GAS_CLOUD);
+  assert.equal(picks.some((pick) => pick.sector === 0), false);
+});
+
+test('a dense asteroid survey is guessed inside that arc', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((p) => p.bot);
+  const view = viewFor(room, bot.id);
+  view.knowledge = {
+    ...view.knowledge,
+    surveys: [{ actorId: bot.id, surveyType: Obj.ASTEROID, start: 5, size: 3, count: 2 }],
+  };
+  const picks = pickTheoryPicks(room, bot.id, view);
+  assert.ok(picks.length >= 1);
+  assert.ok(picks.every((pick) => [5, 6, 7].includes(pick.sector) && pick.type === Obj.ASTEROID), JSON.stringify(picks));
+});
 
 test('bot never publishes a theory whose type is out of stock', () => {
   const room = builtinWithBots(1);
