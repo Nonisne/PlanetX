@@ -1399,6 +1399,68 @@ select {
   flex: 0 0 auto;
 }
 
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  margin: 8px 0 4px;
+}
+
+.archive-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(9, 14, 28, 0.45);
+}
+
+.archive-row.pending-delete {
+  border-color: rgba(255, 107, 129, 0.55);
+  background: rgba(255, 107, 129, 0.08);
+}
+
+.archive-row-main {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.archive-row-main strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.archive-row-main p {
+  margin: 0;
+}
+
+.archive-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.archive-empty {
+  margin: 16px 0;
+  text-align: center;
+}
+
+.btn.bad {
+  color: #ffd3da;
+  border-color: rgba(255, 107, 129, 0.55);
+  background: rgba(255, 107, 129, 0.16);
+}
+
+.btn.bad:hover:not(:disabled) {
+  background: rgba(255, 107, 129, 0.28);
+}
+
 .player-chip {
   display: inline-flex;
   align-items: center;

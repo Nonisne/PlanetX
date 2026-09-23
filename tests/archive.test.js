@@ -3,8 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
   ARCHIVE_VERSION,
+  LIBRARY_KEY,
+  addArchiveSlot,
   applyConsoleArchive,
   buildArchive,
+  deleteArchiveSlot,
+  getArchiveSlot,
+  listArchiveSlots,
   notesForSeat,
   parseArchive,
   seatToken,
@@ -12,6 +17,13 @@ import {
 import { createConsole } from '../public/src/console.js';
 import { createRoom, addPlayer, serializeRoom, hydrateRoom, applyRoomAction, viewFor } from '../public/src/room.js';
 import { Obj } from '../public/src/types.js';
+
+const memory = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (memory.has(key) ? memory.get(key) : null),
+  setItem: (key, value) => memory.set(key, String(value)),
+  removeItem: (key) => memory.delete(key),
+};
 
 test('console archive round-trips session fields and notes', () => {
   const session = createConsole({ modeId: 'standard' });
@@ -57,6 +69,26 @@ test('online archive keeps seat tokens and per-seat notes', () => {
   assert.deepEqual(notesForSeat(archive, room.players[0].id), {});
   assert.equal(parseArchive(archive).ok, true);
   assert.match(parseArchive({ version: 99, kind: 'console', console: {} }).error, /版本/);
+});
+
+test('local archive library can list, load and delete slots', () => {
+  memory.clear();
+  const session = createConsole({ modeId: 'standard' });
+  session.entries = [{ id: 1, type: 'wait', cost: 1 }];
+  const archive = buildArchive({ session, notes: { '3:A': 'no' } });
+  const saved = addArchiveSlot(archive, { label: '测试单机' });
+  assert.equal(saved.ok, true);
+  assert.equal(saved.slot.label, '测试单机');
+  assert.equal(listArchiveSlots().length, 1);
+  assert.equal(listArchiveSlots()[0].id, saved.slot.id);
+  assert.equal(getArchiveSlot(saved.slot.id).archive.console.entries.length, 1);
+  assert.ok(memory.get(LIBRARY_KEY));
+
+  const removed = deleteArchiveSlot(saved.slot.id);
+  assert.equal(removed.ok, true);
+  assert.equal(listArchiveSlots().length, 0);
+  assert.equal(getArchiveSlot(saved.slot.id), null);
+  assert.equal(deleteArchiveSlot(saved.slot.id).ok, false);
 });
 
 test('serializeRoom / hydrateRoom round-trip preserves play state without listeners', () => {
