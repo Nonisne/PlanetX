@@ -459,7 +459,12 @@ test('tutorial research and declaration targets highlight only the expected topi
   state.game.research = { id: 'phase-3', sector: 3, myCount: null, declaredCount: 0, playerCount: 2, quota: 1, maxDeclare: 1 };
   state.game.theoryOptions = [{ sector: 4, types: [Obj.GAS_CLOUD] }];
   const actions = [];
-  panel = renderActionPanel({ state, api: { consoleAction(action) { actions.push(action); } } });
+  panel = renderMapPanel({
+    state,
+    api: { consoleAction(action) { actions.push(action); }, recordTheoryReview() {}, openMark() {}, setUi() {} },
+    boardEl: makeElement('div'),
+    onClearNotes: null,
+  });
   targets = elements(panel, element => element.tagName === 'button' && element.attributes?.['data-tutorial-target'] === 'count');
   assert.equal(targets.length, 1);
   fire(targets[0], 'click');
@@ -473,7 +478,12 @@ test('tutorial paper targets highlight the expected sector and object without su
   state.ui.theorySector = 4;
   state.ui.theoryType = Obj.ASTEROID;
   const actions = [];
-  const panel = renderActionPanel({ state, api: { setUi(patch) { Object.assign(state.ui, patch); }, consoleAction(action) { actions.push(action); } } });
+  const panel = renderMapPanel({
+    state,
+    api: { setUi(patch) { Object.assign(state.ui, patch); }, consoleAction(action) { actions.push(action); }, recordTheoryReview() {}, openMark() {} },
+    boardEl: makeElement('div'),
+    onClearNotes: null,
+  });
   const target = elements(panel, element => element.tagName === 'button' && element.attributes?.['data-tutorial-target'] === 'type')[0];
   assert.ok(target);
   assert.match(textOf(target), /气体云/);

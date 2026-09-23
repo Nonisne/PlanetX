@@ -24,7 +24,7 @@ import {
   undoLast,
 } from '../src/console.js';
 import { renderBoard } from './board.js';
-import { renderConferencesPanel, renderTheoriesPanel, renderTopicsPanel } from './notesheet.js';
+import { renderConferencesPanel, renderTopicsPanel } from './notesheet.js';
 import { renderTutorialGuide } from './tutorial.js';
 import { clearRoom, clearTutorialReturn, createRoom, fetchView, joinRoom, loadRoom, loadTutorialReturn, openStream, saveRoom, saveTutorialReturn, sendAction } from '../src/online.js';
 import {
@@ -127,6 +127,8 @@ export function createApp(root) {
       modeId: null,
       playMode: 'record',
       actionBusy: false,
+      // conference clue waiting to popup after a blocking modal closes
+      pendingConference: null,
     },
   };
   let lobbyRequestId = 0;
@@ -236,7 +238,6 @@ export function createApp(root) {
             onReview: recordTheoryReview,
           }),
           renderConferencesPanel({ state, api }),
-          renderTheoriesPanel({ state, api, game: state.game, onReview: recordTheoryReview }),
         ),
         h('div', { class: 'col-map' }, renderMapPanel({ state, api, boardEl, onClearNotes: clearNotes })),
         h('aside', { class: 'col-actions', 'aria-label': '当前行动' }, renderTutorialGuide({ game: state.game, api }), renderActionPanel({ state, api })),
@@ -311,6 +312,7 @@ export function createApp(root) {
 
   function applyServerResult(res, action) {
     if (res.view) {
+      const prev = state.remote?.view;
       applyRemoteView(res.view);
       if (res.ok) {
         const kind = action && action.kind;
@@ -320,6 +322,7 @@ export function createApp(root) {
           state.ui.pick = [];
           state.ui.finalTheories = [];
         }
+        noticeNewConferences(prev, res.view);
         const resultEntry = res.view.log?.find((entry) => entry.id === res.entry?.id);
         if (res.warning) toast(res.warning, 'bad');
         else if (res.view.playMode === 'builtin' && resultEntry && ['survey', 'target', 'research', 'located'].includes(resultEntry.type)) {
@@ -356,6 +359,8 @@ export function createApp(root) {
           toast(`已跳到 ${res.view.turnPlayerName || '下一位'}`, 'ok');
         } else if (kind?.startsWith('tutorial-')) {
           toast(res.view.tutorial.completed ? '教学完成，可以查看本局得分' : res.view.tutorial.title, 'clue');
+        } else if (state.ui.modal?.kind === 'conference') {
+          /* conference popup already carries the news */
         } else toast('已记录', 'ok');
       } else if (res.error) {
         toast(res.error, 'bad');
@@ -431,6 +436,7 @@ export function createApp(root) {
         if (notice && notice.kind === 'player-joined') toast(`${notice.name} 加入了房间`, 'clue');
         if (notice && notice.kind === 'action' && notice.by && notice.byId !== state.remote.playerId) toast(`${notice.by} 记录了${ACTION_NAMES[notice.action] || '一步'}`, 'info');
         followTurn(prev, state.remote.view);
+        noticeNewConferences(prev, state.remote.view);
         render();
       },
     });
@@ -744,13 +750,51 @@ export function createApp(root) {
     }
   }
 
+  function conferenceModalPayload(entry, game) {
+    if (!entry) return null;
+    return {
+      kind: 'conference',
+      label: game?.conferenceNames?.[entry.sector] || entry.label || `X行星会议 · ${entry.sector} 号`,
+      text: entry.text,
+      sector: entry.sector,
+    };
+  }
+
+  const BLOCKING_MODALS = new Set(['help', 'start', 'lobby', 'locate', 'result']);
+
+  /** Popup when a new conference clue becomes public so it is not only a silent left-rail update. */
+  function noticeNewConferences(prev, next) {
+    if (!next?.knowledge) return;
+    const before = new Set((prev?.knowledge?.conferences || []).map((entry) => entry.sector));
+    const added = (next.knowledge.conferences || []).filter((entry) => !before.has(entry.sector));
+    if (!added.length) return;
+    const latest = added[added.length - 1];
+    const current = state.ui.modal;
+    if (current && BLOCKING_MODALS.has(current.kind)) {
+      state.ui.pendingConference = latest;
+      if (!state.ui.toast) toast(`X行星会议已召开（${latest.sector} 号扇区），关闭当前窗口后查看线索`, 'clue');
+      return;
+    }
+    state.ui.pendingConference = null;
+    state.ui.modal = conferenceModalPayload(latest, next);
+  }
+
+  function flushPendingConference() {
+    const pending = state.ui.pendingConference;
+    if (!pending || state.ui.modal) return;
+    state.ui.pendingConference = null;
+    state.ui.modal = conferenceModalPayload(pending, state.game || state.remote?.view);
+  }
+
   function setUi(patch) {
+    const closingModal = 'modal' in patch && patch.modal === null;
     Object.assign(state.ui, patch);
     if (patch.surveyType === Obj.COMET && state.ui.action === 'survey') {
       const game = view();
       state.ui.pick = (state.ui.pick || []).filter((sector) => isCometSector(game.mode, sector) && visibleOf(game).includes(sector));
       state.ui.selectedSector = state.ui.pick.at(-1) ?? null;
     }
+    if (closingModal) flushPendingConference();
     render();
   }
 
@@ -782,6 +826,7 @@ export function createApp(root) {
 
   function consoleAction(action) {
     if (state.remote) return remoteAction(action);
+    const prevConferences = (consoleView(session).knowledge?.conferences || []).map((entry) => entry.sector);
     const res =
       action.kind === 'survey'
         ? recordSurvey(session, action)
@@ -814,6 +859,8 @@ export function createApp(root) {
       state.ui.action = 'idle';
       state.ui.pick = [];
     }
+    const nextView = consoleView(session);
+    noticeNewConferences({ knowledge: { conferences: prevConferences.map((sector) => ({ sector })) } }, nextView);
     if (res.warning) {
       toast(res.warning, 'bad');
     } else if (action.kind === 'undo') {
@@ -832,7 +879,10 @@ export function createApp(root) {
     else if (action.kind === 'survey') toast('已记录勘测结果', 'ok');
     else if (action.kind === 'target') toast('已记录扫描结果', 'ok');
     else if (action.kind === 'research') toast('已记录研究线索', 'ok');
-    else if (action.kind === 'conference') toast('已记录会议线索', 'ok');
+    else if (action.kind === 'conference' || state.ui.modal?.kind === 'conference') {
+      /* conference popup already shows the clue */
+    }
+    else toast('已记录', 'ok');
 
     persist();
     render();
@@ -1142,6 +1192,7 @@ export function createApp(root) {
         }
         if (state.ui.modal && !target.closest('.modal') && !target.closest('[data-modal-trigger]')) {
           state.ui.modal = null;
+          flushPendingConference();
           changed = true;
         }
         if (changed) render();
@@ -1153,6 +1204,7 @@ export function createApp(root) {
       if (!state.ui.mark && !state.ui.modal) return;
       state.ui.mark = null;
       state.ui.modal = null;
+      flushPendingConference();
       render();
     });
   }

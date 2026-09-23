@@ -33,6 +33,7 @@ import { scoreWinners } from '../src/score.js';
 import { renderActionHistory } from './history.js';
 import { renderDisclosure } from './disclosure.js';
 import { tutorialExpected, tutorialFocusProps, tutorialTargetProps } from './tutorial.js';
+import { renderTheoriesPanel } from './notesheet.js';
 
 const ALL_SECTOR_CODES = ['planetX', 'asteroid', 'comet', 'gasCloud', 'dwarfPlanet', 'empty'].map((t) => CODE[t]);
 const TOPIC_IDS = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F']);
@@ -165,6 +166,7 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
   const expected = tutorialExpected(game);
   const expectedCode = CODE[expected?.type || expected?.objectType] || expected?.code;
   const hasTheories = (game.knowledge.theories || []).length > 0;
+  const research = researchPhase(game);
   const sector = ui.selectedSector;
   const target = sector !== null && sector !== undefined ? game.knowledge.targets.find((t) => t.sector === sector) : null;
   const visible = sector !== null && sector !== undefined ? (game.visible || []).includes(sector) : false;
@@ -232,6 +234,13 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
       : null,
   );
 
+  const researchRail = h(
+    'aside',
+    { class: `map-research-rail${research ? ' phase-open' : ''}`, 'aria-label': '学术研究' },
+    research ? researchCard({ game, research, ui, api }) : null,
+    renderTheoriesPanel({ state, api, game, onReview: api.recordTheoryReview }),
+  );
+
   return h(
     'section',
     { class: 'card map-card', ...tutorialFocusProps(game, game.tutorial?.focus === 'timeline' ? 'timeline' : 'map') },
@@ -243,13 +252,16 @@ export function renderMapPanel({ state, api, boardEl, onClearNotes }) {
     ),
     h(
       'div',
-      { class: 'map-card-body' },
-      h('div', { class: 'board-wrap' }, boardEl, renderMarkPopover({ state, api })),
-      h('div', { class: 'map-side' }, detail, strip, legend,
-        h('div', { class: 'map-meta' }, noteActions,
-          renderDisclosure(
-            { state, api, id: 'map-events', title: '时间轨位置', heading: 'span', className: 'map-event-reference' },
-            h('p', { class: 'muted small' }, `会议扇区 ${(game.conferenceSectors || []).join('、')} · 理论阶段 ${(game.theorySectors || []).join('、')}${hasTheories ? ' · 理论轨道 4→1' : ''}`),
+      { class: `map-card-body${research ? ' with-research-phase' : ''}` },
+      researchRail,
+      h('div', { class: 'map-main' },
+        h('div', { class: 'board-wrap' }, boardEl, renderMarkPopover({ state, api })),
+        h('div', { class: 'map-side' }, detail, strip, legend,
+          h('div', { class: 'map-meta' }, noteActions,
+            renderDisclosure(
+              { state, api, id: 'map-events', title: '时间轨位置', heading: 'span', className: 'map-event-reference' },
+              h('p', { class: 'muted small' }, `会议扇区 ${(game.conferenceSectors || []).join('、')} · 理论阶段 ${(game.theorySectors || []).join('、')}${hasTheories ? ' · 理论轨道 4→1' : ''}`),
+            ),
           ),
         ),
       ),
@@ -532,7 +544,7 @@ export function renderRecordPanel({ state, api }) {
       h('p', { class: 'muted small' }, '完成时所有未评审论文一起向内推进一格，即使本阶段没有新论文。'),
     );
   }
-  // while the research phase runs, the publishing flow replaces the action launcher
+  // research phase lives inside the star map (left rail); action panel only points there
   const blocked = !research && turnBlocked(game);
   const waiting = blocked ? `现在轮到 ${game.turnPlayerName || '别人'} 行动` : null;
 
@@ -541,7 +553,13 @@ export function renderRecordPanel({ state, api }) {
     { class: 'card action-card record-card', ...tutorialFocusProps(game, tutorial?.focus) },
     h('h2', {}, '行动', closed ? h('span', { class: 'muted small' }, '（本局已结束）') : null),
     review,
-    research ? researchCard({ game, research, ui, api }) : null,
+    research
+      ? h(
+          'div',
+          { class: 'turn-wait good research-map-hint' },
+          '学术研究阶段进行中：请在星图左侧完成选篇与提交。',
+        )
+      : null,
     blocked
       ? h(
           'div',
@@ -1723,13 +1741,17 @@ export function renderModal({ state, api }) {
       ),
     ];
   } else if (modal.kind === 'conference') {
-    title = modal.label || '学术会议';
+    title = modal.label || 'X行星会议';
     body = h(
       'div',
       { class: 'modal-body' },
-      h('p', { class: 'muted' }, '全体与会者同时得知一条关于 X行星的规律：'),
+      Number.isInteger(modal.sector)
+        ? h('p', { class: 'muted' }, `天窗已离开 ${modal.sector} 号会议扇区，全体同时得知一条关于 X行星的规律：`)
+        : h('p', { class: 'muted' }, '全体与会者同时得知一条关于 X行星的规律：'),
       h('blockquote', { class: 'clue-quote' }, modal.text),
+      h('p', { class: 'muted small' }, '线索已写入星图左侧「X行星会议」栏，可随时回看。'),
     );
+    actions = [h('button', { class: 'btn primary', onclick: close }, '知道了')];
   } else if (modal.kind === 'result' && game.kind === 'console') {
     title = '定位已记录';
     const summary = api.consoleSummary();

@@ -309,6 +309,14 @@ h3 {
   .col-info {
     display: flex;
   }
+  .map-card-body,
+  .map-card-body.with-research-phase {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .map-research-rail {
+    max-height: none;
+    order: -1;
+  }
 }
 
 .card {
@@ -330,9 +338,50 @@ h3 {
 /* ---------- star map ---------- */
 .map-card-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
+}
+
+.map-card-body.with-research-phase {
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+}
+
+.map-research-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-height: min(72vh, 720px);
+  overflow: auto;
+  padding: 2px 2px 2px 0;
+}
+
+.map-research-rail.phase-open {
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(167, 139, 250, 0.06);
+}
+
+.map-research-rail .theories-card,
+.map-research-rail .research-open {
+  margin: 0;
+}
+
+.map-research-rail > .research-open {
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 10px;
+  background: transparent;
+  border-bottom: 1px solid rgba(167, 139, 250, 0.28);
+}
+
+.map-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .map-side {
@@ -1408,6 +1457,10 @@ select {
   font-size: 9.5px;
   font-weight: 700;
   fill: #06101f;
+}
+
+.research-map-hint {
+  margin-bottom: 8px;
 }
 
 /* the research phase card and its running list of submissions */
