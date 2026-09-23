@@ -361,7 +361,6 @@ export function renderConsoleStatus({ state, api }) {
   const researchOpen = pendingEvents.theory && (game.research || game.theoryPhaseOpen) ? pendingEvents.theory : null;
   const conferenceOpen = pendingEvents.conference && game.conference;
   const dueConference = pendingEvents.conference && !conferenceOpen ? pendingEvents.conference : null;
-  const turnDisabled = !open || Boolean(researchOpen) || reviewOpen || turnBlocked(game);
 
   return h(
     'section',
@@ -430,7 +429,6 @@ export function renderConsoleStatus({ state, api }) {
     renderDisclosure(
       { state, api, id: 'status-tools', title: game.playMode === 'builtin' ? '时间轨与模式说明' : '校准与记录说明', className: 'status-tools', heading: 'span' },
       h('div', { class: 'status-actions' },
-      game.playMode !== 'builtin' && h('button', { class: 'btn', disabled: turnDisabled, onclick: () => api.consoleAction({ kind: 'wait' }) }, '前进 1 个时间单位'),
       game.playMode !== 'builtin' && h('button', { class: 'btn ghost', disabled: !open, onclick: () => api.nudgeWindow(-1), title: '按实体版的天窗位置手动回退一格' }, '天窗 ◀'),
       game.playMode !== 'builtin' && h('button', { class: 'btn ghost', disabled: !open, onclick: () => api.nudgeWindow(1), title: '按实体版的天窗位置手动前进一格' }, '天窗 ▶'),
       game.playMode !== 'builtin' && h(
