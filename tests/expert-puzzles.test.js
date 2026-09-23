@@ -324,9 +324,11 @@ test('expert generation certifies every complete-observation peer with two indep
       researchKinds.add(feature.kind === 'band' ? 'band' : feature.relation);
       assert.ok(ORDINARY_TYPES.includes(feature.objectType));
       if (feature.kind === 'band') {
+        const span = minimumBandLength(puzzle.objects, feature.objectType);
         assert.notEqual(feature.objectType, Obj.DWARF_PLANET, 'the expert base rules already fix the dwarf band');
-        assert.ok(feature.length <= 6, `${topic.clue} is too wide to be a useful expert research clue`);
-        assert.equal(feature.length, minimumBandLength(puzzle.objects, feature.objectType), topic.clue);
+        assert.ok(span <= 8, `${topic.clue} describes a spread wider than eight sectors`);
+        assert.ok(feature.length >= 6 && feature.length <= 8, topic.clue);
+        assert.equal(feature.length, Math.max(span, 6), topic.clue);
       }
       if (feature.kind === 'relation') assert.ok(ORDINARY_TYPES.includes(feature.neighborType));
       assert.equal(predicateValue(feature, puzzle.objects), true);

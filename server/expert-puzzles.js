@@ -2,9 +2,11 @@ import { Obj } from '../public/src/types.js';
 import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, researchClueText } from './research.js';
 
 const SECTOR_COUNT = 18;
-// A band that covers more than a third of the expert circle barely rules anything out.
-// Dwarf planets are already fixed to an exact six-sector band by the base rules.
-const USEFUL_BAND_LENGTH = 6;
+// Expert band clues stay inside 6–8 sectors. Shorter than 6 pins a group of four
+// into one block; longer than 8 leaves the groups far enough apart to be nearly
+// useless. Dwarf planets already have an exact six-sector band in the base rules.
+const BAND_FLOOR = 6;
+const BAND_CEILING = 8;
 const FULL_MASK = (1 << SECTOR_COUNT) - 1;
 const MAX_ATTEMPTS = 256;
 const DEFAULT_MAX_NODES = 20000000;
@@ -186,19 +188,24 @@ function certifiedConferences(masks, features, selectIndex) {
 
 function selectResearch(masks, features, selectIndex) {
   const topics = new Map();
-  const tightBands = new Map();
+  const bandsByKey = new Map();
   for (const feature of features) {
     if (researchFeatureValue(feature, masks, SECTOR_COUNT) !== 1) continue;
     if (feature.kind === 'band') {
-      if (feature.objectType === Obj.DWARF_PLANET || feature.length > USEFUL_BAND_LENGTH) continue;
-      const current = tightBands.get(feature.topicKey);
-      if (!current || feature.length < current.length) tightBands.set(feature.topicKey, feature);
+      if (feature.objectType === Obj.DWARF_PLANET) continue;
+      if (!bandsByKey.has(feature.topicKey)) bandsByKey.set(feature.topicKey, []);
+      bandsByKey.get(feature.topicKey).push(feature);
       continue;
     }
     if (!topics.has(feature.topicKey)) topics.set(feature.topicKey, []);
     topics.get(feature.topicKey).push(feature);
   }
-  for (const [key, feature] of tightBands) topics.set(key, [feature]);
+  for (const [key, choices] of bandsByKey) {
+    const span = Math.min(...choices.map((feature) => feature.length));
+    if (span > BAND_CEILING) continue;
+    const published = choices.find((feature) => feature.length === Math.max(span, BAND_FLOOR));
+    if (published) topics.set(key, [published]);
+  }
   if (topics.size < 6) return null;
   const bandTopics = [...topics.keys()].filter((key) => topics.get(key)[0].kind === 'band');
   const relationTopics = [...topics.keys()].filter((key) => topics.get(key)[0].kind === 'relation');
