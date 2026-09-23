@@ -24,10 +24,11 @@ export async function listModes() {
   return res.modes || [];
 }
 
-export async function createRoom({ name, modeId = 'standard', playMode = 'record', initialClueCount = 4 }) {
+export async function createRoom({ name, modeId = 'standard', playMode = 'record', initialClueCount = 4, withBots = 0 }) {
   if (playMode === 'tutorial') {
     modeId = 'standard';
     initialClueCount = 4;
+    withBots = 0;
   }
   if (playMode === 'builtin' || playMode === 'tutorial') {
     const capabilities = await request('/modes');
@@ -35,8 +36,15 @@ export async function createRoom({ name, modeId = 'standard', playMode = 'record
     if (!capabilities.playModes?.includes(playMode)) throw new Error(`当前服务尚未支持${label}。请在现有对局结束后重启本地服务，再创建新局。`);
     if (playMode === 'builtin' && !capabilities.builtinBoards?.includes(modeId)) throw new Error('当前服务尚未支持所选的内置棋盘。请结束现有对局并重启本地服务后再试。');
     if (!capabilities.initialClueCounts?.includes(initialClueCount)) throw new Error('当前服务尚未支持房主统一分发初始线索。请在现有对局结束后重启本地服务。');
+    if (playMode === 'builtin' && withBots) {
+      const maxBots = capabilities.withBots?.max;
+      if (!Number.isInteger(maxBots)) throw new Error('当前服务尚未支持 Bot 对手。请在现有对局结束后重启本地服务后再试。');
+      if (!Number.isInteger(withBots) || withBots < 0 || withBots > maxBots) throw new Error(`Bot 对手数量只能是 0–${maxBots}`);
+    }
   }
-  const res = await request('/rooms', { method: 'POST', body: { name, modeId, playMode, initialClueCount } });
+  const body = { name, modeId, playMode, initialClueCount };
+  if (playMode === 'builtin' && withBots > 0) body.withBots = withBots;
+  const res = await request('/rooms', { method: 'POST', body });
   if (!res.token) throw new Error(res.error || '创建房间失败');
   if (playMode === 'builtin' && res.view?.playMode !== 'builtin') throw new Error('服务未创建内置谜题，请更新并重启本地服务后再试。');
   if (playMode === 'tutorial' && (res.view?.playMode !== 'builtin' || !res.view?.tutorial)) throw new Error('服务未创建教学局，请更新并重启本地服务后再试。');

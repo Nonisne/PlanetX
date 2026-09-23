@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 
 import { createServer, rooms } from '../server.mjs';
 import { Obj } from '../public/src/types.js';
+import { applyRoomAction, currentPlayer } from '../public/src/room.js';
 import { inMemoryFetch } from './server-dispatch.js';
 
 const server = createServer();
@@ -976,4 +977,63 @@ test('GET archive exports the room and POST restore rehydrates a missing room', 
   assert.equal(view.body.view.me, guest.playerId);
   assert.equal(view.body.view.phase, 'play');
   assert.ok(view.body.view.recordCount >= 1);
+});
+
+test('builtin withBots creates bot seats and SSE receives bot actions', async (context) => {
+  const previousTick = process.env.BOT_TICK_MS;
+  process.env.BOT_TICK_MS = '40';
+  try {
+    const modes = await api('/api/modes');
+    assert.equal(modes.status, 200);
+    assert.equal(modes.body.withBots.max, 3);
+    const created = await api('/api/rooms', {
+      method: 'POST',
+      body: { name: '人类', playMode: 'builtin', modeId: 'standard', initialClueCount: 4, withBots: 1 },
+    });
+    assert.equal(created.status, 200, created.body.error);
+    const host = created.body;
+    const room = rooms.get(host.roomId);
+    assert.equal(room.players.filter((player) => player.bot).length, 1);
+    assert.ok(room.__botController);
+    assert.equal(host.view.players.filter((player) => player.bot).length, 1);
+
+    await acceptedAction(host, { kind: 'start-game' });
+    await acceptedAction(host, { kind: 'claim-initial-clues', count: 4 });
+    await acceptedAction(host, { kind: 'setup' });
+    for (let i = 0; i < 40 && room.phase === 'setup'; i++) {
+      const bot = room.players.find((player) => player.bot);
+      if (bot && !room.setup[bot.id]?.ready) applyRoomAction(room, bot.id, { kind: 'setup' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(room.phase, 'play');
+
+    const stream = await openViewStream(context, host);
+    await stream.nextEvent();
+    const beforeRevision = room.revision || 0;
+    for (let guard = 0; guard < 40; guard++) {
+      const turn = currentPlayer(room);
+      if (turn?.bot) break;
+      if (room.research) {
+        const phaseId = room.research.id;
+        for (const player of room.players) {
+          if (!room.research || room.research.id !== phaseId) break;
+          if (Object.hasOwn(room.research.declares, player.id)) continue;
+          applyRoomAction(room, player.id, { kind: 'research-declare', phaseId, count: 0 });
+        }
+        continue;
+      }
+      if (turn?.id === host.playerId) await acceptedAction(host, { kind: 'wait' });
+      else await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    const pushed = await Promise.race([
+      stream.nextEvent(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timed out waiting for bot SSE')), 4000)),
+    ]);
+    assert.ok(room.revision > beforeRevision, 'bot action should bump revision');
+    assert.ok(pushed.data.view, 'SSE should deliver a view after bot action');
+    assert.equal(pushed.data.notice?.kind, 'action');
+  } finally {
+    if (previousTick === undefined) delete process.env.BOT_TICK_MS;
+    else process.env.BOT_TICK_MS = previousTick;
+  }
 });

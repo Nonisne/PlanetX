@@ -147,6 +147,7 @@ export function createApp(root) {
       toast: null,
       setup: null,
       initialClueCount: 4,
+      withBots: 0,
       // the host's room-dialog draft of the table-wide setup information
       tableInfo: null,
       panels: {},
@@ -510,7 +511,13 @@ export function createApp(root) {
     const lobby = state.ui.lobby;
     beginLobbyRequest();
     try {
-      const room = await createRoom({ name: lobby.name, modeId: state.ui.modeId || 'standard', playMode: state.ui.playMode || 'record', initialClueCount: state.ui.initialClueCount });
+      const room = await createRoom({
+        name: lobby.name,
+        modeId: state.ui.modeId || 'standard',
+        playMode: state.ui.playMode || 'record',
+        initialClueCount: state.ui.initialClueCount,
+        withBots: state.ui.playMode === 'builtin' ? state.ui.withBots || 0 : 0,
+      });
       await enterRoom(room);
       toast(`房间 ${room.roomId} 已创建，把房间码发给同桌的人`, 'clue');
     } catch (err) {
@@ -524,7 +531,13 @@ export function createApp(root) {
     if (state.ui.lobby.busy) return { ok: false };
     beginLobbyRequest();
     try {
-      const room = await createRoom({ name: state.ui.lobby.name || '我', modeId: state.ui.modeId || 'standard', playMode: 'builtin', initialClueCount: state.ui.initialClueCount });
+      const room = await createRoom({
+        name: state.ui.lobby.name || '我',
+        modeId: state.ui.modeId || 'standard',
+        playMode: 'builtin',
+        initialClueCount: state.ui.initialClueCount,
+        withBots: state.ui.withBots || 0,
+      });
       await enterRoom(room);
       return await startGame();
     } catch (error) {

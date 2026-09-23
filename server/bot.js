@@ -45,16 +45,15 @@ export function decideAction(room, botId, view) {
   if (room.phase === 'reveal') return null;
   if (room.phase === 'done') return null;
 
-  // during play the bot must be the one whose turn it is
-  if (!view.isMyTurn) return null;
-
-  // any pending peer reviews must be answered before acting
+  // peer reviews and the research phase are off-turn duties: every seated
+  // player must declare / answer before normal turns resume
   if (Array.isArray(view.myPendingReviews) && view.myPendingReviews.length) {
     return decideReviewAction(view);
   }
-
-  // the research phase overrides normal play: the bot has to declare, then submit
   if (room.research) return decideResearchAction(room, botId, view);
+
+  // during normal play the bot must be the one whose turn it is
+  if (!view.isMyTurn) return null;
 
   // conference prompt: free action, prefer to record it when we are on the clock
   if (room.conference && view.conference && view.conference.sector != null) {

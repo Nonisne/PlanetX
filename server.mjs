@@ -15,7 +15,7 @@ import { addPlayer, applyRoomAction, createRoom, hydrateRoom, playerByToken, roo
 import { BUILTIN_MAX_PLAYERS, INITIAL_CLUE_COUNTS, MODES } from './public/src/rules.js';
 import { createPuzzle, initialCluesFor } from './server/puzzles.js';
 import { applyTutorialAction, createTutorialRoom } from './server/tutorial.js';
-import { attachBotController } from './server/bot-controller.js';
+import { attachBotController, detachBotController } from './server/bot-controller.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const port = Number(process.env.PORT || 5173);
@@ -89,8 +89,24 @@ function cleanupRooms() {
   const cutoff = Date.now() - 1000 * 60 * 60 * 12;
   for (const [id, room] of rooms) {
     const live = room.listeners.size > 0;
-    if (!live && room.createdAt < cutoff) rooms.delete(id);
+    if (!live && room.createdAt < cutoff) {
+      detachBotController(room);
+      rooms.delete(id);
+    }
   }
+}
+
+/** Wire bot actions into the same revision / SSE path humans use. */
+function attachRoomBots(room) {
+  if (!room?.players?.some((player) => player.bot)) return;
+  const tickMs = Number(process.env.BOT_TICK_MS);
+  attachBotController(room, {
+    ...(Number.isFinite(tickMs) && tickMs > 0 ? { tickMs } : {}),
+    onApplied(liveRoom, bot, action) {
+      liveRoom.revision = (liveRoom.revision || 0) + 1;
+      broadcast(liveRoom, { kind: 'action', by: bot.name, byId: bot.id, action: action?.kind });
+    },
+  });
 }
 
 async function handleApi(req, res, url) {
@@ -104,6 +120,7 @@ async function handleApi(req, res, url) {
       builtinBoards: ['standard', 'expert'],
       initialClueCounts: INITIAL_CLUE_COUNTS,
       tutorial: { modeId: 'standard', humanPlayers: 1, botPlayers: 1, initialClueCount: 4 },
+      withBots: { min: 0, max: BUILTIN_MAX_PLAYERS - 1, playMode: 'builtin' },
     });
     return true;
   }
@@ -148,7 +165,7 @@ async function handleApi(req, res, url) {
     }
     room.revision = 0;
     rooms.set(room.id, room);
-    if (room.players.some((player) => player.bot)) attachBotController(room);
+    attachRoomBots(room);
     const me = room.players[0];
     sendJson(res, 200, { roomId: room.id, playerId: me.id, token: me.token, view: roomView(room, me.id) });
     return true;
@@ -175,7 +192,7 @@ async function handleApi(req, res, url) {
     }
     room.id = String(room.id).toUpperCase();
     rooms.set(room.id, room);
-    if (room.players.some((player) => player.bot)) attachBotController(room);
+    attachRoomBots(room);
     sendJson(res, 200, { roomId: room.id, restored: true, occupied: false, summary: roomSummary(room) });
     return true;
   }

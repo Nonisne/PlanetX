@@ -126,7 +126,9 @@ test('builtin lobby states the four-player total includes the host', () => {
   const app = createApp(root);
   app.api.setUi({ playMode: 'builtin', modal: { kind: 'lobby' } });
   const text = collectText(root).join('');
-  assert.match(text, /1–4 人（含房主）/);
+  assert.match(text, /1–4 人（含房主与 Bot）/);
+  assert.match(text, /Bot 对手/);
+  assert.equal(findAll(root, (element) => element.attributes?.['data-with-bots'] !== undefined).length, 4);
   assert.doesNotMatch(text, /最多 6 人/);
 });
 
