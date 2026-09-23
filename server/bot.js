@@ -204,14 +204,15 @@ function findCertainLocate(knowledge, view) {
 // ---- the normal turn --------------------------------------------------------
 
 /**
- * Pick the best normal-turn action: survey / target / research / wait.
+ * Pick the best normal-turn action: survey / target / research / locate.
  *
  * Survey scoring: range.size / (cost + 1), bonus for full-window arcs.
  * Target scoring: prefer sectors the bot has *itself* narrowed to 2-3 objects
  * (still uncertain but informative) over sectors it has never touched.
  * Research scoring: alphabet-order with a per-bot hash so the room's bots do
  * not all pick the same first topic.
- * Wait: used when every stronger action would leave an unprepared event.
+ * There is no official "wait" action. If every real action would leave an
+ * unprepared event, the bot still takes the best real action.
  */
 function decideTurnAction(room, botId, view) {
   const mode = view.mode;
@@ -287,16 +288,23 @@ function decideTurnAction(room, botId, view) {
     }
   }
 
-  if (!candidates.length) return { kind: 'wait' };
+  if (!candidates.length) return fallbackSurvey(view);
 
   candidates.sort((a, b) => b.score - a.score);
   const safe = candidates.filter((candidate) => !crossesUnpreparedEvent(room, botId, view, actionCost(candidate.action)));
+  // Prefer a real action that stays short of an unprepared marker. Waiting is
+  // not an official action, so if every survey, scan and research would leave
+  // the marker, take the best of those instead.
   if (safe.length) return safe[0].action;
-  // Every informative action would leave an event the bot is not ready for.
-  // A one-month wait is allowed when it stays on this side of the marker.
-  // If even that leaves the marker, take the best action rather than stall.
-  if (!crossesUnpreparedEvent(room, botId, view, COST.wait)) return { kind: 'wait' };
   return candidates[0].action;
+}
+
+/** A legal survey when nothing looks informative. Never a wait. */
+function fallbackSurvey(view) {
+  const visible = Array.isArray(view.visible) ? view.visible : [];
+  if (!visible.length) return null;
+  const start = visible[0];
+  return { kind: 'survey', type: Obj.ASTEROID, start, size: 1, count: 0 };
 }
 
 /** Stable preferred survey origin so bots in the same room do not copy one arc. */
@@ -311,7 +319,6 @@ function actionCost(action) {
   if (action.kind === 'target') return COST.target;
   if (action.kind === 'research') return COST.research;
   if (action.kind === 'locate') return COST.locate;
-  if (action.kind === 'wait') return COST.wait;
   return 0;
 }
 
