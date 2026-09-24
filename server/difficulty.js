@@ -27,6 +27,7 @@
 import { applyRoomAction, createRoom, viewFor } from '../public/src/room.js';
 import { decideAction } from './bot.js';
 import { scoreBoard } from '../public/src/score.js';
+import { LEADER_BONUS, LOCATE_POINTS, theoryPointsFor, theoryTokenInventory } from '../public/src/rules.js';
 
 const DEFAULT_MAX_TICKS = 200;
 const DEFAULT_SEED = 0xc0ffee;
@@ -257,11 +258,16 @@ function botScore(room, botId) {
  */
 function theoreticalMaxScore(room) {
   const mode = room.mode || room.session?.mode;
-  if (!mode) return 30;
-  // Count ordinary objects (theories) per mode.
-  const theorySectors = mode.sectors - 1 - 1; // minus PlanetX minus empties
-  const theoryPoints = theorySectors * 4; // worst case: all are gasCloud (highest)
-  return 10 + theoryPoints; // locate-first bonus + all theory points
+  if (!mode) return 45;
+  const inventory = theoryTokenInventory(mode);
+  let theoryPoints = 0;
+  let theoryObjects = 0;
+  for (const [type, count] of Object.entries(inventory)) {
+    theoryPoints += theoryPointsFor(mode, type) * count;
+    theoryObjects += count;
+  }
+  // One player locating first and publishing every correct theory first.
+  return LOCATE_POINTS.first + theoryPoints + theoryObjects * LEADER_BONUS;
 }
 
 /**
