@@ -337,6 +337,12 @@ export function createApp(root) {
     const selected = options.find((option) => option.sector === state.ui.theorySector) || options[0];
     state.ui.theorySector = selected?.sector ?? null;
     if (!selected?.types.includes(state.ui.theoryType)) state.ui.theoryType = selected?.types[0] ?? null;
+    const research = state.game.research;
+    const draftPhaseId = research && research.myCount == null ? research.id : null;
+    if (state.ui.researchDraftPhaseId !== draftPhaseId) {
+      state.ui.researchTypes = [];
+      state.ui.researchDraftPhaseId = draftPhaseId;
+    }
     return state.game;
   }
 
