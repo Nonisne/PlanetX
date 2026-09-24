@@ -307,7 +307,7 @@ export function renderHeader({ state, api }) {
       { class: 'brand' },
       h('span', { class: 'logo' }, '◍'),
       h('div', {}, h('h1', {}, 'X行星之谜'), h('p', { class: 'muted small' }, game.playMode === 'builtin' ? '内置谜题 · 独立推理，无需外部 app' : '记录模式 · 致敬 The Search for Planet X')),
-      difficultyStars(difficulty),
+      difficultyStars(difficulty, game.playMode === 'builtin'),
     ),
     h(
       'div',
@@ -342,8 +342,11 @@ function actorLabel(game, entry) {
  *     percentile for transparency
  *   * no difficulty at all → render nothing (record / tutorial / etc.)
  */
-function difficultyStars(difficulty) {
-  if (!difficulty) return null;
+function difficultyStars(difficulty, pending = false) {
+  if (!difficulty) {
+    if (!pending) return null;
+    return h('div', { class: 'difficulty-stars', 'data-difficulty': 'pending' }, h('span', { class: 'difficulty-label muted small' }, '难度评估中…'));
+  }
   const total = 5;
   const filled = Number.isInteger(difficulty.stars) ? Math.max(0, Math.min(total, difficulty.stars)) : 0;
   const items = [];
