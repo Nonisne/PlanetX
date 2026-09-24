@@ -97,6 +97,42 @@ h3 {
   margin: 2px 0 0;
 }
 
+/* Puzzle difficulty stars — render only for builtin rooms with a rating. */
+.difficulty-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+  padding: 4px 10px;
+  border: 1px solid var(--panel-2, #1b2745);
+  border-radius: 999px;
+  background: rgba(20, 29, 51, 0.5);
+}
+
+.difficulty-stars .difficulty-label {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.difficulty-stars .difficulty-bar {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.difficulty-stars .difficulty-star {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.difficulty-stars .difficulty-star.on {
+  color: var(--accent, #fbbf24);
+  text-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
+}
+
+.difficulty-stars .difficulty-star.off {
+  color: rgba(148, 163, 184, 0.4);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;

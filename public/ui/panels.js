@@ -298,6 +298,7 @@ function iconAtEventSample(kind) {
 export function renderHeader({ state, api }) {
   const { game } = state;
   const online = Boolean(state.remote);
+  const difficulty = game.playMode === 'builtin' ? game.difficulty : null;
   return h(
     'header',
     { class: 'topbar' },
@@ -306,6 +307,7 @@ export function renderHeader({ state, api }) {
       { class: 'brand' },
       h('span', { class: 'logo' }, '◍'),
       h('div', {}, h('h1', {}, 'X行星之谜'), h('p', { class: 'muted small' }, game.playMode === 'builtin' ? '内置谜题 · 独立推理，无需外部 app' : '记录模式 · 致敬 The Search for Planet X')),
+      difficultyStars(difficulty),
     ),
     h(
       'div',
@@ -331,6 +333,32 @@ function actorLabel(game, entry) {
   if (!entry || !entry.actorId || !Array.isArray(game.players)) return null;
   const player = game.players.find((p) => p.id === entry.actorId);
   return player ? player.name : '某位玩家';
+}
+
+/**
+ * Star-bar indicator for the active puzzle's difficulty. Three states:
+ *   * `difficulty === null` and the room is builtin → "评估中…"
+ *   * `difficulty` has stars → render `stars` filled circles, plus the raw
+ *     percentile for transparency
+ *   * no difficulty at all → render nothing (record / tutorial / etc.)
+ */
+function difficultyStars(difficulty) {
+  if (!difficulty) return null;
+  const total = 5;
+  const filled = Number.isInteger(difficulty.stars) ? Math.max(0, Math.min(total, difficulty.stars)) : 0;
+  const items = [];
+  for (let i = 1; i <= total; i += 1) {
+    items.push(h('span', { class: `difficulty-star ${i <= filled ? 'on' : 'off'}`, 'aria-hidden': 'true' }, '★'));
+  }
+  const tooltip = difficulty.timedOut
+    ? `难度 ${filled}/${total} · 评估用完了内置 bot 的时间预算，分数比可解谜题偏高，仅供参考`
+    : `难度 ${filled}/${total} · 内置 bot 在固定初始线索下推到定位 X行星所花的时间与得分综合得出`;
+  return h(
+    'div',
+    { class: 'difficulty-stars', title: tooltip, 'data-difficulty': String(filled) },
+    h('span', { class: 'difficulty-label muted small' }, '难度'),
+    h('span', { class: 'difficulty-bar' }, items),
+  );
 }
 
 export const renderStatus = renderConsoleStatus;
