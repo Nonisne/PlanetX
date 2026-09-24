@@ -1142,6 +1142,40 @@ function findButton(root, label) {
   return findAll(root, (n) => n.tagName === 'button' && collectText(n).join('').includes(label))[0];
 }
 
+test('a revealed academic paper is marked on its sector', () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  const sector = 0;
+  for (let guard = 0; guard < 40 && !app.session.entries.some((entry) => entry.type === 'theory' && entry.slot <= 1); guard += 1) {
+    if (app.session.theoryPhases?.length) {
+      if (!app.session.entries.some((entry) => entry.type === 'theory')) {
+        assert.equal(app.api.consoleAction({ kind: 'theory', sector, type: Obj.GAS_CLOUD }).ok, true);
+      }
+      assert.equal(app.api.consoleAction({ kind: 'theory-complete' }).ok, true);
+    } else {
+      assert.equal(app.api.consoleAction({ kind: 'wait' }).ok, true);
+    }
+  }
+  const paper = app.session.entries.find((entry) => entry.type === 'theory' && entry.sector === sector);
+  assert.ok(paper && paper.slot <= 1, 'the paper reached the review slot');
+  assert.equal(app.api.recordTheoryReview(paper.id, 'correct').ok, true);
+  const key = `${sector}:${CODE.gasCloud}`;
+  assert.equal(app.state.notes[key], 'yes', 'a correct paper marks that object present');
+  const sectorNode = findAll(root, (node) => Number(node.attributes?.['data-sector']) === sector)[0];
+  assert.ok(sectorNode, 'the sector is on the map');
+  assert.ok(
+    findAll(sectorNode, (node) => (node.className || '').split(/\s+/).includes('mark-yes')).length >= 1,
+    'the map shows the revealed object on that sector',
+  );
+
+  app.api.setMark(sector, CODE.gasCloud, 'maybe');
+  assert.equal(app.state.notes[key], undefined);
+  app.render();
+  assert.equal(app.state.notes[key], undefined, 'a handwritten clear is not put back on the next render');
+});
+
 function finishAppPhases(app) {
   for (const phase of [...app.session.theoryPhases]) {
     assert.equal(app.state.game.theoryPhase.id, phase.id);
@@ -1914,6 +1948,7 @@ test('the peer review prompt pays for a wrong answer', async () => {
   fire(button, 'click');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(state.game.players.find((p) => p.isMe).time, before + 1, 'a wrong review costs a month');
+  assert.equal(state.notes[`4:${CODE.gasCloud}`], 'no', 'a revealed wrong paper is marked absent on its sector');
   text = collectText(root).join('');
   assert.ok(text.includes('评审错误'), 'and the app says why');
   // the reviewed paper is settled, so it is no longer offered (other papers of mine may be)
