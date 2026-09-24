@@ -102,6 +102,13 @@ test('scoreDifficulty treats an immediate locate with full score as the easiest 
   assert.ok(score < 0.1, `easiest puzzle should score near 0, got ${score}`);
 });
 
+test('scoreDifficulty uses the tick budget, not the tick the simulation stopped on', () => {
+  const early = scoreDifficulty({ locatedTick: 10, finalTick: 11, maxTicks: 200, finalScore: 15, maxTheoreticalScore: 34 });
+  const late = scoreDifficulty({ locatedTick: 160, finalTick: 161, maxTicks: 200, finalScore: 15, maxTheoreticalScore: 34 });
+  assert.ok(early < 0.3, `an early locate should stay easy, got ${early}`);
+  assert.ok(late > early + 0.3, `a late locate should score clearly higher, got ${late} vs ${early}`);
+});
+
 test('rankDifficulties sorts and returns four ascending breakpoints', () => {
   const scores = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
   const breakpoints = rankDifficulties(scores);

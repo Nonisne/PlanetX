@@ -161,6 +161,7 @@ export function simulateBotRun(puzzle, {
     knowledgeCurve,
     // quick reject for puzzles that the bot cannot solve at all within the
     // tick budget — give them a placeholder so callers can decide what to do
+    maxTicks,
     timedOut: ticks >= maxTicks && !completedCleanly,
   };
 }
@@ -250,7 +251,11 @@ export function scoreDifficulty(result) {
   const maxScore = result.maxTheoreticalScore || 30;
   let locateComponent;
   if (result.locatedTick) {
-    locateComponent = clamp01(result.locatedTick / Math.max(1, result.finalTick || result.ticks));
+    // The simulation stops when X is found, so finalTick is only a tick or
+    // two after locatedTick. Divide by the tick budget, otherwise every
+    // solved puzzle looks equally late.
+    const budget = result.maxTicks || result.finalTick || result.ticks;
+    locateComponent = clamp01(result.locatedTick / Math.max(1, budget));
   } else {
     locateComponent = 1; // bot never located — the hardest possible puzzle
   }
