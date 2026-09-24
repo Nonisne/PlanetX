@@ -276,14 +276,9 @@ function scoreLocateGuess(sector, left, right, knowledge, view) {
     if (target.apparent && target.apparent !== Obj.EMPTY) score -= 50;
     if (target.apparent === Obj.EMPTY) score += 5; // EMPTY means X is still possible
   }
-  for (const survey of view.knowledge?.surveys || []) {
-    if (survey.actorId !== botIdOf(knowledge)) continue;
-    if (typeof survey.start !== 'number' || typeof survey.size !== 'number') continue;
-    const range = arcSectors(survey.start, survey.size, view.mode.sectors);
-    if (!range.includes(sector)) continue;
-    const apparent = surveyApparent(survey);
-    if (apparent && apparent !== Obj.PLANET_X && apparent !== Obj.EMPTY) score -= 50;
-  }
+  // A survey only says how many of one type sit in an arc. That does not by
+  // itself rule X out of this sector; `knowledge.possible` already drops X
+  // when the count really forces it.
   return score;
 }
 
@@ -329,8 +324,8 @@ export function findBestLocateGuess(knowledge, view) {
   // the real puzzle when scoring, so a wrong guess only costs the 5 months.
   const leftPossible = knowledge.possible(best.left);
   const rightPossible = knowledge.possible(best.right);
-  const pickLeft = leftPossible.length === 1 ? leftPossible[0] : Obj.ASTEROID;
-  const pickRight = rightPossible.length === 1 ? rightPossible[0] : Obj.ASTEROID;
+  const pickLeft = leftPossible.length === 1 ? leftPossible[0] : guessNeighbour(leftPossible);
+  const pickRight = rightPossible.length === 1 ? rightPossible[0] : guessNeighbour(rightPossible);
   return { sector: best.sector, left: pickLeft, right: pickRight, score: bestScore };
 }
 
@@ -340,6 +335,11 @@ export function findBestLocateGuess(knowledge, view) {
  * certain" locate; preserved so callers that need it (e.g. final opportunity
  * when only certain locates are safe) can still find it.
  */
+function guessNeighbour(possible) {
+  const legal = (possible || []).filter((type) => SURVEY_TYPES.includes(type) && type !== Obj.PLANET_X);
+  return legal[0] || Obj.ASTEROID;
+}
+
 export function findCertainLocate(knowledge, view) {
   const sectors = view.mode.sectors;
   for (let sector = 0; sector < sectors; sector += 1) {
@@ -452,7 +452,7 @@ function decideTurnAction(room, botId, view) {
     // bot id and the bot's seat index so consecutive bot ids (Bot1, Bot2, ...)
     // still spread across the 6 topics.
     const seatIndex = room.players.findIndex((p) => p.id === botId);
-    const preferredIndex = (stableHash(botId, seatIndex) * 37 + 0xc2b2ae35) >>> 0 % TOPIC_IDS.length;
+    const preferredIndex = preferredTopicIndex(botId, seatIndex);
     for (let index = 0; index < TOPIC_IDS.length; index += 1) {
       const topic = TOPIC_IDS[index];
       if (researched.has(topic)) continue;
@@ -486,6 +486,10 @@ function fallbackSurvey(view) {
 }
 
 /** Stable preferred survey origin so bots in the same room do not copy one arc. */
+export function preferredTopicIndex(botId, seatIndex) {
+  return ((stableHash(botId, seatIndex) * 37 + 0xc2b2ae35) >>> 0) % TOPIC_IDS.length;
+}
+
 export function preferredSurveyStart(botId, seatIndex, sectorCount) {
   const count = Math.max(1, sectorCount | 0);
   return stableHash(botId, seatIndex, 'survey') % count;
