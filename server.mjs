@@ -16,6 +16,8 @@ import { BUILTIN_MAX_PLAYERS, INITIAL_CLUE_COUNTS, MODES } from './public/src/ru
 import { createPuzzle, initialCluesFor } from './server/puzzles.js';
 import { applyTutorialAction, createTutorialRoom } from './server/tutorial.js';
 import { attachBotController, detachBotController } from './server/bot-controller.js';
+import { DifficultyCache } from './server/difficulty-cache.js';
+import { hashPuzzle } from './server/difficulty.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const port = Number(process.env.PORT || 5173);
@@ -40,6 +42,17 @@ const MIME = {
 // ---- rooms -----------------------------------------------------------------
 
 export const rooms = new Map();
+
+/**
+ * The on-disk cache that maps each puzzle to its 1–5 star difficulty. The
+ * cache is shared across every room in this process and survives restarts
+ * via `data/difficulty.json`. We resolve `data/` relative to the project
+ * root so `node server.mjs` from anywhere finds the same file.
+ */
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+export const difficultyCache = new DifficultyCache({
+  filePath: path.join(projectRoot, 'data', 'difficulty.json'),
+});
 
 function readJson(req) {
   return new Promise((resolve) => {
@@ -66,7 +79,9 @@ function sendJson(res, status, body) {
 }
 
 function roomView(room, playerId) {
-  return { ...viewFor(room, playerId), revision: room.revision || 0 };
+  const view = { ...viewFor(room, playerId), revision: room.revision || 0 };
+  if (room.difficulty) view.difficulty = room.difficulty;
+  return view;
 }
 
 /** Push the current per-player view to everyone watching this room. */
@@ -75,6 +90,38 @@ function broadcast(room, extra = null) {
     const view = roomView(room, listener.playerId);
     writeEvent(listener.res, 'view', { view, notice: extra });
   }
+}
+
+/**
+ * Run the bot simulation against `puzzle` off the response cycle, then
+ * notify every listener in `room` via SSE when the stars land. Errors are
+ * logged but never propagate — a failed simulation should not crash the
+ * server or block the lobby.
+ */
+function rateDifficultyAsync(room, puzzle, { modeId }) {
+  setImmediate(() => {
+    try {
+      const result = difficultyCache.getOrCompute(puzzle, { modeId });
+      room.difficulty = result;
+      broadcast(room, { kind: 'difficulty-ready', modeId, ...result });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[difficulty] simulation failed:', error.message);
+      broadcast(room, { kind: 'difficulty-error', modeId, error: error.message });
+    }
+  });
+}
+
+/** Stand-alone rating that just updates the cache; no room to broadcast to. */
+function ratePuzzleAsync(puzzle, { modeId }) {
+  setImmediate(() => {
+    try {
+      difficultyCache.getOrCompute(puzzle, { modeId });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[difficulty] simulation failed:', error.message);
+    }
+  });
 }
 
 function writeEvent(res, event, data) {
@@ -168,7 +215,50 @@ async function handleApi(req, res, url) {
     rooms.set(room.id, room);
     attachRoomBots(room);
     const me = room.players[0];
+    // Fire-and-forget difficulty rating: the room is returned immediately
+    // with `difficulty: null`, then we run the simulation in the background
+    // and broadcast the result via SSE so the lobby UI can light up the
+    // stars when they become available.
+    if (playMode === 'builtin' && puzzle) {
+      room.puzzle = puzzle;
+      room.difficulty = null;
+      const requestId = `${room.id}:${Date.now()}`;
+      rateDifficultyAsync(room, puzzle, { modeId, requestId });
+    }
     sendJson(res, 200, { roomId: room.id, playerId: me.id, token: me.token, view: roomView(room, me.id) });
+    return true;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/puzzles/difficulty') {
+    const modeId = MODES[url.searchParams.get('modeId')] ? url.searchParams.get('modeId') : 'standard';
+    const samples = difficultyCache.state.samples[modeId] || [];
+    sendJson(res, 200, {
+      modeId,
+      sampleCount: samples.length,
+      breakpoints: difficultyCache.breakpointsFor(modeId),
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/puzzles/difficulty') {
+    const body = await readJson(req);
+    const puzzle = body.puzzle;
+    if (!puzzle || !Array.isArray(puzzle.objects)) {
+      sendJson(res, 400, { error: 'puzzle.objects is required' });
+      return true;
+    }
+    const modeId = MODES[body.modeId] ? body.modeId : (puzzle.modeId || 'standard');
+    const cacheHash = hashPuzzle(puzzle);
+    const cached = difficultyCache.state.computed[cacheHash];
+    if (cached && cached.botVersion === difficultyCache.state.botVersion) {
+      sendJson(res, 200, { status: 'ready', ...cached });
+      return true;
+    }
+    // No cached entry yet — kick off the simulation in the background and
+    // return a `computing` status. Callers can subscribe to the room's
+    // SSE stream to receive the `difficulty-ready` event when it lands.
+    ratePuzzleAsync(puzzle, { modeId });
+    sendJson(res, 202, { status: 'computing', modeId });
     return true;
   }
 
