@@ -98,31 +98,92 @@ function completeObservationPeers(masks) {
   }));
 }
 
-function sampleCandidate(selectIndex, attempt) {
+function popcount(mask) {
+  let count = 0;
+  for (let remaining = mask; remaining; remaining &= remaining - 1) count += 1;
+  return count;
+}
+
+let cachedCatalogue;
+
+/**
+ * Every legal expert board, grouped by dwarf + comet + asteroid.
+ * A group's weight is how many (gas, Planet X) completions it has, so drawing
+ * a ticket in `[0, total)` is uniform over the 1,138,272 legal boards.
+ */
+function boardCatalogue() {
+  if (cachedCatalogue) return cachedCatalogue;
   const groups = placements();
-  const dwarfs = groups[Obj.DWARF_PLANET];
-  const masks = { [Obj.DWARF_PLANET]: dwarfs[(selectIndex(dwarfs.length) + attempt) % dwarfs.length] };
-  let occupied = masks[Obj.DWARF_PLANET];
-  for (const objectType of [Obj.COMET, Obj.ASTEROID]) {
-    const choices = groups[objectType].filter((mask) => !(mask & occupied));
-    if (!choices.length) return null;
-    masks[objectType] = choices[selectIndex(choices.length)];
-    occupied |= masks[objectType];
+  const entries = [];
+  const prefix = [];
+  let total = 0;
+  for (const dwarf of groups[Obj.DWARF_PLANET]) {
+    for (const comet of groups[Obj.COMET]) {
+      if (comet & dwarf) continue;
+      const dwarfComet = dwarf | comet;
+      for (const asteroid of groups[Obj.ASTEROID]) {
+        if (asteroid & dwarfComet) continue;
+        const occupied = dwarfComet | asteroid;
+        let weight = 0;
+        for (const gas of groups[Obj.GAS_CLOUD]) {
+          if (gas & occupied) continue;
+          const planets = legalPlanetPlacements({
+            [Obj.DWARF_PLANET]: dwarf,
+            [Obj.COMET]: comet,
+            [Obj.ASTEROID]: asteroid,
+            [Obj.GAS_CLOUD]: gas,
+          });
+          weight += popcount(planets);
+        }
+        if (!weight) continue;
+        total += weight;
+        entries.push({ dwarf, comet, asteroid, weight });
+        prefix.push(total);
+      }
+    }
   }
-  const gasChoices = [];
-  for (const gas of groups[Obj.GAS_CLOUD]) {
+  cachedCatalogue = { entries, prefix, total };
+  return cachedCatalogue;
+}
+
+/** Number of boards that satisfy the expert placement rules. */
+export function expertLegalBoardCount() {
+  return boardCatalogue().total;
+}
+
+function sampleCandidate(selectIndex) {
+  const catalogue = boardCatalogue();
+  const ticket = selectIndex(catalogue.total);
+  let low = 0;
+  let high = catalogue.prefix.length - 1;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (catalogue.prefix[mid] <= ticket) low = mid + 1;
+    else high = mid;
+  }
+  const entry = catalogue.entries[low];
+  let offset = ticket - (low === 0 ? 0 : catalogue.prefix[low - 1]);
+  const occupied = entry.dwarf | entry.comet | entry.asteroid;
+  for (const gas of placements()[Obj.GAS_CLOUD]) {
     if (gas & occupied) continue;
-    masks[Obj.GAS_CLOUD] = gas;
+    const masks = {
+      [Obj.DWARF_PLANET]: entry.dwarf,
+      [Obj.COMET]: entry.comet,
+      [Obj.ASTEROID]: entry.asteroid,
+      [Obj.GAS_CLOUD]: gas,
+    };
     const planets = legalPlanetPlacements(masks);
-    if (planets) gasChoices.push({ gas, planets });
+    const count = popcount(planets);
+    if (offset >= count) {
+      offset -= count;
+      continue;
+    }
+    const planet = singleBits(planets)[offset];
+    masks[Obj.PLANET_X] = planet;
+    masks[Obj.EMPTY] = FULL_MASK ^ (occupied | gas | planet);
+    return masks;
   }
-  if (!gasChoices.length) return null;
-  const selected = gasChoices[selectIndex(gasChoices.length)];
-  const planets = singleBits(selected.planets);
-  masks[Obj.GAS_CLOUD] = selected.gas;
-  masks[Obj.PLANET_X] = planets[selectIndex(planets.length)];
-  masks[Obj.EMPTY] = FULL_MASK ^ (occupied | selected.gas | masks[Obj.PLANET_X]);
-  return masks;
+  return null;
 }
 
 function featuresWithCounterexamples() {
@@ -137,7 +198,7 @@ function featuresWithCounterexamples() {
     return Math.floor(state / 0x100000000 * length);
   };
   for (let attempt = 0; attempt < 128; attempt += 1) {
-    const masks = sampleCandidate(selectIndex, attempt);
+    const masks = sampleCandidate(selectIndex);
     if (!masks) continue;
     pending = pending.filter((feature) => {
       if (researchFeatureValue(feature, masks, SECTOR_COUNT) === 1) return true;
@@ -230,7 +291,7 @@ export function createExpertDefinition(selectIndex, { maxAttempts = MAX_ATTEMPTS
     throw new RangeError(`maxAttempts must be an integer from 1 to ${MAX_ATTEMPTS}.`);
   }
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const masks = sampleCandidate(selectIndex, attempt);
+    const masks = sampleCandidate(selectIndex);
     if (!masks) continue;
     const features = featuresWithCounterexamples();
     const conferences = certifiedConferences(masks, features.conference, selectIndex);

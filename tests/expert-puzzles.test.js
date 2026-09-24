@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 
 import { Obj, LABEL, apparentType } from '../public/src/types.js';
 import { createPuzzle, validateBoard, initialCluesFor, matchingClues, countSolutions } from '../server/puzzles.js';
+import { expertLegalBoardCount } from '../server/expert-puzzles.js';
 
 const SECTOR_COUNT = 18;
 const ORDINARY_TYPES = [Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET];
@@ -272,6 +273,10 @@ test('expert validation infers eighteen sectors and requires an exact six-sector
   }
 });
 
+test('expert sampler counts every legal board once', () => {
+  assert.equal(expertLegalBoardCount(), 1138272);
+});
+
 test('cold expert generation exposes only the public subjects and hidden clue strings within a bounded budget', (context) => {
   const started = performance.now();
   const puzzle = createPuzzle({ modeId: 'expert', random: seededRandom(42) });
@@ -456,7 +461,7 @@ test('expert generation validates randomness and terminates for constant streams
     assert.throws(() => createPuzzle({ modeId: 'expert', maxAttempts }), /maxAttempts/u);
   }
   let exhausted = false;
-  for (let seed = 0; seed < 512 && !exhausted; seed += 1) {
+  for (let seed = 0; seed < 2048 && !exhausted; seed += 1) {
     try {
       createPuzzle({ modeId: 'expert', maxAttempts: 1, random: seededRandom(seed) });
     } catch (error) {
