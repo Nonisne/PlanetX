@@ -95,6 +95,8 @@ async function tableInLobby(initialClueCount = 0) {
  * `submitSetup` is what the page does: initial clue (optional) +, for the host, the
  * table-wide A–F names and conference notes.
  */
+const HOST_TOPICS = { A: '阿甲的课题', B: '课题B', C: '课题C', D: '课题D', E: '课题E', F: '课题F' };
+
 async function tablePlaying({ hostClue = null, conferences = null } = {}) {
   const ctx = await tableInLobby(hostClue ? 4 : 0);
   const clues = hostClue ? [hostClue, { sector: 0, type: Obj.GAS_CLOUD }, { sector: 3, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }] : [];
@@ -106,7 +108,8 @@ async function tablePlaying({ hostClue = null, conferences = null } = {}) {
     kind: 'setup',
     clues,
     noClues: !hostClue,
-    topics: { A: '阿甲的课题' },
+    topics: HOST_TOPICS,
+    conferenceNames: { 10: '彗星邻居' },
     conferences: conferences || {},
   });
   assert.equal(hostSetup.ok, true, hostSetup.error);
@@ -210,6 +213,26 @@ test('the lobby gates the start on two players and the host’s command', async 
 });
 
 test('the setup phase collects a private initial clue, shared subjects and the conference notes', async () => {
+  const clues = [{ sector: 1, type: Obj.COMET }, { sector: 0, type: Obj.GAS_CLOUD }, { sector: 3, type: Obj.ASTEROID }, { sector: 5, type: Obj.DWARF_PLANET }];
+  const draft = await tableInLobby(4);
+  await online.sendAction(draft.host, { kind: 'start-game' });
+  const missingTopic = await online.sendAction(draft.host, {
+    kind: 'setup',
+    clues,
+    topics: { A: '阿甲的课题' },
+    conferenceNames: { 10: '彗星邻居' },
+  });
+  assert.equal(missingTopic.ok, false);
+  assert.match(missingTopic.error, /请填写研究课题 B 的名称/);
+  const missingTitle = await online.sendAction(draft.host, {
+    kind: 'setup',
+    clues,
+    topics: HOST_TOPICS,
+    conferenceNames: {},
+  });
+  assert.equal(missingTitle.ok, false);
+  assert.match(missingTitle.error, /10 号扇区的 X行星会议名称/);
+
   const ctx = await tablePlaying({ hostClue: { sector: 1, type: Obj.COMET }, conferences: { 10: 'X行星紧邻一颗彗星' } });
   const { host, guest } = ctx;
 
@@ -220,6 +243,7 @@ test('the setup phase collects a private initial clue, shared subjects and the c
   assert.deepEqual(hostView.mySetup.clues[0], { sector: 1, type: Obj.COMET });
   assert.equal(hostView.mySetup.topics.A.name, '阿甲的课题');
   assert.equal(hostView.topics.A.name, '阿甲的课题', 'and it seeds the subject list used while playing');
+  assert.equal(hostView.conferenceNames[10], '彗星邻居', 'the host’s conference title is the table’s');
   assert.deepEqual(hostView.conferenceRuleSectors, [10], 'a standard board has one conference');
 
   const guestView = await online.fetchView(guest);
@@ -227,6 +251,7 @@ test('the setup phase collects a private initial clue, shared subjects and the c
   assert.equal(guestView.mySetup.clues.length, 4, 'the guest has the same count with a private hand');
   assert.equal(guestView.players.find((p) => p.id === host.playerId).ready, true, 'readiness is public');
   assert.equal(guestView.topics.A.name, '阿甲的课题', 'subject names are shared by the whole table');
+  assert.equal(guestView.conferenceNames[10], '彗星邻居', 'the conference title is shared with the guest');
   assert.equal(guestView.conferenceRules[10], 'X行星紧邻一颗彗星', 'and so is the conference rule');
   assert.equal(guestView.amHost, false);
 

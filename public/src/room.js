@@ -504,6 +504,14 @@ function readTopicNames(raw) {
   return { ok: true, names };
 }
 
+/** Opening setup: every subject must have a real name. Later edits may still clear one. */
+function readRequiredTopicNames(raw) {
+  const names = readTopicNames(raw);
+  const missing = TOPIC_IDS.find((id) => !names.names[id]);
+  if (missing) return { ok: false, error: `请填写研究课题 ${missing} 的名称` };
+  return names;
+}
+
 /** The shared conference notes: one per conference sector of this board (1 or 2). */
 function readConferenceRules(room, raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '会议线索格式不合法' };
@@ -528,6 +536,49 @@ function readConferenceNames(room, raw) {
     names[sector] = String(value || '').trim().slice(0, MAX_TOPIC_NAME) || `X行星会议 · ${sector} 号`;
   }
   return { ok: true, names };
+}
+
+/** Opening setup: every conference on this board needs a title the host actually typed. */
+function readRequiredConferenceNames(mode, raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '会议标题格式不合法' };
+  const names = {};
+  for (const sector of conferenceSectors(mode)) {
+    const value = raw[sector];
+    if (value != null && typeof value !== 'string') return { ok: false, error: '会议标题应填写文字' };
+    const text = String(value || '').trim().slice(0, MAX_TOPIC_NAME);
+    if (!text) return { ok: false, error: `请填写 ${sector} 号扇区的 X行星会议名称` };
+    names[sector] = text;
+  }
+  return { ok: true, names };
+}
+
+/**
+ * Record-mode opening card: the clue list must match the host's count, and when the
+ * host is submitting the shared sheet, every subject name and conference title is required.
+ * Guests omit those fields. Callers that leave both out keep the previous names.
+ */
+export function validateRecordSetup(mode, { clues: rawClues, noClues = false, initialClueCount, topics, conferenceNames, requireNames = false } = {}) {
+  const incoming = noClues ? [] : Array.isArray(rawClues) ? rawClues : [];
+  const clues = [];
+  for (const clue of incoming) {
+    const sector = Number(clue && clue.sector);
+    const type = clue && clue.type;
+    if (!Number.isInteger(sector) || sector < 0 || sector >= mode.sectors) {
+      return { ok: false, error: '初始线索的扇区编号不合法' };
+    }
+    if (!CLUE_TYPES.includes(type)) return { ok: false, error: '初始线索的天体只能是：小行星／彗星／气体云／矮行星' };
+    if (type === Obj.COMET && !isCometSector(mode, sector)) return { ok: false, error: '该扇区按基础规则就不可能存在彗星，不能作为初始线索' };
+    if (clues.some((entry) => entry.sector === sector && entry.type === type)) continue;
+    clues.push({ sector, type });
+  }
+  if (clues.length > MAX_SETUP_CLUES) return { ok: false, error: `初始线索最多填 ${MAX_SETUP_CLUES} 条` };
+  if (clues.length !== initialClueCount) return { ok: false, error: `房主规定每人填写 ${initialClueCount} 条不同的初始线索` };
+  if (!requireNames) return { ok: true, clues, topicNames: null, conferenceNames: null };
+  const named = readRequiredTopicNames(topics);
+  if (!named.ok) return named;
+  const headings = readRequiredConferenceNames(mode, conferenceNames);
+  if (!headings.ok) return headings;
+  return { ok: true, clues, topicNames: named.names, conferenceNames: headings.names };
 }
 
 /**
@@ -682,38 +733,27 @@ function applyAction(room, playerId, action) {
       if (readyCount(room) === seatedPlayers(room).length) room.phase = 'play';
       return { ok: true, phase: room.phase, ready: readyCount(room) };
     }
-    const rawClues = action.noClues ? [] : Array.isArray(action.clues) ? action.clues : [];
-    const clues = [];
-    for (const clue of rawClues) {
-      const sector = Number(clue && clue.sector);
-      const type = clue && clue.type;
-      if (!Number.isInteger(sector) || sector < 0 || sector >= room.session.mode.sectors) {
-        return { ok: false, error: '初始线索的扇区编号不合法' };
-      }
-      if (!CLUE_TYPES.includes(type)) return { ok: false, error: '初始线索的天体只能是：小行星／彗星／气体云／矮行星' };
-      if (type === Obj.COMET && !isCometSector(room.session.mode, sector)) return { ok: false, error: '该扇区按基础规则就不可能存在彗星，不能作为初始线索' };
-      if (clues.some((c) => c.sector === sector && c.type === type)) continue;
-      clues.push({ sector, type });
-    }
-
-    if (clues.length > MAX_SETUP_CLUES) return { ok: false, error: `初始线索最多填 ${MAX_SETUP_CLUES} 条` };
-    if (clues.length !== room.initialClueCount) return { ok: false, error: `房主规定每人填写 ${room.initialClueCount} 条不同的初始线索` };
-
-    const names = isHost && action.topics ? readTopicNames(action.topics) : { ok: true, names: room.topicNames };
+    const checked = validateRecordSetup(room.session.mode, {
+      clues: action.clues,
+      noClues: action.noClues,
+      initialClueCount: room.initialClueCount,
+      topics: action.topics,
+      conferenceNames: action.conferenceNames,
+      requireNames: isHost && (action.topics !== undefined || action.conferenceNames !== undefined),
+    });
+    if (!checked.ok) return checked;
+    const clues = checked.clues;
     const rules = isHost && action.conferences !== undefined ? readConferenceRules(room, action.conferences) : { ok: true, rules: room.conferenceRules };
-    const conferenceNames = isHost && action.conferenceNames !== undefined ? readConferenceNames(room, action.conferenceNames) : { ok: true, names: room.conferenceNames };
-    for (const checked of [names, rules, conferenceNames]) if (!checked.ok) return checked;
+    if (!rules.ok) return rules;
 
     // the six subject names are printed on everybody's sheet, so only the host types them
-    if (isHost && action.topics) {
-      room.topicNames = names.names;
+    if (checked.topicNames) {
+      room.topicNames = checked.topicNames;
       mirrorTopicNames(room);
     }
     // the conference notes are shared knowledge too, but they only exist in 1 or 2 places
-    if (isHost && action.conferences !== undefined) {
-      room.conferenceRules = rules.rules;
-    }
-    if (isHost && action.conferenceNames !== undefined) room.conferenceNames = conferenceNames.names;
+    if (isHost && action.conferences !== undefined) room.conferenceRules = rules.rules;
+    if (checked.conferenceNames) room.conferenceNames = checked.conferenceNames;
 
     const topics = {};
     for (const id of TOPIC_IDS) {

@@ -121,6 +121,10 @@ export function buildArchive({ remote, session, notes, roomSnapshot }) {
       undoBarrier: session.undoBarrier || 0,
       revealedObjects: session.revealedObjects || null,
       frozenTimes: session.frozenTimes || null,
+      initialClueCount: session.initialClueCount ?? null,
+      initialClues: session.initialClues || null,
+      conferenceNames: session.conferenceNames || null,
+      localSetup: session.localSetup || null,
     },
     notes: { ...(notes || {}) },
   };
@@ -165,6 +169,10 @@ export function applyConsoleArchive(session, archive) {
     undoBarrier: Number.isInteger(saved.undoBarrier) ? saved.undoBarrier : 0,
     revealedObjects: Array.isArray(saved.revealedObjects) ? saved.revealedObjects : null,
     frozenTimes: saved.frozenTimes || null,
+    initialClueCount: Number.isInteger(saved.initialClueCount) ? saved.initialClueCount : undefined,
+    initialClues: Array.isArray(saved.initialClues) ? saved.initialClues : undefined,
+    conferenceNames: saved.conferenceNames && typeof saved.conferenceNames === 'object' ? saved.conferenceNames : undefined,
+    localSetup: saved.localSetup && typeof saved.localSetup === 'object' ? saved.localSetup : undefined,
   });
   return { notes: archive.notes && typeof archive.notes === 'object' ? { ...archive.notes } : {} };
 }

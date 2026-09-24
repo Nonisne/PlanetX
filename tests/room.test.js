@@ -41,7 +41,7 @@ function playing(modeId = 'standard') {
   assert.equal(applyRoomAction(ctx.room, ctx.host.id, { kind: 'start-game' }).ok, true);
   for (const p of [ctx.host, ctx.guest]) {
     assert.equal(
-      applyRoomAction(ctx.room, p.id, { kind: 'setup', noClues: true, topics: { A: `${p.name}的课题` } }).ok,
+      applyRoomAction(ctx.room, p.id, { kind: 'setup', noClues: true }).ok,
       true,
     );
   }
@@ -155,12 +155,22 @@ test('setup collects initial clues and the six subject names', () => {
   assert.equal(room.phase, 'setup');
   assert.equal(readyCount(room), 0);
 
-  const res = applyRoomAction(room, host.id, {
+  const incomplete = applyRoomAction(room, host.id, {
     kind: 'setup',
     clues,
     topics: { A: '小行星带', B: '彗星轨道' },
   });
-  assert.equal(res.ok, true);
+  assert.equal(incomplete.ok, false, incomplete.error);
+  assert.match(incomplete.error, /课题/);
+  assert.equal(readyCount(room), 0, 'a partial name sheet is not submitted');
+
+  const res = applyRoomAction(room, host.id, {
+    kind: 'setup',
+    clues,
+    topics: { A: '小行星带', B: '彗星轨道', C: '气体云', D: '矮行星', E: '空域', F: 'X行星' },
+    conferenceNames: { 10: '彗星的邻居' },
+  });
+  assert.equal(res.ok, true, res.error);
   assert.equal(room.phase, 'setup', 'one player is not enough to begin');
   assert.equal(readyCount(room), 1);
 
@@ -170,7 +180,8 @@ test('setup collects initial clues and the six subject names', () => {
   assert.equal(view.mySetup.ready, true);
   assert.deepEqual(view.mySetup.clues, clues);
   assert.equal(view.mySetup.topics.A.name, '小行星带');
-  assert.equal(view.mySetup.topics.C.name, '', 'unnamed subjects stay blank');
+  assert.equal(view.mySetup.topics.C.name, '气体云');
+  assert.equal(view.conferenceNames[10], '彗星的邻居');
   // the other player does not see my starting information
   const guestView = viewFor(room, guest.id);
   assert.equal(guestView.mySetup.ready, false);
@@ -200,7 +211,7 @@ test('setup validates the initial clues', () => {
     assert.match(res.error, pattern);
   }
   const twelve = Array.from({ length: MAX_SETUP_CLUES }, (_, sector) => ({ sector, type: Obj.ASTEROID }));
-  const full = applyRoomAction(room, host.id, { kind: 'setup', clues: twelve, topics: {} });
+  const full = applyRoomAction(room, host.id, { kind: 'setup', clues: twelve });
   assert.equal(full.ok, true, full.error);
   assert.equal(room.setup[host.id].clues.length, MAX_SETUP_CLUES, 'all twelve are kept');
   const ok = applyRoomAction(room, host.id, {
@@ -384,11 +395,11 @@ test('everybody has a private clock, but the log and the board are shared', () =
   assert.equal(hostView.knowledge.clues[0].text, '编号之和 30');
   assert.equal(guestView.knowledge.clues[0].text, undefined, 'research clue text is private');
   assert.equal(guestView.knowledge.clues[0].topic, 'A', 'the subject is public knowledge');
-  assert.equal(hostView.topics.A.name, '阿甲的课题', 'the A–F names come from the host’s setup');
-  assert.equal(guestView.topics.A.name, '阿甲的课题', 'and are the same for the whole table');
+  assert.equal(hostView.topics.A.name, '小行星带', 'an unnamed subject takes its name from the first research');
+  assert.equal(guestView.topics.A.name, '小行星带', 'and that name is the same for the whole table');
   assert.equal(hostView.topics.A.clue, '编号之和 30', 'the clue text under a subject stays private');
   assert.equal(guestView.topics.A.clue, '', 'nobody else sees what I learned');
-  assert.equal(guestView.topics.B.name, '', 'unnamed subjects stay blank');
+  assert.equal(guestView.topics.B.name, '', 'subjects nobody named stay blank');
 });
 
 test('per-player limits: scan markers and research subjects', () => {
@@ -1112,7 +1123,8 @@ test('the A–F subject names are the table’s, and only the host writes them',
   const hostCard = applyRoomAction(room, host.id, {
     kind: 'setup',
     noClues: true,
-    topics: { A: '小行星带', B: '气体云走廊' },
+    topics: { A: '小行星带', B: '气体云走廊', C: '课题C', D: '课题D', E: '课题E', F: '课题F' },
+    conferenceNames: { 10: '彗星邻居' },
     conferences: { 10: 'X行星紧邻一颗彗星', 4: '这条不应该存在' },
   });
   assert.equal(hostCard.ok, true);
@@ -1202,7 +1214,7 @@ test('the room plays the board the host picked', () => {
   // and the expert ring accepts sector 18 where the standard one stops at 12. A scan is
   // only allowed inside the visible sky window, so nudge the window onto the far end first.
   applyRoomAction(expert, expert.hostId, { kind: 'start-game' });
-  for (const p of expert.players) applyRoomAction(expert, p.id, { kind: 'setup', noClues: true, topics: {} });
+  for (const p of expert.players) applyRoomAction(expert, p.id, { kind: 'setup', noClues: true });
   assert.equal(viewFor(expert, expert.hostId).phase, 'play');
   applyRoomAction(expert, expert.hostId, { kind: 'nudge', delta: 9 });
   assert.equal(viewFor(expert, expert.hostId).visible.at(-1), 17, 'the window now covers sector 18');
