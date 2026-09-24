@@ -8,16 +8,17 @@
 //
 // The rating pipeline has three steps:
 //
-//   1. `simulateBotRun(puzzle, options)` — drive the bot through one full game
-//      in headless mode. Returns raw observations (rounds to locate, final
-//      score, knowledge curve).
+//   1. `simulateBotRun(puzzle, options)` (async generator) — drives the bot
+//      through one full game step by step, yielding to the event loop between
+//      steps so the server stays responsive. Callers run the generator to
+//      completion and receive the final result object.
 //   2. `scoreDifficulty(result)` — collapse the observations into a single
 //      [0, 1] composite number.
 //   3. `rankDifficulties(scores)` — turn a sample of scores into per-mode
 //      percentile breakpoints so any new puzzle's score can be mapped to a
 //      1–5 star bucket.
 //
-// The cache layer (above this file) stores both the percentile breakpoints
+// The cache layer (difficulty-cache.js) stores both the percentile breakpoints
 // and the per-puzzle results so we don't replay puzzles the bot has already
 // seen. The cache is keyed by the puzzle's objects array hash, so changing
 // the heuristic bot invalidates only when the cached `botVersion` no longer
@@ -25,6 +26,7 @@
 
 import { applyRoomAction, createRoom, viewFor } from '../public/src/room.js';
 import { decideAction } from './bot.js';
+import { scoreBoard } from '../public/src/score.js';
 
 const DEFAULT_MAX_TICKS = 200;
 const DEFAULT_SEED = 0xc0ffee;
@@ -48,19 +50,13 @@ function makeRng(seed = DEFAULT_SEED) {
 }
 
 /**
- * Walk the room forward with `decideAction` + `applyRoomAction` until the
- * room reaches a terminal phase (reveal, done) or the bot refuses to act
- * `MAX_TICKS` times in a row.
- *
- * The bot is the sole player; this simulates a single-player perfect-play
- * run with no human input.
+ * Async-generator wrapper.  Each step yields to the event loop via
+ * `await new Promise(setImmediate)` so the server stays responsive while the
+ * simulation runs in the background.  The terminal yield carries `_done: true`
+ * plus the full result object.
  */
-export function simulateBotRun(puzzle, {
-  modeId = 'standard',
-  initialClueCount = 4,
-  maxTicks = DEFAULT_MAX_TICKS,
-  seed = DEFAULT_SEED,
-} = {}) {
+export async function* simulateBotRun(puzzle, options = {}) {
+  const { modeId = 'standard', initialClueCount = 4, maxTicks = DEFAULT_MAX_TICKS, seed = DEFAULT_SEED } = options;
   if (!puzzle || !Array.isArray(puzzle.objects)) {
     throw new TypeError('simulateBotRun requires a puzzle with an objects array.');
   }
@@ -71,24 +67,106 @@ export function simulateBotRun(puzzle, {
     hostName: '难度评估 Bot',
     initialClueCount,
   });
-  // Solo mode: the host IS the bot. There is no human to drive the host, so
-  // we promote the host to bot status and drive it ourselves in the loop
-  // below. The setup check `seated.length < 2 && playMode !== 'builtin'`
-  // accepts a single-player builtin run.
   const bot = room.players.find((player) => player.id === room.hostId);
   bot.bot = true;
-  // Pin a deterministic RNG so the bot's tie-breaking choices are stable.
   room.rng = makeRng(seed);
 
-  // Start the game: the host kicks off (claim-initial-clues + setup were
-  // already done by start-game's `cards` block), and we transition straight
-  // into the play phase.
   const hostStart = applyRoomAction(room, room.hostId, { kind: 'start-game' });
   if (!hostStart.ok) {
     throw new Error(`simulateBotRun: start-game refused (${hostStart.error})`);
   }
-  // start-game fills the host's setup card; the bot still has to confirm
-  // readiness before the room enters play.
+  const setup = applyRoomAction(room, room.hostId, { kind: 'setup' });
+  if (!setup.ok) {
+    throw new Error(`simulateBotRun: setup refused (${setup.error})`);
+  }
+  if (room.phase !== 'play') {
+    throw new Error(`simulateBotRun: room did not enter play phase (phase=${room.phase})`);
+  }
+
+  const maxTheoreticalScore = theoreticalMaxScore(room);
+  let lastActionTick = 0;
+  let ticks = 0;
+  let stalled = 0;
+  let locatedTick = null;
+  let finalTick = 0;
+  let actionsApplied = 0;
+  const knowledgeCurve = [];
+
+  while (ticks < maxTicks) {
+    ticks += 1;
+    if (room.phase === 'reveal' || room.phase === 'done') {
+      finalTick = ticks;
+      break;
+    }
+    const view = viewFor(room, bot.id);
+    const action = decideAction(room, bot.id, view);
+    if (!action) {
+      stalled += 1;
+      if (stalled > 25) break;
+      await new Promise((resolve) => setImmediate(resolve));
+      yield { _progress: true, ticks, actionsApplied, locatedTick };
+      continue;
+    }
+    stalled = 0;
+    const result = applyRoomAction(room, bot.id, action);
+    if (!result.ok) continue;
+    actionsApplied += 1;
+    if (action.kind === 'locate') {
+      const entry = room.session.entries[room.session.entries.length - 1];
+      if (entry?.type === 'located' && entry.correct) locatedTick = ticks;
+    }
+    lastActionTick = ticks;
+    await new Promise((resolve) => setImmediate(resolve));
+    yield { _progress: true, ticks, actionsApplied, locatedTick };
+  }
+
+  const finalScore = botScore(room, bot.id);
+  const completedCleanly = room.phase === 'reveal' || room.phase === 'done';
+  yield {
+    puzzleId: hashPuzzle(puzzle),
+    modeId,
+    seed,
+    ticks,
+    actionsApplied,
+    completedCleanly,
+    locatedTick,
+    finalTick: finalTick || lastActionTick,
+    finalScore,
+    maxTheoreticalScore,
+    knowledgeCurve,
+    maxTicks,
+    timedOut: ticks >= maxTicks && !completedCleanly,
+    _done: true,
+  };
+}
+
+/**
+ * Sync helper for tests: runs the simulator body without yielding to the
+ * event loop.  Used by the test suite to keep wall-clock time short.
+ *
+ * Internally this is the same logic as `simulateBotRun` minus the per-step
+ * `await setImmediate`.  Production code should use `simulateBotRun` instead.
+ */
+export function simulateBotRunSync(puzzle, options = {}) {
+  const { modeId = 'standard', initialClueCount = 4, maxTicks = DEFAULT_MAX_TICKS, seed = DEFAULT_SEED } = options;
+  if (!puzzle || !Array.isArray(puzzle.objects)) {
+    throw new TypeError('simulateBotRun requires a puzzle with an objects array.');
+  }
+  const room = createRoom({
+    playMode: 'builtin',
+    modeId,
+    puzzle,
+    hostName: '难度评估 Bot',
+    initialClueCount,
+  });
+  const bot = room.players.find((player) => player.id === room.hostId);
+  bot.bot = true;
+  room.rng = makeRng(seed);
+
+  const hostStart = applyRoomAction(room, room.hostId, { kind: 'start-game' });
+  if (!hostStart.ok) {
+    throw new Error(`simulateBotRun: start-game refused (${hostStart.error})`);
+  }
   const setup = applyRoomAction(room, room.hostId, { kind: 'setup' });
   if (!setup.ok) {
     throw new Error(`simulateBotRun: setup refused (${setup.error})`);
@@ -103,13 +181,6 @@ export function simulateBotRun(puzzle, {
   let locatedTick = null;
   let finalTick = 0;
   let actionsApplied = 0;
-  // Knowledge curve: every `KNOWLEDGE_SAMPLE_INTERVAL` ticks, snapshot the
-  // average candidate-set size across the bot's view. Smaller numbers mean
-  // the bot has narrowed the puzzle further. The first half of the curve is
-  // the most informative (it tells us how much the bot learned in the early
-  // game); we capture that as the `earlyCoverage` metric.
-  const KNOWLEDGE_SAMPLE_INTERVAL = 5;
-  const knowledgeCurve = [];
   const maxTheoreticalScore = theoreticalMaxScore(room);
 
   while (ticks < maxTicks) {
@@ -118,24 +189,16 @@ export function simulateBotRun(puzzle, {
       finalTick = ticks;
       break;
     }
-    if (KNOWLEDGE_SAMPLE_INTERVAL && ticks % KNOWLEDGE_SAMPLE_INTERVAL === 0) {
-      knowledgeCurve.push(sampleAverageKnowledge(room, bot.id));
-    }
     const view = viewFor(room, bot.id);
     const action = decideAction(room, bot.id, view);
     if (!action) {
-      // Phase changed mid-loop (e.g. research phase opened); loop again to
-      // pick up the new action shape on the next iteration.
       stalled += 1;
       if (stalled > 25) break;
       continue;
     }
     stalled = 0;
     const result = applyRoomAction(room, bot.id, action);
-    if (!result.ok) {
-      // The bot proposed a transient-illegal action (rare). Skip and retry.
-      continue;
-    }
+    if (!result.ok) continue;
     actionsApplied += 1;
     if (action.kind === 'locate') {
       const entry = room.session.entries[room.session.entries.length - 1];
@@ -144,7 +207,7 @@ export function simulateBotRun(puzzle, {
     lastActionTick = ticks;
   }
 
-  const finalScore = currentScore(room, bot.id);
+  const finalScore = botScore(room, bot.id);
   const completedCleanly = room.phase === 'reveal' || room.phase === 'done';
 
   return {
@@ -158,9 +221,7 @@ export function simulateBotRun(puzzle, {
     finalTick: finalTick || lastActionTick,
     finalScore,
     maxTheoreticalScore,
-    knowledgeCurve,
-    // quick reject for puzzles that the bot cannot solve at all within the
-    // tick budget — give them a placeholder so callers can decide what to do
+    knowledgeCurve: [],
     maxTicks,
     timedOut: ticks >= maxTicks && !completedCleanly,
   };
@@ -176,97 +237,65 @@ export function hashPuzzle(puzzle) {
   return puzzle.objects.join('|');
 }
 
-function sampleAverageKnowledge(room, botId) {
-  const view = viewFor(room, botId);
-  if (!view || !view.mode) return 0;
-  let total = 0;
-  let counted = 0;
-  // Use the bot's *visible* sectors as the denominator so the curve is
-  // comparable across early and late game (visible rotates).
-  const visible = Array.isArray(view.visible) ? view.visible : [];
-  if (!visible.length) return 0;
-  for (const sector of visible) {
-    // The view does not expose `possible` directly; we infer knowledge from
-    // the bot's own surveys / targets / theories for now. A future iteration
-    // could pipe through the same constraint engine `computeKnowledge` uses.
-    let sectorKnowledge = 6; // worst case: every object still possible
-    const targets = view.knowledge?.targets || [];
-    for (const target of targets) {
-      if (target.sector === sector && target.apparent && target.apparent !== 'empty') {
-        sectorKnowledge = 1;
-      }
-    }
-    total += sectorKnowledge;
-    counted += 1;
-  }
-  return counted ? total / counted : 0;
-}
-
-function currentScore(room, botId) {
-  const player = room.players.find((entry) => entry.id === botId);
-  if (!player) return 0;
-  // score.js exports scoreBoard, but to keep this module self-contained we
-  // walk the entries and accumulate the bot's contributions directly.
-  let score = 0;
-  const entries = room.session?.entries || [];
-  for (const entry of entries) {
-    if (entry.actorId !== botId) continue;
-    if (entry.type === 'survey') score += 0;
-    if (entry.type === 'target') score += 0;
-    if (entry.type === 'research') score += 0;
-    if (entry.type === 'located' && entry.correct) score += 10;
-    if (entry.type === 'theory' && entry.review === 'correct') score += (entry.objectType === 'asteroid' ? 2 : entry.objectType === 'comet' ? 3 : 4);
-    if (entry.type === 'theory' && entry.review === 'wrong') score -= 5;
-  }
-  return score;
+/**
+ * The score for the bot player at the end of a simulation, using the same
+ * scoring rules the real game uses (theory points, leader bonuses, locate
+ * bonus).  Passes the full `room.session` state through scoreBoard so the
+ * bot's entry timestamps are respected.
+ */
+function botScore(room, botId) {
+  const player = room.players.find((p) => p.id === botId);
+  if (!player || !room.session) return 0;
+  const board = scoreBoard(room.session, [player]);
+  const row = board.rows.find((r) => r.id === botId);
+  return row ? row.total : 0;
 }
 
 /**
- * Upper bound of the score a perfect player could earn on this puzzle, given
- * the mode. Used to normalise the final-score component of the difficulty
- * metric. Conservative: a perfect player locates immediately, gets all
- * theories right, and lands all leader bonuses.
+ * Theoretical maximum score for this room's mode: the best-case score
+ * achievable by any player with perfect knowledge of the board.
  */
 function theoreticalMaxScore(room) {
   const mode = room.mode || room.session?.mode;
   if (!mode) return 30;
-  // 10 for a correct locate + 1 leader bonus per theory sector + max theory
-  // points. We round generously because exact accounting depends on object
-  // counts; this is a normalisation, not a ledger.
-  return 10 + 6 + 18;
+  // Count ordinary objects (theories) per mode.
+  const theorySectors = mode.sectors - 1 - 1; // minus PlanetX minus empties
+  const theoryPoints = theorySectors * 4; // worst case: all are gasCloud (highest)
+  return 10 + theoryPoints; // locate-first bonus + all theory points
 }
 
 /**
  * Reduce a bot simulation result into the [0, 1] composite difficulty score.
+ * Larger values = harder puzzle.
  *
- * composite = 0.6 * (roundsToLocate / totalRounds)
- *           + 0.4 * (1 - finalScore / maxScore)
+ * locateComponent:
+ *   - located in tick N: N / MAX_TICKS
+ *   - never located: 1
  *
- * If the bot timed out without locating, we treat the locate component as 1
- * (worst case) and fall back on the final-score component only when no
- * score was ever recorded.
+ * scoreComponent:
+ *   - finalScore ≤ maxScore: 1 - finalScore / maxScore  (lower score = harder)
+ *   - negative scores count normally (more negative = harder)
+ *   - timed out without locating: handled by the never-located path above
+ *
+ * composite = 0.6 * locateComponent + 0.4 * scoreComponent
  */
 export function scoreDifficulty(result) {
   if (!result || typeof result !== 'object') return 0;
+  const budget = result.maxTicks || 200;
   const maxScore = result.maxTheoreticalScore || 30;
+
   let locateComponent;
   if (result.locatedTick) {
-    // The simulation stops when X is found, so finalTick is only a tick or
-    // two after locatedTick. Divide by the tick budget, otherwise every
-    // solved puzzle looks equally late.
-    const budget = result.maxTicks || result.finalTick || result.ticks;
-    locateComponent = clamp01(result.locatedTick / Math.max(1, budget));
+    // Stop as soon as X is found: divide by the full tick budget so
+    // early solves score low and late solves score high.
+    locateComponent = clamp01(result.locatedTick / budget);
   } else {
-    locateComponent = 1; // bot never located — the hardest possible puzzle
+    locateComponent = 1; // never located — worst case
   }
-  let scoreComponent;
-  if (result.finalScore > 0) {
-    scoreComponent = clamp01(1 - result.finalScore / maxScore);
-  } else if (result.timedOut) {
-    scoreComponent = 1;
-  } else {
-    scoreComponent = 0.5;
-  }
+
+  // finalScore can be negative (wrong theories); use it directly.
+  const scoreComponent = clamp01(1 - result.finalScore / maxScore);
+
   return 0.6 * locateComponent + 0.4 * scoreComponent;
 }
 

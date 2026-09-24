@@ -799,7 +799,7 @@ test('findBestLocateGuess refuses to gamble when X has no neighbours pinned down
   assert.equal(findCertainLocate(knowledge, view), null);
 });
 
-test('findBestLocateGuess locates when X is unique and at least one neighbour is known', () => {
+test('findBestLocateGuess only locates when X and BOTH neighbours are unique', () => {
   const room = builtinWithBots(1);
   startGame(room);
   const bot = room.players.find((player) => player.bot);
@@ -817,10 +817,10 @@ test('findBestLocateGuess locates when X is unique and at least one neighbour is
     ],
   };
   const knowledge = computeKnowledge(room, bot.id, view);
-  const gamble = findBestLocateGuess(knowledge, view);
-  assert.ok(gamble, 'bot should take the gamble with X unique + one known neighbour');
-  assert.equal(gamble.sector, 5);
-  assert.equal(gamble.left, Obj.GAS_CLOUD);
+  // Right neighbour still ambiguous: the bot should NOT gamble.
+  assert.equal(findBestLocateGuess(knowledge, view), null);
+  // The legacy 100%-certain locator agrees — neither neighbour is unique.
+  assert.equal(findCertainLocate(knowledge, view), null);
 });
 
 test('findBestLocateGuess refuses when X is not the only candidate, even with neighbours known', () => {
@@ -880,8 +880,65 @@ test('findBestLocateGuess still locates when an overlapping survey does not rule
   startGame(room);
   const bot = room.players.find((player) => player.bot);
   const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // X unique at sector 5, both neighbours locked — this is the new
+  // contract: only the full triple (X, left, right) being unique lets the
+  // bot locate. The asteroid survey over sectors 3..6 may see an asteroid,
+  // but it does not rule X out of sector 5.
   view.knowledge = {
-    surveys: [{ actorId: bot.id, surveyType: Obj.ASTEROID, start: 3, size: 4, count: 0 }],
+    surveys: [{ actorId: bot.id, surveyType: Obj.ASTEROID, start: 3, size: 4, count: 1 }],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.GAS_CLOUD, review: 'correct', revealed: true },
+      { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
+      { sector: 6, objectType: Obj.ASTEROID, review: 'correct', revealed: true },
+    ],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  const gamble = findBestLocateGuess(knowledge, view);
+  assert.ok(gamble, 'bot should locate when X and both neighbours are uniquely known');
+  assert.equal(gamble.sector, 5);
+  assert.equal(gamble.left, Obj.GAS_CLOUD);
+});
+
+test('findBestLocateGuess locates when X and BOTH neighbours are unique', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // X unique at sector 5, left=GAS_CLOUD, right=ASTEROID — full triple unique.
+  view.knowledge = {
+    surveys: [],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.GAS_CLOUD, review: 'correct', revealed: true },
+      { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
+      { sector: 6, objectType: Obj.ASTEROID, review: 'correct', revealed: true },
+    ],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  const locate = findBestLocateGuess(knowledge, view);
+  assert.ok(locate, 'bot should locate when the whole triple is uniquely known');
+  assert.equal(locate.sector, 5);
+  assert.equal(locate.left, Obj.GAS_CLOUD);
+  assert.equal(locate.right, Obj.ASTEROID);
+});
+
+test('decideTurnAction refuses to locate when only one neighbour is unique', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // X is unique at sector 5, left neighbour locked to GAS_CLOUD, right neighbour
+  // still ambiguous ({EMPTY}). The bot must not submit a locate — too thin.
+  view.knowledge = {
+    surveys: [],
     targets: [],
     clues: [],
     conferences: [],
@@ -890,10 +947,11 @@ test('findBestLocateGuess still locates when an overlapping survey does not rule
       { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
     ],
   };
+  // decideTurnAction is module-internal, but it eventually goes through
+  // findBestLocateGuess / findCertainLocate. We directly verify those.
   const knowledge = computeKnowledge(room, bot.id, view);
-  const gamble = findBestLocateGuess(knowledge, view);
-  assert.equal(gamble?.sector, 5);
-  assert.equal(gamble.left, Obj.GAS_CLOUD);
+  assert.equal(findBestLocateGuess(knowledge, view), null, 'should refuse to gamble with one neighbour unknown');
+  assert.equal(findCertainLocate(knowledge, view), null, 'should refuse 100% without both neighbours unique');
 });
 
 test('preferred research topics stay inside A–F and differ by seat', () => {

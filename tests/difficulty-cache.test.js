@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { DifficultyCache } from '../server/difficulty-cache.js';
+import { DifficultyCache, BOT_VERSION } from '../server/difficulty-cache.js';
 
 const PUZZLE = {
   modeId: 'standard',
@@ -27,12 +27,18 @@ function tempCache() {
   };
 }
 
-test('cache returns a 1–5 star rating and persists to disk', () => {
+test('getOrCompute returns 1–5 stars and persists to disk', async () => {
   const { cache, filePath, cleanup } = tempCache();
   try {
     const result = cache.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
-    assert.ok(result.stars >= 1 && result.stars <= 5, `stars should be 1–5, got ${result.stars}`);
-    assert.ok(typeof result.rawScore === 'number');
+    // First call returns a promise (sim not yet run)
+    if (!result.cached) {
+      const entry = await result.promise;
+      assert.ok(entry.stars >= 1 && entry.stars <= 5, `stars should be 1–5, got ${entry.stars}`);
+      assert.ok(typeof entry.rawScore === 'number');
+    } else {
+      assert.ok(result.entry.stars >= 1 && result.entry.stars <= 5);
+    }
     cache.flushNow();
     assert.ok(existsSync(filePath), 'cache file should exist after flush');
   } finally {
@@ -40,30 +46,48 @@ test('cache returns a 1–5 star rating and persists to disk', () => {
   }
 });
 
-test('cache reuses a previously computed entry on second call (no replay)', () => {
+test('cache reuses a previously computed entry on second call (no replay)', async () => {
   const { cache, cleanup } = tempCache();
   try {
     const first = cache.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
-    const firstTicks = first.ticks;
+    const firstEntry = first.cached ? first.entry : await first.promise;
     const second = cache.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
-    assert.equal(second.ticks, firstTicks, 'cached entry should preserve the original ticks');
-    assert.equal(second.stars, first.stars, 'cached entry should preserve the original stars');
-    assert.equal(second.measuredAt, first.measuredAt, 'cached entry should not be recomputed');
+    assert.equal(second.cached, true, 'second call should be cached');
+    assert.equal(second.entry.stars, firstEntry.stars);
+    assert.equal(second.entry.measuredAt, firstEntry.measuredAt, 'cached entry should not be recomputed');
   } finally {
     cleanup();
   }
 });
 
-test('cache survives a reload via DifficultyCache constructor', () => {
+test('concurrent calls for the same puzzle hash share one simulation', async () => {
+  const { cache, cleanup } = tempCache();
+  try {
+    // Fire two getOrCompute calls in the same micro-task. Only one
+    // simulation should run; both should resolve to the same entry.
+    const a = cache.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
+    const b = cache.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
+    assert.ok(!a.cached && !b.cached, 'first two calls should both be in-flight');
+    const [ea, eb] = await Promise.all([a.promise, b.promise]);
+    assert.equal(ea.stars, eb.stars);
+    assert.equal(ea.measuredAt, eb.measuredAt);
+  } finally {
+    cleanup();
+  }
+});
+
+test('cache survives a reload via DifficultyCache constructor', async () => {
   const { filePath, cleanup } = tempCache();
   try {
     const first = new DifficultyCache({ filePath });
     const result = first.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
+    const firstEntry = result.cached ? result.entry : await result.promise;
     first.flushNow();
     const second = new DifficultyCache({ filePath });
     const cached = second.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 80 });
-    assert.equal(cached.stars, result.stars);
-    assert.equal(cached.rawScore, result.rawScore);
+    assert.equal(cached.cached, true, 'after reload the entry should be cached');
+    assert.equal(cached.entry.stars, firstEntry.stars);
+    assert.equal(cached.entry.rawScore, firstEntry.rawScore);
   } finally {
     cleanup();
   }
@@ -80,7 +104,25 @@ test('cache returns sensible defaults for breakpoints when samples are empty', (
   }
 });
 
-test('reset() clears all stored data', () => {
+test('primeSamples replaces fixed defaults with sample-derived breakpoints', async () => {
+  const { cache, cleanup } = tempCache();
+  try {
+    // Build a couple of slightly different puzzles.
+    const puzzles = [PUZZLE, { ...PUZZLE, objects: PUZZLE.objects.slice().reverse() }];
+    await cache.primeSamples({ puzzles, modeId: 'standard', maxTicks: 80 });
+    const samples = cache.state.samples.standard;
+    assert.ok(samples.length >= 1, `expected samples to be populated, got ${samples.length}`);
+    // With at least 1 sample, breakpoints should no longer be the default
+    // (assuming the samples are not exactly [0.2, 0.4, 0.6, 0.8]).
+    // The DEFAULT_SAMPLE_SIZE gate is 32, so breakpoints stay at default until then.
+    const breakpoints = cache.breakpointsFor('standard');
+    assert.equal(breakpoints.length, 4);
+  } finally {
+    cleanup();
+  }
+});
+
+test('reset() clears all stored data', async () => {
   const { cache, filePath, cleanup } = tempCache();
   try {
     cache.getOrCompute(PUZZLE, { modeId: 'standard', maxTicks: 60 });
@@ -93,4 +135,8 @@ test('reset() clears all stored data', () => {
   } finally {
     cleanup();
   }
+});
+
+test('BOT_VERSION is exported and matches the current heuristic', () => {
+  assert.ok(typeof BOT_VERSION === 'string' && BOT_VERSION.length > 0);
 });

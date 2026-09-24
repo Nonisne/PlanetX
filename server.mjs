@@ -16,7 +16,7 @@ import { BUILTIN_MAX_PLAYERS, INITIAL_CLUE_COUNTS, MODES } from './public/src/ru
 import { createPuzzle, initialCluesFor } from './server/puzzles.js';
 import { applyTutorialAction, createTutorialRoom } from './server/tutorial.js';
 import { attachBotController, detachBotController } from './server/bot-controller.js';
-import { DifficultyCache } from './server/difficulty-cache.js';
+import { DifficultyCache, BOT_VERSION } from './server/difficulty-cache.js';
 import { hashPuzzle } from './server/difficulty.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
@@ -93,35 +93,34 @@ function broadcast(room, extra = null) {
 }
 
 /**
- * Run the bot simulation against `puzzle` off the response cycle, then
- * notify every listener in `room` via SSE when the stars land. Errors are
- * logged but never propagate — a failed simulation should not crash the
- * server or block the lobby.
+ * Run the difficulty simulation for `room.puzzle` in the background, yielding to
+ * the event loop between each bot step.  When the simulation finishes, write
+ * the result to the cache and broadcast the stars to every room listener via SSE.
+ *
+ * Concurrent calls for the same puzzle hash are deduplicated by DifficultyCache.
  */
-function rateDifficultyAsync(room, puzzle, { modeId }) {
-  setImmediate(() => {
-    try {
-      const result = difficultyCache.getOrCompute(puzzle, { modeId });
-      room.difficulty = result;
-      broadcast(room, { kind: 'difficulty-ready', modeId, ...result });
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.warn('[difficulty] simulation failed:', error.message);
-      broadcast(room, { kind: 'difficulty-error', modeId, error: error.message });
-    }
-  });
-}
-
-/** Stand-alone rating that just updates the cache; no room to broadcast to. */
-function ratePuzzleAsync(puzzle, { modeId }) {
-  setImmediate(() => {
-    try {
-      difficultyCache.getOrCompute(puzzle, { modeId });
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.warn('[difficulty] simulation failed:', error.message);
-    }
-  });
+async function rateDifficultyAsync(room) {
+  if (!room.puzzle) return;
+  const puzzle = room.puzzle;
+  const modeId = room.modeId || 'standard';
+  // `getOrCompute` returns either { cached: true, entry } (synchronous) or
+  // { cached: false, promise } (async).  We always await so the broadcast fires
+  // when the simulation is done.
+  const result = difficultyCache.getOrCompute(puzzle, { modeId });
+  if (result.cached) {
+    room.difficulty = result.entry;
+    broadcast(room, { kind: 'difficulty-ready', modeId, ...result.entry });
+    return;
+  }
+  try {
+    const entry = await result.promise;
+    room.difficulty = entry;
+    broadcast(room, { kind: 'difficulty-ready', modeId, ...entry });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('[difficulty] async simulation failed:', error.message);
+    broadcast(room, { kind: 'difficulty-error', modeId, error: String(error && error.message) });
+  }
 }
 
 function writeEvent(res, event, data) {
@@ -222,8 +221,7 @@ async function handleApi(req, res, url) {
     if (playMode === 'builtin' && puzzle) {
       room.puzzle = puzzle;
       room.difficulty = null;
-      const requestId = `${room.id}:${Date.now()}`;
-      rateDifficultyAsync(room, puzzle, { modeId, requestId });
+      rateDifficultyAsync(room);
     }
     sendJson(res, 200, { roomId: room.id, playerId: me.id, token: me.token, view: roomView(room, me.id) });
     return true;
@@ -237,28 +235,6 @@ async function handleApi(req, res, url) {
       sampleCount: samples.length,
       breakpoints: difficultyCache.breakpointsFor(modeId),
     });
-    return true;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/puzzles/difficulty') {
-    const body = await readJson(req);
-    const puzzle = body.puzzle;
-    if (!puzzle || !Array.isArray(puzzle.objects)) {
-      sendJson(res, 400, { error: 'puzzle.objects is required' });
-      return true;
-    }
-    const modeId = MODES[body.modeId] ? body.modeId : (puzzle.modeId || 'standard');
-    const cacheHash = hashPuzzle(puzzle);
-    const cached = difficultyCache.state.computed[cacheHash];
-    if (cached && cached.botVersion === difficultyCache.state.botVersion) {
-      sendJson(res, 200, { status: 'ready', ...cached });
-      return true;
-    }
-    // No cached entry yet — kick off the simulation in the background and
-    // return a `computing` status. Callers can subscribe to the room's
-    // SSE stream to receive the `difficulty-ready` event when it lands.
-    ratePuzzleAsync(puzzle, { modeId });
-    sendJson(res, 202, { status: 'computing', modeId });
     return true;
   }
 
@@ -480,7 +456,7 @@ export function lanUrls(port) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const server = createServer();
-  server.listen(port, host, () => {
+  server.listen(port, host, async () => {
     const lan = lanUrls(port);
     console.log(`[planet-x] serving ${root}`);
     if (host === '0.0.0.0' || host === '::') {
@@ -496,6 +472,27 @@ if (isMain) {
       console.log(`[planet-x] open http://${host}:${port}/`);
       console.log('[planet-x] (only this machine can reach it; use HOST=0.0.0.0 to let others join)');
     }
+    // Bootstrap difficulty breakpoints on startup: generate a batch of standard
+    // and expert puzzles and run their simulations in the background.
+    const BOOTSTRAP_STANDARD = 16;
+    const BOOTSTRAP_EXPERT = 8;
+    const IC = 4; // initialClueCount
+    const standardPuzzles = Array.from({ length: BOOTSTRAP_STANDARD }, (_, i) => {
+      const p = createPuzzle({ modeId: 'standard' });
+      return { ...p, startingClues: Array.from({ length: BUILTIN_MAX_PLAYERS }, () => initialCluesFor(p, { count: 12 })) };
+    });
+    const expertPuzzles = Array.from({ length: BOOTSTRAP_EXPERT }, (_, i) => {
+      const p = createPuzzle({ modeId: 'expert' });
+      return { ...p, startingClues: Array.from({ length: BUILTIN_MAX_PLAYERS }, () => initialCluesFor(p, { count: 12 })) };
+    });
+    // Run in the background without blocking the server listen callback.
+    const start = Date.now();
+    difficultyCache.primeSamples({ puzzles: standardPuzzles, modeId: 'standard', onProgress: (done, total) => {
+      if (done === total) console.log(`[difficulty] standard breakpoints primed (${total} puzzles, ${Date.now() - start}ms)`);
+    } });
+    difficultyCache.primeSamples({ puzzles: expertPuzzles, modeId: 'expert', onProgress: (done, total) => {
+      if (done === total) console.log(`[difficulty] expert breakpoints primed (${total} puzzles)`);
+    } });
   });
   setInterval(cleanupRooms, 1000 * 60 * 30).unref?.();
 }

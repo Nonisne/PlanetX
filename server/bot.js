@@ -305,35 +305,38 @@ export function findBestLocateGuess(knowledge, view) {
     if (!possible.includes(Obj.PLANET_X)) continue;
     const left = mod(sector - 1, sectors);
     const right = mod(sector + 1, sectors);
-    const score = scoreLocateGuess(sector, left, right, knowledge, view);
-    if (score < LOCATE_GAMBLE_MIN_EVIDENCE) continue;
-    // Need at least one of {sector, left, right} to be a single object, otherwise
-    // the bot is gambling on three unknowns at once.
+    // Only locate when X and both neighbours are fully certain. Gambling
+    // (one or both neighbours unknown) is deferred to the final opportunity.
     const sectorKnown = possible.length === 1;
     const leftKnown = knowledge.possible(left).length === 1;
     const rightKnown = knowledge.possible(right).length === 1;
-    if (!sectorKnown && !leftKnown && !rightKnown) continue;
-    if (score > bestScore) {
-      bestScore = score;
+    if (!sectorKnown || !leftKnown || !rightKnown) continue;
+    const finalScore = scoreLocateGuess(sector, left, right, knowledge, view);
+    if (finalScore > bestScore) {
+      bestScore = finalScore;
       best = { sector, left, right };
     }
   }
   if (!best) return null;
-  // Fill in left/right with the unique object if the bot knows it; otherwise
-  // pick any legal object as a placeholder. `recordLocate` validates against
-  // the real puzzle when scoring, so a wrong guess only costs the 5 months.
+  // All three are already known; no need to look up left/right again.
   const leftPossible = knowledge.possible(best.left);
   const rightPossible = knowledge.possible(best.right);
-  const pickLeft = leftPossible.length === 1 ? leftPossible[0] : guessNeighbour(leftPossible);
-  const pickRight = rightPossible.length === 1 ? rightPossible[0] : guessNeighbour(rightPossible);
-  return { sector: best.sector, left: pickLeft, right: pickRight, score: bestScore };
+  return {
+    sector: best.sector,
+    left: leftPossible.length === 1 ? leftPossible[0] : Obj.ASTEROID,
+    right: rightPossible.length === 1 ? rightPossible[0] : Obj.ASTEROID,
+    score: bestScore,
+  };
 }
 
 /**
- * Look for a sector whose candidate set has collapsed to Planet X, where the
- * left and right neighbours are each unique too. This is the legacy "100%
- * certain" locate; preserved so callers that need it (e.g. final opportunity
- * when only certain locates are safe) can still find it.
+ * Look for a sector where X and both neighbours are each a unique object.
+ * Used only for the final-opportunity path (decideFinalAction) where gambling
+ * is preferable to a wasted slot. Returns null if any of the three is uncertain.
+ *
+ * This is a simplified version of `findCertainLocate` that omits the guard
+ * `sector !== left && sector !== right` (trivial for a non-empty board).
+ * We use it directly in decideFinalAction without further filtering.
  */
 function guessNeighbour(possible) {
   const legal = (possible || []).filter((type) => SURVEY_TYPES.includes(type) && type !== Obj.PLANET_X);
@@ -372,11 +375,11 @@ export function findCertainLocate(knowledge, view) {
 function decideTurnAction(room, botId, view) {
   const mode = view.mode;
   const knowledge = computeKnowledge(room, botId, view);
-  // `findBestLocateGuess` already covers the legacy 100%-certain locate path
-  // (X unique + both neighbours unique scores 110 ≥ 80) and adds a confident
-  // gamble mode (X unique + at least one neighbour constrained).
-  const gamble = findBestLocateGuess(knowledge, view);
-  if (gamble) return { kind: 'locate', sector: gamble.sector, left: gamble.left, right: gamble.right };
+  // Only locate when X and both neighbours are fully certain (the only
+  // situation where the bot has no chance of getting it wrong). Otherwise
+  // keep surveying, scanning, or doing research.
+  const certain = findCertainLocate(knowledge, view);
+  if (certain) return { kind: 'locate', sector: certain.sector, left: certain.left, right: certain.right };
 
   const candidates = [];
   const seatIndex = Math.max(0, room.players.findIndex((player) => player.id === botId));
@@ -530,8 +533,12 @@ function surveyElimination(knowledge, view, type, range) {
   for (const sector of range) {
     const possible = knowledge.possible(sector);
     if (!possible || possible.length === 0) continue;
-    // worst-case: `type` is ruled out of every sector that still holds it
-    if (possible.includes(type) && possible.length > 1) worst += 1;
+    // worst-case: finding `type` eliminates it and collapses the candidate set
+    // when `type` is NOT in the possible set (the result is certain: zero of `type`).
+    // Also count `type` in a multi-element set as +1: even if found, it does not
+    // eliminate all remaining possibilities.
+    if (!possible.includes(type)) worst += 1;
+    else if (possible.length > 1) worst += 1;
     // expected-case: if only `type` is on the menu, the survey cannot reduce
     // the set any further, but it can *confirm* — add 1 to the score to
     // reflect that a survey here would lock the sector down for the next
@@ -542,13 +549,7 @@ function surveyElimination(knowledge, view, type, range) {
     // +1.5 because that collapse reveals a new object elsewhere on the board.
     if (possible.length === 2 && possible.includes(type)) expected += 1.5;
   }
-  // Subtract the cost of "no new info" sectors that would push count=0 to
-  // force a useless outcome. Pure penalisation, never goes below zero.
-  const pointless = range.filter((sector) => {
-    const possible = knowledge.possible(sector);
-    return !possible.includes(type) || possible.length === 1;
-  }).length;
-  return Math.max(0, worst + 0.5 * expected - 0.1 * pointless);
+  return worst + expected;
 }
 
 /**
