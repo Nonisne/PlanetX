@@ -3067,6 +3067,28 @@ test('approved public scores use a two-row per-player table with object unit val
   assert.match(styles, /\.score-table-wrap\s*\{[^}]*overflow-x:\s*auto/);
 });
 
+test('a later research phase starts with no secret object selected', () => {
+  storage.clear();
+  tabStorage.clear();
+  const root = makeEl('div');
+  const app = createApp(root);
+  const research = {
+    id: 'phase-1', sector: 3, myCount: null, declaredCount: 0, playerCount: 2, quota: 2,
+    allDeclared: false, isMyPick: false, left: 0, orderNames: [], picks: [], myPicks: [],
+  };
+  const game = {
+    ...app.state.game, me: 'viewer', phase: 'play', research,
+    theoryTokensRemaining: { asteroid: 4, comet: 2, gasCloud: 2, dwarfPlanet: 1 },
+  };
+  app.state.remote = { roomId: 'RESEARCH-DRAFT', playerId: 'viewer', token: 'fixture', view: game };
+  app.api.setUi({ researchTypes: [Obj.DWARF_PLANET], researchDraftPhaseId: 'phase-1' });
+  assert.match(collectText(root).join(''), /已秘密选择 1 篇：矮行星/);
+  game.research = { ...research, id: 'phase-2', sector: 6 };
+  app.render();
+  assert.match(collectText(root).join(''), /还没有选择天体/);
+  assert.deepEqual(app.state.ui.researchTypes, []);
+});
+
 test('app theory defaults omit revealed sectors but keep a different allowed type at a previously attempted sector', () => {
   storage.clear();
   tabStorage.clear();
