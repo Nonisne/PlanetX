@@ -133,7 +133,7 @@ function exhaustedBuiltin(playerCount = 1) {
   for (const claim of claims) {
     const phaseId = nextResearch(room);
     for (const player of room.players) {
-      accept(room, player, { kind: 'research-declare', phaseId, count: player.id === host.id ? 1 : 0 });
+      accept(room, player, { kind: 'research-declare', phaseId, objectTypes: player.id === host.id ? [claim.objectType] : [] });
     }
     accept(room, host, { kind: 'research-submit', phaseId, ...claim });
   }
@@ -183,7 +183,7 @@ test('builtin exhausted legal claims reject a positive declaration without trapp
   const { room, host } = exhaustedBuiltin();
   const phaseId = room.research.id;
   const before = structuredClone(room);
-  const refused = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId, count: 1 });
+  const refused = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] });
   assert.equal(refused.ok, false);
   assert.match(refused.error, /可提交|合法/);
   assert.deepEqual(room, before);
@@ -204,7 +204,7 @@ test('builtin declaration capacity uses each author history rather than hidden p
   for (const topic of Object.values(puzzle.topics)) assert.equal(JSON.stringify(guestView).includes(topic.clue), false);
   const phaseId = room.research.id;
   accept(room, host, { kind: 'research-declare', phaseId, count: 0 });
-  accept(room, guest, { kind: 'research-declare', phaseId, count: 1 });
+  accept(room, guest, { kind: 'research-declare', phaseId, objectTypes: [Obj.GAS_CLOUD] });
   accept(room, guest, { kind: 'research-submit', phaseId, sector: 5, objectType: Obj.GAS_CLOUD });
 });
 
@@ -221,13 +221,15 @@ test('declaration buttons enforce personal capacity and preserve old expert view
     const game = viewFor(room, room.hostId);
     game.research.maxDeclare = maxDeclare;
     const { buttons, actions } = declarationControls(game);
-    assert.equal(buttons.length, game.research.quota + 1);
-    for (const [count, button] of buttons.entries()) {
-      assert.equal(Object.hasOwn(button.attributes, 'disabled'), count > allowed);
-      button.listeners.click();
-    }
-    assert.deepEqual(actions.map((action) => action.count), Array.from({ length: allowed + 1 }, (unused, count) => count));
-    assert.ok(actions.every((action) => action.kind === 'research-declare' && action.phaseId === game.research.id));
+    assert.equal(buttons.length, 6);
+    const types = buttons.slice(0, 4);
+    const pass = buttons[4];
+    const confirm = buttons[5];
+    assert.equal(Object.hasOwn(pass.attributes, 'disabled'), false);
+    assert.equal(Object.hasOwn(confirm.attributes, 'disabled'), true);
+    assert.equal(types.every((button) => Object.hasOwn(button.attributes, 'disabled')), allowed === 0);
+    pass.listeners.click();
+    assert.deepEqual(actions, [{ kind: 'research-declare', phaseId: game.research.id, objectTypes: [] }]);
   }
 });
 
@@ -342,7 +344,7 @@ test('builtin mixed crossings withhold conference clues until all earlier theory
     accept(room, host, { kind: 'survey', type: Obj.ASTEROID, start: 0, size: 1 });
     assert.equal(room.research.sector, 3);
     const phaseId = room.research.id;
-    accept(room, host, { kind: 'research-declare', phaseId, count: submitWrong ? 1 : 0 });
+    accept(room, host, { kind: 'research-declare', phaseId, objectTypes: submitWrong ? [Obj.GAS_CLOUD] : [] });
     if (submitWrong) accept(room, host, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.GAS_CLOUD });
     accept(room, host, { kind: 'survey', type: Obj.ASTEROID, start: 4, size: 1 });
     passResearch(room);
@@ -371,7 +373,7 @@ test('builtin advances theory track, automatically reviews and charges wrong the
   assert.equal(room.research, null);
   accept(room, host, { kind: 'wait' });
   const phaseId = room.research.id;
-  accept(room, host, { kind: 'research-declare', phaseId, count: 1 });
+  accept(room, host, { kind: 'research-declare', phaseId, objectTypes: [Obj.COMET] });
   const submitted = accept(room, host, { kind: 'research-submit', phaseId, sector: 1, objectType: Obj.COMET });
   assert.equal(submitted.entry.review, 'pending');
   for (let guard = 0; submitted.entry.review === 'pending' && guard < 20; guard++) {
@@ -389,8 +391,8 @@ test('builtin reviews multiple due sectors by sector number rather than publicat
   start(room);
   while (!room.research) accept(room, currentPlayer(room), { kind: 'wait' });
   const phaseId = room.research.id;
-  accept(room, host, { kind: 'research-declare', phaseId, count: 1 });
-  accept(room, guest, { kind: 'research-declare', phaseId, count: 1 });
+  accept(room, host, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] });
+  accept(room, guest, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] });
   const highSector = accept(room, host, { kind: 'research-submit', phaseId, sector: 10, objectType: Obj.ASTEROID }).entry;
   const lowSector = accept(room, guest, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.ASTEROID }).entry;
   for (let guard = 0; highSector.review === 'pending' && guard < 30; guard++) {

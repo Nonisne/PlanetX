@@ -46,12 +46,14 @@ import {
   theoriesAwaitingReview,
   theoryOptionsFor,
   theoryQuota,
+  theoryTokensRemaining,
   timeOf,
   undoLast,
   windowOf,
   TOPIC_IDS,
 } from './console.js';
 import { scoreBoard } from './score.js';
+import { LABEL, THEORY_TYPES } from './types.js';
 import { crossedEvents } from './phases.js';
 import { Obj, INITIAL_CLUE_TYPES, apparentType } from './types.js';
 
@@ -447,7 +449,9 @@ function researchView(room, playerId) {
     playerCount: seated.length,
     declaredCount: declared,
     allDeclared: declared >= seated.length,
-    myCount: Object.prototype.hasOwnProperty.call(phase.declares, playerId) ? phase.declares[playerId] : null,
+    myCount: Object.prototype.hasOwnProperty.call(phase.declares, playerId) ? declaredTypesOf(phase, playerId).length : null,
+    myTypes: Object.prototype.hasOwnProperty.call(phase.declares, playerId) ? declaredTypesOf(phase, playerId).slice() : null,
+    nextType: phase.cursorId === playerId && (phase.left[playerId] || 0) > 0 ? nextDeclaredType(phase, playerId) : null,
     left: phase.left[playerId] || 0,
     order: phase.order.slice(),
     orderNames: phase.order.map((id) => (playerById(room, id) || {}).name || '？'),
@@ -805,7 +809,7 @@ function applyAction(room, playerId, action) {
     if (!room.research) return { ok: false, error: '现在不是学术研究阶段' };
     if (action.phaseId !== room.research.id) return { ok: false, error: '学术研究阶段已变化，请按最新阶段重新提交' };
   }
-  if (kind === 'research-declare') return declareResearch(room, playerId, action.count);
+  if (kind === 'research-declare') return declareResearch(room, playerId, action);
 
   if (kind === 'research-submit') {
     if (!room.research) return { ok: false, error: '现在不是学术研究阶段' };
@@ -1084,36 +1088,78 @@ function declarationCapacity(room, playerId) {
   return Math.min(room.research.quota, options.length);
 }
 
-function declareResearch(room, playerId, count) {
+function declaredTypesOf(phase, playerId) {
+  const value = phase.declares[playerId];
+  return Array.isArray(value) ? value : [];
+}
+
+function nextDeclaredType(phase, playerId) {
+  const types = declaredTypesOf(phase, playerId);
+  const index = types.length - (phase.left[playerId] || 0);
+  return types[index] || null;
+}
+
+function typesFitSectors(options, types) {
+  const used = new Set();
+  function place(index) {
+    if (index >= types.length) return true;
+    for (const option of options) {
+      if (used.has(option.sector) || !option.types.includes(types[index])) continue;
+      used.add(option.sector);
+      if (place(index + 1)) return true;
+      used.delete(option.sector);
+    }
+    return false;
+  }
+  return place(0);
+}
+
+function declareResearch(room, playerId, action) {
   const phase = room.research;
   if (!phase) return { ok: false, error: '现在不是学术研究阶段' };
   if (phase.order.length) return { ok: false, error: '篇数已经定了，现在按顺序提交' };
   if (Object.prototype.hasOwnProperty.call(phase.declares, playerId)) {
     return { ok: false, error: '你已经选过篇数了（不能更改）' };
   }
-  const declaredCount = Number(count);
-  if (!Number.isInteger(declaredCount) || declaredCount < 0 || declaredCount > phase.quota) {
+  let types = action.objectTypes;
+  if (types === undefined && Number(action.count) === 0) types = [];
+  if (!Array.isArray(types)) return { ok: false, error: '请同时选择提交篇数和对应天体' };
+  if (action.count !== undefined && Number(action.count) !== types.length) {
+    return { ok: false, error: '提交篇数和所选天体数量不一致' };
+  }
+  if (types.length > phase.quota) {
     return { ok: false, error: `篇数只能是 0 到 ${phase.quota}（${room.session.mode.name}）` };
   }
+  for (const type of types) {
+    if (!THEORY_TYPES.includes(type)) return { ok: false, error: '理论只能针对：小行星／彗星／气体云／矮行星' };
+  }
   const capacity = declarationCapacity(room, playerId);
-  if (declaredCount > capacity) return { ok: false, error: `本阶段你最多可提交 ${capacity} 篇论文（按尚可提交的不同扇区计算）` };
-  phase.declares[playerId] = declaredCount;
+  if (types.length > capacity) return { ok: false, error: `本阶段你最多可提交 ${capacity} 篇论文（按尚可提交的不同扇区计算）` };
+  const options = theoryOptionsFor(stateFor(room, playerId), { phaseId: phase.id });
+  const remaining = theoryTokensRemaining(stateFor(room, playerId));
+  const used = {};
+  for (const type of types) {
+    used[type] = (used[type] || 0) + 1;
+    if (used[type] > (remaining[type] || 0)) return { ok: false, error: `你的${LABEL[type]}理论标记不够，不能再选该天体` };
+  }
+  if (!typesFitSectors(options, types)) return { ok: false, error: '这些天体在当前可提交的扇区里放不下' };
+  phase.declares[playerId] = types.slice();
   const seated = seatedPlayers(room);
   const declared = Object.keys(phase.declares).filter((id) => seated.some((player) => player.id === id)).length;
   if (declared >= seated.length) startResearchPublishing(room);
-  return { ok: true, count: declaredCount, research: phase };
+  return { ok: true, count: types.length, objectTypes: types.slice(), research: phase };
 }
 
 function startResearchPublishing(room) {
   const phase = room.research;
   for (const player of seatedPlayers(room)) {
-    if (!Object.prototype.hasOwnProperty.call(phase.declares, player.id)) phase.declares[player.id] = 0;
+    if (!Object.prototype.hasOwnProperty.call(phase.declares, player.id)) phase.declares[player.id] = [];
   }
-  const publishers = researchOrder(room).filter((p) => (phase.declares[p.id] || 0) > 0);
-  phase.order = publishers.map((p) => p.id);
-  for (const player of publishers) phase.left[player.id] = phase.declares[player.id];
+  const publishers = researchOrder(room).filter((player) => declaredTypesOf(phase, player.id).length > 0);
+  phase.order = publishers.map((player) => player.id);
+  for (const player of publishers) phase.left[player.id] = declaredTypesOf(phase, player.id).length;
   phase.cursorId = phase.order[0] || null;
-  if (!phase.cursorId) closeResearch(room); // everybody passed
+  if (!phase.cursorId) closeResearch(room);
   return phase;
 }
 
@@ -1153,10 +1199,15 @@ function publishTheory(room, playerId, action) {
     return { ok: false, error: `落后者先提交；同格先到者在后。现在轮到 ${who ? who.name : '别人'}` };
   }
   if ((phase.left[playerId] || 0) <= 0) return { ok: false, error: '你这个阶段的名额已经用完了' };
+  const type = nextDeclaredType(phase, playerId);
+  if (!type) return { ok: false, error: '先选定这个阶段要提交的天体' };
+  if (action.objectType && action.objectType !== type) {
+    return { ok: false, error: `这一篇已经选定${LABEL[type]}，现在只选择扇区` };
+  }
   const player = playerById(room, playerId);
   // the phase itself is the schedule, so the engine only has to check the hard rules; the
   // track steps forward when the phase closes, not on each paper
-  const res = act(room, player, { kind: 'theory', sector: action.sector, type: action.objectType }, {
+  const res = act(room, player, { kind: 'theory', sector: action.sector, type }, {
     fn: recordTheory,
     engineOptions: { enforceSchedule: false, phaseId: phase.id, stationSector: phase.sector },
   });

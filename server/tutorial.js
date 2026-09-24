@@ -62,16 +62,16 @@ const LESSONS = [
     '现在两人都耗时 4。后到的 Bot 放在该格所有棋子的前方，你仍是落后者。',
     '行动和论文提交都由落后者先执行；同格时是先到者优先，不是后来挤到前方的人优先。',
   ]),
-  lesson('declare-first', 4, '学术研究：先声明 1 篇', 'theory', [
-    '天窗起点离开 3 号后，双方共同进入学术研究阶段。每人先确定篇数，再按落后顺序提交。',
-    '本次选择提交 1 篇。我们已有可靠的 5 号气体云证据。',
-  ], { interaction: 'action', action: { kind: 'research-declare', count: 1 } }),
-  lesson('bot-declare-first', 4, '等待 Bot 声明篇数', 'theory', [
-    'Bot 也声明 1 篇。双方声明完成后，落后的你先提交。',
-  ], { actor: 'bot', action: { kind: 'research-declare', count: 1 } }),
-  lesson('publish-first', 4, '提交 5 号气体云论文', 'theory', [
-    '选择 5 号扇区和气体云，提交论文。其他人暂时只知道你对 5 号作了预测，不知道预测的天体。',
-  ], { interaction: 'action', action: { kind: 'research-submit', sector: 4, objectType: Obj.GAS_CLOUD } }),
+  lesson('declare-first', 4, '学术研究：秘密选定 1 篇气体云', 'theory', [
+    '天窗起点离开 3 号后，双方共同进入学术研究阶段。每人同时秘密选定篇数和天体，再按落后顺序只选扇区。',
+    '本次选择 1 篇气体云。我们已有可靠的 5 号气体云证据。',
+  ], { interaction: 'action', action: { kind: 'research-declare', count: 1, objectTypes: [Obj.GAS_CLOUD] } }),
+  lesson('bot-declare-first', 4, '等待 Bot 秘密选定天体', 'theory', [
+    'Bot 也秘密选定 1 篇。双方选定完成后，落后的你先选择扇区。',
+  ], { actor: 'bot', action: { kind: 'research-declare', count: 1, objectTypes: [Obj.DWARF_PLANET] } }),
+  lesson('publish-first', 4, '把气体云论文放到 5 号', 'theory', [
+    '天体已经选定为气体云，现在只选择 5 号扇区。其他人暂时只知道你对 5 号作了预测，不知道预测的天体。',
+  ], { interaction: 'action', action: { kind: 'research-submit', sector: 4 } }),
   lesson('bot-publish-first', 4, '观看 Bot 提交论文', 'theory', [
     '轮到 Bot 提交它的私有预测。所有人完成后，论文一起沿轨道推进，不立即揭晓内容。',
   ], { actor: 'bot', action: { kind: 'research-submit', sector: 2, objectType: Obj.DWARF_PLANET } }),
@@ -91,13 +91,13 @@ const LESSONS = [
   ], { actor: 'bot', action: { kind: 'survey', type: Obj.ASTEROID, start: 8, size: 1 } }),
   lesson('declare-second', 5, '没有新把握时可以不提交', 'theory', [
     '本次选择 0 篇。6 号的“空域”不是可提交的普通天体结论，不能把它当作确定论文。',
-  ], { interaction: 'action', action: { kind: 'research-declare', count: 0 } }),
-  lesson('bot-declare-second', 5, 'Bot 声明一篇新预测', 'theory', [
-    'Bot 会声明一篇新论文。观察流程即可，它的具体结论仍然保密。',
-  ], { actor: 'bot', action: { kind: 'research-declare', count: 1 } }),
+  ], { interaction: 'action', action: { kind: 'research-declare', count: 0, objectTypes: [] } }),
+  lesson('bot-declare-second', 5, 'Bot 秘密选定一篇新预测', 'theory', [
+    'Bot 会秘密选定一篇新论文的天体。观察流程即可，它的具体结论仍然保密。',
+  ], { actor: 'bot', action: { kind: 'research-declare', count: 1, objectTypes: [Obj.ASTEROID] } }),
   lesson('bot-publish-second', 5, '观看第二次论文推进', 'theory', [
-    'Bot 提交后，本阶段结束，所有待评审论文再前进一格。',
-  ], { actor: 'bot', action: { kind: 'research-submit', sector: 7, objectType: Obj.ASTEROID } }),
+    'Bot 选好扇区后，本阶段结束，所有待评审论文再前进一格。',
+  ], { actor: 'bot', action: { kind: 'research-submit', sector: 7 } }),
   lesson('research', 6, '研究课题 A：气体云', 'research', [
     '选择研究，再选择左侧的 A 课题并确认。研究耗时 1；不能连续两次研究，也不能重复同一课题。',
     '单天体课题描述分布范围；两种天体课题描述相邻、正对或一定距离以内等关系。',
@@ -111,10 +111,10 @@ const LESSONS = [
   ], { actor: 'bot', action: { kind: 'research', topic: 'B' } }),
   lesson('declare-third', 7, '选择 0 篇，等待首轮评审', 'theory', [
     '本次仍选择 0 篇。双方声明后，最早的论文将到达评审位置。',
-  ], { interaction: 'action', action: { kind: 'research-declare', count: 0 } }),
+  ], { interaction: 'action', action: { kind: 'research-declare', count: 0, objectTypes: [] } }),
   lesson('bot-declare-third', 7, '观看首轮评审', 'theory', [
     'Bot 也选择 0 篇。系统随后按正式规则评审到期论文，不需要手动填写对错。',
-  ], { actor: 'bot', action: { kind: 'research-declare', count: 0 } }),
+  ], { actor: 'bot', action: { kind: 'research-declare', count: 0, objectTypes: [] } }),
   lesson('review-correct', 7, '正确论文成为公共信息', 'theory', [
     '评审确认：你的 5 号气体云和 Bot 的 3 号矮行星都正确，现在对全桌公开。',
     '正确揭示的扇区不再允许投稿。正确论文和首次定位该扇区的奖励会进入积分表。',
@@ -133,10 +133,10 @@ const LESSONS = [
   ]),
   lesson('declare-fourth', 8, '本阶段选择 0 篇', 'theory', [
     '暂时不追加论文，选择 0 篇，让已提交的预测进入下一次评审。',
-  ], { interaction: 'action', action: { kind: 'research-declare', count: 0 } }),
+  ], { interaction: 'action', action: { kind: 'research-declare', count: 0, objectTypes: [] } }),
   lesson('bot-declare-fourth', 8, '观看下一次同行评审', 'theory', [
     'Bot 也选择 0 篇。系统会评审它较早提交的另一篇论文。',
-  ], { actor: 'bot', action: { kind: 'research-declare', count: 0 } }),
+  ], { actor: 'bot', action: { kind: 'research-declare', count: 0, objectTypes: [] } }),
   lesson('review-wrong', 8, '错误论文会罚时', 'timeline', [
     'Bot 对 8 号的预测错误，按规则前进 1 个时间单位；错误并不会揭晓该扇区的真实内容。',
     '你耗时 13，Bot 耗时 14，因此接下来仍由你这个落后者行动。',
@@ -208,6 +208,13 @@ export function createTutorialRoom({ hostName = '新手' } = {}) {
   return room;
 }
 
+function sameTutorialValue(actual, expected) {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) && actual.length === expected.length && expected.every((item, index) => item === actual[index]);
+  }
+  return actual === expected;
+}
+
 export function applyTutorialAction(room, playerId, action) {
   const state = room.tutorialState;
   if (!state || playerId !== state.humanId) return { ok: false, error: '教学 Bot 由脚本控制，只能由本局真人推进教学' };
@@ -219,7 +226,7 @@ export function applyTutorialAction(room, playerId, action) {
   const requiredKind = step.interaction === 'action' ? expected.kind
     : step.interaction === 'inspect' ? 'tutorial-inspect'
       : step.interaction === 'mark' ? 'tutorial-mark' : 'tutorial-next';
-  if (action.kind !== requiredKind || (expected && !Object.entries(expected).every(([key, value]) => action[key] === value))) {
+  if (action.kind !== requiredKind || (expected && !Object.entries(expected).every(([key, value]) => sameTutorialValue(action[key], value)))) {
     return { ok: false, error: `当前练习：${step.title}。请按引导选择操作；这次没有消耗时间或次数。` };
   }
   let result = { ok: true };

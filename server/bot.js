@@ -86,7 +86,7 @@ function decideResearchPhaseAction(room, botId, view) {
     if (declared === undefined) {
       const picks = pickTheoryPicks(room, botId, view);
       const count = Math.max(0, Math.min(capacity, picks.length));
-      return { kind: 'research-declare', phaseId: phase.id, count };
+      return { kind: 'research-declare', phaseId: phase.id, objectTypes: picks.slice(0, count).map((pick) => pick.type) };
     }
     return null;
   }
@@ -94,13 +94,18 @@ function decideResearchPhaseAction(room, botId, view) {
   if (phase.cursorId !== botId) return null;
   if ((phase.left[botId] || 0) <= 0) return null;
 
+  const types = Array.isArray(phase.declares[botId]) ? phase.declares[botId] : [];
+  const type = types[types.length - (phase.left[botId] || 0)];
+  if (!type) return null;
   const picks = pickTheoryPicks(room, botId, view);
   const usedThisPhase = new Set(
     room.research.picks.filter((pick) => pick.playerId === botId).map((pick) => pick.sector),
   );
-  const remaining = picks.filter(({ sector }) => !usedThisPhase.has(sector));
-  if (!remaining.length) return null;
-  return { kind: 'research-submit', phaseId: phase.id, sector: remaining[0].sector, objectType: remaining[0].type };
+  const remaining = picks.filter((pick) => pick.type === type && !usedThisPhase.has(pick.sector));
+  const fallback = (view.theoryOptions || []).find((option) => option.types.includes(type) && !usedThisPhase.has(option.sector));
+  const sector = remaining[0]?.sector ?? fallback?.sector;
+  if (!Number.isInteger(sector)) return null;
+  return { kind: 'research-submit', phaseId: phase.id, sector };
 }
 
 const THEORY_GUESS_SCORE = 55;

@@ -1310,6 +1310,27 @@ function theoryChoices({ game, ui, api, label }) {
   };
 }
 
+function sectorOnlyChoices({ game, ui, api, objectType }) {
+  const options = (game.theoryOptions || []).filter((option) => option.types.includes(objectType));
+  const expected = tutorialExpected(game);
+  const selected = options.find((option) => option.sector === ui.theorySector);
+  return {
+    sector: selected?.sector,
+    valid: Boolean(selected),
+    field: h('label', {}, '提交到扇区', h('select', {
+      'aria-label': '提交到扇区',
+      ...tutorialTargetProps('sector', Number.isInteger(expected?.sector)),
+      onchange: (event) => {
+        const sector = Number(event.target.value);
+        if (event.target.value !== '' && options.some((option) => option.sector === sector)) api.setUi({ theorySector: sector });
+      },
+    },
+    selected ? null : h('option', { value: '', selected: true }, options.length ? '请选择扇区' : '没有可提交的扇区'),
+    options.map((option) => h('option', { value: option.sector, selected: option.sector === selected?.sector }, `${option.sector + 1} 号${expected?.sector === option.sector ? ' · 教学目标' : ''}`)))),
+    chips: null,
+  };
+}
+
 function theoryCard({ game, ui, api }) {
   const schedule = game.theorySectors || [];
   const open = Boolean(game.theoryPhaseOpen);
@@ -1359,8 +1380,14 @@ function researchCard({ game, research, ui, api }) {
   const mine = research.myCount;
   const declared = research.declaredCount;
   const maxDeclare = Math.min(research.maxDeclare ?? research.quota, (game.theoryOptions || []).length);
+  const draft = Array.isArray(ui.researchTypes) ? ui.researchTypes : [];
+  const expectedTypes = expected?.kind === 'research-declare' && Array.isArray(expected.objectTypes) ? expected.objectTypes : null;
 
   if (mine === null) {
+    const stock = { ...(game.theoryTokensRemaining || {}) };
+    for (const type of draft) stock[type] = Math.max(0, (stock[type] || 0) - 1);
+    const nextExpected = expectedTypes ? expectedTypes[draft.length] : null;
+    const draftReady = expectedTypes && draft.length === expectedTypes.length && draft.every((type, index) => type === expectedTypes[index]);
     return h(
       'div',
       { class: 'action-block research-open' },
@@ -1373,27 +1400,37 @@ function researchCard({ game, research, ui, api }) {
       h(
         'p',
         { class: 'muted small' },
-        `${game.mode.name}：这个阶段每人最多提交 ${research.quota} 篇。所有人选完后按累计耗时从少到多依次提交；同格先到者在后，先行动、先提交。选定篇数后不能更改。`,
+        `${game.mode.name}：这个阶段每人最多提交 ${research.quota} 篇。请同时秘密选定篇数和天体；所有人都选定后，再按累计耗时从少到多依次只选扇区。选定后不能更改。`,
       ),
       maxDeclare < research.quota && h('p', { class: 'muted small' }, `按尚可提交的不同扇区与剩余理论标记计算，你本阶段最多可提交 ${maxDeclare} 篇；选择 0 篇仍会推进评审轨道。`),
       theoryTokenMeter(game),
+      h('div', { class: 'chips' }, THEORY_TYPES.map((type) => h('button', {
+        class: 'chip chip-select',
+        'data-object-type': type,
+        ...tutorialTargetProps('type', nextExpected === type),
+        disabled: draft.length >= maxDeclare || (stock[type] || 0) <= 0,
+        onclick: () => {
+          if (draft.length < maxDeclare && (stock[type] || 0) > 0) api.setUi({ researchTypes: draft.concat(type) });
+        },
+      }, iconLabel(CODE[type], LABEL[type], { size: 15 })))),
+      h('p', { class: 'muted small' }, draft.length ? `已秘密选择 ${draft.length} 篇：${draft.map((type) => LABEL[type]).join('、')}` : '还没有选择天体'),
+      draft.length ? h('button', { class: 'btn ghost', onclick: () => api.setUi({ researchTypes: draft.slice(0, -1) }) }, '撤回上一篇') : null,
       h(
         'div',
         { class: 'action-buttons' },
-        Array.from({ length: research.quota + 1 }, (unused, count) =>
-          h(
-            'button',
-            {
-              class: `btn${count ? ' primary' : ' ghost'}`,
-              ...tutorialTargetProps('count', expected?.kind === 'research-declare' && expected.count === count),
-              disabled: count > maxDeclare,
-              onclick: () => {
-                if (count <= maxDeclare) api.consoleAction({ kind: 'research-declare', phaseId: research.id, count });
-              },
-            },
-            count === 0 ? '这阶段不提交' : `提交 ${count} 篇`,
-          ),
-        ),
+        h('button', {
+          class: 'btn ghost',
+          ...tutorialTargetProps('count', expected?.kind === 'research-declare' && (expectedTypes ? expectedTypes.length === 0 : expected.count === 0)),
+          onclick: () => api.consoleAction({ kind: 'research-declare', phaseId: research.id, count: 0, objectTypes: [] }),
+        }, '这阶段不提交'),
+        h('button', {
+          class: 'btn primary',
+          ...tutorialTargetProps('count', Boolean(draftReady)),
+          disabled: !draft.length || draft.length > maxDeclare,
+          onclick: () => {
+            if (draft.length && draft.length <= maxDeclare) api.consoleAction({ kind: 'research-declare', phaseId: research.id, count: draft.length, objectTypes: draft });
+          },
+        }, `确认秘密选择 ${draft.length} 篇`),
       ),
     );
   }
@@ -1424,7 +1461,7 @@ function researchCard({ game, research, ui, api }) {
     );
   }
 
-  const choices = theoryChoices({ game, ui, api, label: '提交到扇区' });
+  const choices = sectorOnlyChoices({ game, ui, api, objectType: research.nextType });
   const pending = (game.knowledge.theories || []).filter((t) => t.review === 'pending');
   return h(
     'div',
@@ -1450,7 +1487,8 @@ function researchCard({ game, research, ui, api }) {
     ),
     choices.chips,
     theoryTokenMeter(game),
-    h('p', { class: 'muted small' }, '你提交的天体只有自己看得到；别人只会看到你在哪个扇区提交了研究。'),
+    h('p', { class: 'pick-status' }, `这一篇已选定${labelOf(research.nextType)}，现在只选择扇区。`),
+    h('p', { class: 'muted small' }, '天体在秘密选择时已经定下，别人只会看到你在哪个扇区提交了研究。'),
     h(
       'div',
       { class: 'action-buttons' },
@@ -1460,7 +1498,7 @@ function researchCard({ game, research, ui, api }) {
           class: 'btn primary',
           disabled: !choices.valid || ui.actionBusy,
           onclick: () => {
-            if (choices.valid && !ui.actionBusy) api.consoleAction({ kind: 'research-submit', phaseId: research.id, sector: choices.sector, objectType: ui.theoryType });
+            if (choices.valid && !ui.actionBusy) api.consoleAction({ kind: 'research-submit', phaseId: research.id, sector: choices.sector });
           },
         },
         `确认提交（第 ${mine - research.left + 1}/${mine} 篇）`,

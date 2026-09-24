@@ -43,7 +43,7 @@ function nextPhase(room, sector) {
 
 function publishPhase(room, claims = {}) {
   for (const player of room.players) {
-    accepted(room, player, { kind: 'research-declare', count: claims[player.id] ? 1 : 0 });
+    accepted(room, player, { kind: 'research-declare', objectTypes: claims[player.id] ? [claims[player.id].objectType] : [] });
   }
   const order = room.research?.order.slice() || [];
   return order.map((playerId) => {
@@ -252,8 +252,8 @@ for (const kind of PHASE_ACTIONS) {
       publishPhase(room);
       assert.equal(room.research?.sector, 6);
       if (kind !== 'research-declare') {
-        accepted(room, host, { kind: 'research-declare', count: 1 });
-        accepted(room, guest, { kind: 'research-declare', count: 0 });
+        accepted(room, host, { kind: 'research-declare', objectTypes: [Obj.COMET] });
+        accepted(room, guest, { kind: 'research-declare', objectTypes: [] });
       }
       const phaseId = phaseCase === 'missing' ? undefined : oldPhaseId;
       const action = kind === 'research-declare'
@@ -261,8 +261,8 @@ for (const kind of PHASE_ACTIONS) {
         : { kind, phaseId, sector: 4, objectType: Obj.COMET };
       rejectedWithoutMutation(room, host, action);
       if (kind === 'research-declare') {
-        accepted(room, host, { kind: 'research-declare', count: 1 });
-        accepted(room, guest, { kind: 'research-declare', count: 0 });
+        accepted(room, host, { kind: 'research-declare', objectTypes: [Obj.COMET] });
+        accepted(room, guest, { kind: 'research-declare', objectTypes: [] });
       }
       accepted(room, host, { kind: 'research-submit', sector: 4, objectType: Obj.COMET });
       assert.equal(room.research, null);
@@ -274,8 +274,8 @@ test('legacy theory actions stay rejected with missing, stale or current phase i
   const { room, host, guest } = queuedPhases();
   const oldPhaseId = room.research.id;
   publishPhase(room);
-  accepted(room, host, { kind: 'research-declare', count: 1 });
-  accepted(room, guest, { kind: 'research-declare', count: 0 });
+  accepted(room, host, { kind: 'research-declare', objectTypes: [Obj.COMET] });
+  accepted(room, guest, { kind: 'research-declare', objectTypes: [] });
   for (const phaseId of [undefined, oldPhaseId, room.research.id]) {
     rejectedWithoutMutation(room, host, { kind: 'theory', phaseId, sector: 4, type: Obj.COMET });
   }

@@ -78,9 +78,10 @@ function nextPhase(room, sector) {
   assert.equal(room.research?.sector, sector);
 }
 
-function declare(room, hostCount = 0, guestCount = 0) {
-  accepted(room, room.players[0], { kind: 'research-declare', count: hostCount });
-  accepted(room, room.players[1], { kind: 'research-declare', count: guestCount });
+function declare(room, hostSpec = [], guestSpec = []) {
+  const types = (spec) => Array.isArray(spec) ? spec : spec === 2 ? ['asteroid', 'comet'] : spec === 1 ? ['asteroid'] : [];
+  accepted(room, room.players[0], { kind: 'research-declare', objectTypes: types(hostSpec) });
+  accepted(room, room.players[1], { kind: 'research-declare', objectTypes: types(guestSpec) });
 }
 
 function paper(room, player, sector, objectType, slot = 1) {
@@ -112,7 +113,7 @@ test('one player cannot repeat a claim or publish two objects in one sector in t
   assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 4, objectType: 'comet' }).ok, false);
   accepted(room, host, { kind: 'research-submit', sector: 6, objectType: 'comet' });
   nextPhase(room, 6);
-  declare(room, 1);
+  declare(room, ['comet']);
   assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 4, objectType: 'asteroid' }).ok, false);
   accepted(room, host, { kind: 'research-submit', sector: 4, objectType: 'comet' });
 });
