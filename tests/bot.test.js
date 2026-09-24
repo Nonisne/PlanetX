@@ -449,8 +449,10 @@ test('bot never publishes a theory whose type is out of stock', () => {
       const action = decideAction(room, player.id, view);
       if (action) {
         if (action.kind === 'research-submit') {
+          const types = room.research.declares[player.id];
+          const type = types[types.length - room.research.left[player.id]];
           const v = viewFor(room, player.id);
-          assert.ok((v.theoryTokensRemaining[action.objectType] || 0) > 0, `${player.name} tried to submit ${action.objectType} out of stock`);
+          assert.ok((v.theoryTokensRemaining[type] || 0) > 0, `${player.name} tried to submit ${type} out of stock`);
         }
         const result = applyRoomAction(room, player.id, action);
         assert.ok(result.ok, result.error);
@@ -526,7 +528,7 @@ test('final action locates a certain X or otherwise passes', () => {
   }
   if (room.research) {
     const phaseId = room.research.id;
-    applyRoomAction(room, bot.id, { kind: 'research-declare', phaseId, count: 1 });
+    applyRoomAction(room, bot.id, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] });
     let safety = 0;
     while (room.research && room.research.id === phaseId && safety++ < 40) {
       const turn = currentPlayer(room);

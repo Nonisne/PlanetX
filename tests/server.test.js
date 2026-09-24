@@ -528,8 +528,8 @@ test('HTTP room create join play continues with subject names after spectator co
   const phaseId = departed.view.research.id;
   assert.equal(phaseId, 'theory:3');
 
-  assert.equal((await step(token, { kind: 'research-declare', phaseId, count: 1 })).ok, true);
-  assert.equal((await step(guest.token, { kind: 'research-declare', phaseId, count: 1 })).ok, true);
+  assert.equal((await step(token, { kind: 'research-declare', phaseId, objectTypes: [Obj.GAS_CLOUD] })).ok, true);
+  assert.equal((await step(guest.token, { kind: 'research-declare', phaseId, objectTypes: [Obj.COMET] })).ok, true);
   const ordered = (await api(`/api/rooms/${roomId}/view`, { token })).body.view.research;
   assert.deepEqual(ordered.orderNames, ['阿乙', '阿甲'], 'at equal time the earlier-arriving guest is behind and publishes first');
 
@@ -608,7 +608,7 @@ test('HTTP rejects stale and missing submission ids without spending the current
   const firstViews = await fetchViews(players);
   const firstPhaseId = firstViews[0].research.id;
   assert.equal(firstPhaseId, 'theory:3');
-  await acceptedAction(host, { kind: 'research-declare', phaseId: firstPhaseId, count: 1 });
+  await acceptedAction(host, { kind: 'research-declare', phaseId: firstPhaseId, objectTypes: [Obj.COMET] });
   const firstDeclared = await acceptedAction(guest, { kind: 'research-declare', phaseId: firstPhaseId, count: 0 });
   assert.equal(firstDeclared.view.research.cursorId, host.playerId);
   const delayedSubmission = { kind: 'research-submit', phaseId: firstPhaseId, sector: 1, objectType: Obj.COMET };
@@ -617,7 +617,7 @@ test('HTTP rejects stale and missing submission ids without spending the current
   assert.equal(currentPhaseId, 'theory:6');
   assert.equal(skipped.view.knowledge.theories.length, 0, 'the delayed claim has never been published, so duplicate-claim checks cannot mask a stale id');
   assert.equal(skipped.view.recordCount, firstViews[0].recordCount);
-  await acceptedAction(host, { kind: 'research-declare', phaseId: currentPhaseId, count: 1 });
+  await acceptedAction(host, { kind: 'research-declare', phaseId: currentPhaseId, objectTypes: [Obj.COMET] });
   await acceptedAction(guest, { kind: 'research-declare', phaseId: currentPhaseId, count: 0 });
   const before = await fetchViews(players);
   assert.equal(before[0].research.cursorId, host.playerId);
@@ -747,7 +747,8 @@ test('two SSE clients keep all locate fields private through final choices and f
   const phaseId = views[0].research.id;
   assert.equal(phaseId, 'theory:3');
   assert.equal(views[1].research.id, phaseId, 'both SSE clients receive the same phase identity');
-  for (const player of players) await pushAction(player, { kind: 'research-declare', phaseId, count: 1 });
+  await pushAction(host, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] });
+  await pushAction(guest, { kind: 'research-declare', phaseId, objectTypes: [Obj.COMET] });
   const firstPaper = await pushAction(host, { kind: 'research-submit', phaseId, sector: 3, objectType: Obj.ASTEROID });
   await pushAction(guest, { kind: 'research-submit', phaseId, sector: 10, objectType: Obj.COMET });
   const beforeLocate = frozenState(views[0]);
@@ -858,7 +859,8 @@ for (const modeId of ['standard', 'expert']) {
     const opened = await acceptedAction(host, { kind: 'wait' });
     const phaseId = opened.view.research.id;
     assert.equal(phaseId, 'theory:3');
-    for (const player of players) await acceptedAction(player, { kind: 'research-declare', phaseId, count: 1 });
+    await acceptedAction(host, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] });
+    await acceptedAction(guest, { kind: 'research-declare', phaseId, objectTypes: [Obj.COMET] });
     await acceptedAction(host, { kind: 'research-submit', phaseId, sector: 3, objectType: Obj.ASTEROID });
     await acceptedAction(guest, { kind: 'research-submit', phaseId, sector: 10, objectType: Obj.COMET });
     const located = await acceptedAction(host, { kind: 'locate', sector: 0, left: Obj.EMPTY, right: Obj.COMET, correct: true });

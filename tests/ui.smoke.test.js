@@ -1812,13 +1812,15 @@ test('the online research phase renders declare → publish → review', async (
   assert.ok(findAll(root, (n) => (n.className || '').includes('map-research-rail'))[0], 'results table stays inside the star map');
 
   // declaring happens for everybody at once and cannot be changed
-  fire(findButton(root, '提交 1 篇'), 'click');
+  fire(findAll(root, (node) => node.tagName === 'button' && node.attributes['data-object-type'] === 'comet')[0], 'click');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  fire(findButton(root, '确认秘密选择 1 篇'), 'click');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(state.game.research.myCount, 1, 'my declaration stuck');
-  assert.equal(findButton(root, '提交 1 篇'), undefined, 'and the choice cannot be changed');
+  assert.equal(findButton(root, '确认秘密选择 1 篇'), undefined, 'and the choice cannot be changed');
 
   who = guest.id;
-  applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
   push();
   assert.equal(state.game.research.allDeclared, true);
   const cursor = state.game.research.cursorId;
@@ -1900,7 +1902,10 @@ test('the peer review prompt pays for a wrong answer', async () => {
   const push = () => FakeEventSource.last.emit('view', { view: viewNow() });
 
   const pass = (count) => {
-    for (const p of room.players) applyRoomAction(room, p.id, { kind: 'research-declare', phaseId: room.research.id, count });
+    for (const p of room.players) {
+      const objectTypes = count === 0 ? [] : p.id === room.hostId ? [Obj.GAS_CLOUD] : [Obj.DWARF_PLANET];
+      applyRoomAction(room, p.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes });
+    }
   };
   const walk = () => {
     for (let i = 0; i < 24 && !room.research; i++) applyRoomAction(room, currentPlayer(room).id, { kind: 'wait' });
@@ -2728,25 +2733,37 @@ test('approved regular and triggered research selectors consume per-sector theor
       theoryPhase: { sector: 3 },
       theoryOptions: [{ sector: 1, types: [Obj.GAS_CLOUD] }, { sector: 4, types: [Obj.COMET, Obj.DWARF_PLANET] }],
       theoryLockedSectors: [2, 8],
-      research: online ? { id: 'phase-3', sector: 3, myCount: 1, allDeclared: true, isMyPick: true, left: 1, orderNames: ['甲', '乙'], picks: [], myPicks: [] } : null,
+      research: online ? { id: 'phase-3', sector: 3, myCount: 1, allDeclared: true, isMyPick: true, left: 1, nextType: Obj.GAS_CLOUD, orderNames: ['甲', '乙'], picks: [], myPicks: [] } : null,
     }, { action: 'theory', theorySector: 1, theoryType: Obj.GAS_CLOUD });
     state.game.knowledge = { ...state.game.knowledge, theories: [{ id: 'older', actorId: state.game.me, sector: 1, objectType: Obj.ASTEROID, review: 'wrong', slot: 1 }] };
     const api = { setUi(patch) { state.ui = { ...state.ui, ...patch }; }, confirmAction() {}, cancelAction() {}, consoleAction() {} };
     let panel = renderActionPanel({ state, api });
     const sectorSelect = findAll(panel, (element) => element.tagName === 'select')[0];
-    assert.deepEqual(sectorSelect.children.map((option) => Number(option.attributes.value)), [1, 4]);
+    const sectorValues = sectorSelect.children.map((option) => Number(option.attributes.value));
     assert.ok(sectorSelect.children.every((option) => option.attributes.disabled === undefined));
     assert.doesNotMatch(collectText(sectorSelect).join(''), /已公开/);
-    const chips = findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select'));
-    assert.deepEqual(chips.map((chip) => collectText(chip).join('')), ['气体云'], 'another type at an older attempted sector remains available');
-    state.ui.theoryType = Obj.ASTEROID;
-    panel = renderActionPanel({ state, api });
-    assert.ok(Object.hasOwn(findButton(panel, '确认提交').attributes, 'disabled'));
-    state.ui.theorySector = 4;
-    state.ui.theoryType = Obj.COMET;
-    panel = renderActionPanel({ state, api });
-    assert.deepEqual(findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select')).map((chip) => collectText(chip).join('')), ['彗星', '矮行星']);
-    assert.equal(findButton(panel, '确认提交').attributes.disabled, undefined);
+    if (!online) {
+      assert.deepEqual(sectorValues, [1, 4]);
+      const chips = findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select'));
+      assert.deepEqual(chips.map((chip) => collectText(chip).join('')), ['气体云'], 'another type at an older attempted sector remains available');
+      state.ui.theoryType = Obj.ASTEROID;
+      panel = renderActionPanel({ state, api });
+      assert.ok(Object.hasOwn(findButton(panel, '确认提交').attributes, 'disabled'));
+      state.ui.theorySector = 4;
+      state.ui.theoryType = Obj.COMET;
+      panel = renderActionPanel({ state, api });
+      assert.deepEqual(findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select')).map((chip) => collectText(chip).join('')), ['彗星', '矮行星']);
+      assert.equal(findButton(panel, '确认提交').attributes.disabled, undefined);
+    } else {
+      assert.deepEqual(sectorValues, [1], 'a committed gas cloud can only use a sector that still allows it');
+      assert.equal(findAll(panel, (element) => (element.className || '').split(/\s+/).includes('chip-select')).length, 0);
+      assert.equal(findButton(panel, '确认提交（第 1/1 篇）').attributes.disabled, undefined);
+      state.game.research.nextType = Obj.COMET;
+      state.ui.theorySector = 1;
+      panel = renderActionPanel({ state, api });
+      assert.deepEqual(findAll(panel, (element) => element.tagName === 'select')[0].children.map((option) => option.attributes.value), ['', 4]);
+      assert.ok(Object.hasOwn(findButton(panel, '确认提交（第 1/1 篇）').attributes, 'disabled'));
+    }
   }
 });
 
@@ -3186,11 +3203,12 @@ test('integrated tutorial uses real rendered controls through reveal, restart an
       await press(findButton(root, '研究'));
       await press(markedControl('topic'));
       await press(findButton(root, '确认研究'));
-    } else if (expected.kind === 'research-declare') await press(markedControl('count'));
-    else if (expected.kind === 'research-submit') {
+    } else if (expected.kind === 'research-declare') {
+      for (const unused of expected.objectTypes || []) await press(markedControl('type'));
+      await press(markedControl('count'));
+    } else if (expected.kind === 'research-submit') {
       const select = findAll(root, element => element.tagName === 'select' && element.attributes['data-tutorial-target'] === 'sector')[0];
       fire(select, 'change', { target: { value: String(expected.sector) } });
-      await press(markedControl('type'));
       await press(findButton(root, '确认提交'));
     } else if (expected.kind === 'locate') {
       await press(findButton(root, '尝试定位'));

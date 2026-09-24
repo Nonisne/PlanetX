@@ -347,9 +347,9 @@ test('two clients share the log and the board, but each one has their own clock'
   const before = online.fetchView(host);
   assert.equal((await before).research !== null, true, 'so the table is in its research phase');
 
-  const hostDeclared = await online.sendAction(host, { kind: 'research-declare', phaseId: opened.id, count: 1 });
+  const hostDeclared = await online.sendAction(host, { kind: 'research-declare', phaseId: opened.id, objectTypes: [Obj.COMET] });
   assert.equal(hostDeclared.ok, true, hostDeclared.error);
-  const declared = await online.sendAction(guest, { kind: 'research-declare', phaseId: opened.id, count: 1 });
+  const declared = await online.sendAction(guest, { kind: 'research-declare', phaseId: opened.id, objectTypes: [Obj.GAS_CLOUD] });
   assert.equal(declared.ok, true, declared.error);
   assert.equal(declared.view.research.allDeclared, true);
   assert.equal(declared.view.research.order.length, 2, 'both players publish');

@@ -79,9 +79,10 @@ for (const modeId of ['standard', 'expert']) {
       if (builtin.research) {
         phases += 1;
         const phaseId = builtin.research.id;
-        const count = phases <= 2 ? 1 : 0;
-        applyPair(pair, 0, { kind: 'research-declare', phaseId, count });
-        applyPair(pair, 1, { kind: 'research-declare', phaseId, count: phases === 1 ? 1 : 0 });
+        const type = phases === 2 ? Obj.GAS_CLOUD : Obj.ASTEROID;
+        const hostPapers = phases <= 2 ? [type] : [];
+        applyPair(pair, 0, { kind: 'research-declare', phaseId, objectTypes: hostPapers });
+        applyPair(pair, 1, { kind: 'research-declare', phaseId, objectTypes: phases === 1 ? [Obj.ASTEROID] : [] });
         while (builtin.research?.cursorId) {
           const seat = builtin.players.findIndex((player) => player.id === builtin.research.cursorId);
           const sector = seat === 0 ? correctSector : wrongSector;

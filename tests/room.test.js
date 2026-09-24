@@ -78,7 +78,7 @@ function passTo(room, playerId) {
 function resolveResearch(room) {
   for (let guard = 0; guard < 8 && room.research; guard++) {
     const phase = room.research;
-    assert.equal(Object.values(phase.declares).every((count) => count === 0), true, 'finish declared publications explicitly');
+    assert.equal(Object.values(phase.declares).every((count) => (Array.isArray(count) ? count.length : count) === 0), true, 'finish declared publications explicitly');
     for (const player of room.players) {
       if (room.research !== phase) break;
       if (Object.hasOwn(phase.declares, player.id)) continue;
@@ -527,11 +527,11 @@ test('the shared window opens a research phase when it passes a research sector'
   assert.match(blocked.error, /学术研究阶段/);
 
   // everybody declares at once, then nobody may change their mind
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 }).ok, true);
-  const twice = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 });
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.ASTEROID] }).ok, true);
+  const twice = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [] });
   assert.equal(twice.ok, false);
   assert.match(twice.error, /选过篇数/);
-  const silly = applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 5 });
+  const silly = applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.ASTEROID, Obj.ASTEROID, Obj.ASTEROID, Obj.ASTEROID, Obj.COMET] });
   assert.equal(silly.ok, false);
   assert.match(silly.error, /篇数只能是 0 到 1/);
   assert.equal(viewFor(room, host.id).research.declaredCount, 1);
@@ -553,8 +553,8 @@ test('publishing runs from the player furthest behind, and the claimed object st
   const times = viewFor(room, host.id).players.map((p) => `${p.name}:${p.time}`);
   assert.deepEqual(times, ['阿甲:4', '阿乙:3'], 'the guest left the marker while waiting');
 
-  applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: phase.id, count: 1 });
-  applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: phase.id, count: 1 });
+  applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: phase.id, objectTypes: [Obj.DWARF_PLANET] });
+  applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: phase.id, objectTypes: [Obj.GAS_CLOUD] });
   const view = viewFor(room, host.id);
   assert.deepEqual(view.research.orderNames, ['阿乙', '阿甲'], 'the player furthest behind publishes first');
   assert.equal(view.research.cursorId, guest.id);
@@ -592,7 +592,7 @@ test('an expert table hands out two papers per phase, a standard one hands out o
   const phase = walkToTheorySector(room, host.id);
   assert.equal(phase.quota, 2);
   assert.equal(viewFor(room, host.id).research.maxDeclare, 2);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: phase.id, count: 2 }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: phase.id, objectTypes: [Obj.COMET, Obj.GAS_CLOUD] }).ok, true);
   const again = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: phase.id, count: 1 });
   assert.equal(again.ok, false);
   assert.match(again.error, /选过篇数/);
@@ -622,8 +622,8 @@ test('expert declaration capacity counts distinct available sectors, not remaini
     const sectors = [sector, sector + 1].filter((candidate) => candidate < 17);
     const hostCount = Math.min(1, sectors.length);
     const guestCount = sectors.length - hostCount;
-    accepted(room, host.id, { kind: 'research-declare', phaseId, count: hostCount });
-    accepted(room, guest.id, { kind: 'research-declare', phaseId, count: guestCount });
+    accepted(room, host.id, { kind: 'research-declare', phaseId, objectTypes: hostCount ? [nextType(host.id, sectors[0])] : [] });
+    accepted(room, guest.id, { kind: 'research-declare', phaseId, objectTypes: guestCount ? [nextType(guest.id, sectors[1])] : [] });
     if (hostCount) publishNext(room, sectors[0], nextType(host.id, sectors[0]));
     if (guestCount) publishNext(room, sectors[1], nextType(guest.id, sectors[1]));
     finishReviews();
@@ -636,7 +636,7 @@ test('expert declaration capacity counts distinct available sectors, not remaini
   const phaseId = walkToTheorySector(room, host.id).id;
   assert.equal(viewFor(room, host.id).theoryLockedSectors.length, 17);
   const before = structuredClone(room);
-  const refused = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId, count: 2 });
+  const refused = applyRoomAction(room, host.id, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID, Obj.COMET] });
   assert.equal(refused.ok, false);
   assert.deepEqual(room, before);
   assert.equal(viewFor(room, host.id).research.quota, 2);
@@ -651,7 +651,9 @@ test('a peer review that says correct reveals the whole sector and locks it', ()
   act(room, host.id, { kind: 'wait' });
   act(room, guest.id, { kind: 'wait' });
   walkToTheorySector(room, host.id);
-  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  const reviewOrder = researchOrder(room);
+  accepted(room, reviewOrder[0].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
+  accepted(room, reviewOrder[1].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.DWARF_PLANET] });
   // the phase dictates who publishes first, so always follow the cursor
   const first = publishNext(room, 2, Obj.COMET);
   const second = publishNext(room, 2, Obj.DWARF_PLANET);
@@ -660,7 +662,7 @@ test('a peer review that says correct reveals the whole sector and locks it', ()
   assert.notEqual(author, other);
 
   walkToTheorySector(room, host.id);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.ASTEROID] }).ok, true);
   assert.equal(applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 }).ok, true);
   const later = publishNext(room, 6, Obj.ASTEROID);
   assert.equal(first.entry.slot, 2);
@@ -698,7 +700,7 @@ test('a peer review that says correct reveals the whole sector and locks it', ()
 
   // nobody may publish about a revealed sector again
   walkToTheorySector(room, currentPlayer(room).id);
-  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
   const who = viewFor(room, host.id).research.cursorId;
   const locked = applyRoomAction(room, who, { kind: 'research-submit', phaseId: room.research.id, sector: 2, objectType: Obj.COMET });
   assert.equal(locked.ok, false);
@@ -715,7 +717,7 @@ test('only the author (or the host) may report a peer review', () => {
   for (const player of room.players) assert.equal(applyRoomAction(room, player.id, { kind: 'setup', noClues: true }).ok, true);
   act(room, host.id, { kind: 'wait' });
   walkToTheorySector(room, currentPlayer(room).id);
-  for (const player of room.players) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  for (const player of room.players) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
   const paper = publishNext(room, 4, Obj.COMET);
   const author = paper.entry.actorId;
   const stranger = [host, guest, third].find((p) => p.id !== author && p.id !== room.hostId);
@@ -741,7 +743,9 @@ test('a wrong peer review costs the author a month', () => {
   act(room, host.id, { kind: 'wait' });
   act(room, guest.id, { kind: 'wait' });
   walkToTheorySector(room, host.id);
-  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  const penaltyOrder = researchOrder(room);
+  accepted(room, penaltyOrder[0].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
+  accepted(room, penaltyOrder[1].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.DWARF_PLANET] });
   const first = publishNext(room, 10, Obj.COMET);
   publishNext(room, 11, Obj.DWARF_PLANET);
   const authorId = first.entry.actorId;
@@ -772,7 +776,7 @@ test('a wrong peer review costs the author a month', () => {
 test('ordered reviews expose one sector at a time and batch wrong matching papers in player order', () => {
   const { room, host, guest } = playing('expert');
   walkToTheorySector(room, host.id);
-  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 2 });
+  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET, Obj.GAS_CLOUD] });
   const hostLower = publishNext(room, 1, Obj.COMET).entry;
   const hostHigher = publishNext(room, 4, Obj.GAS_CLOUD).entry;
   const guestLower = publishNext(room, 1, Obj.COMET).entry;
@@ -842,7 +846,7 @@ test('the same sector: the earlier arrival acts first and publishes first', () =
   assert.deepEqual(turnOrder(room).map((p) => p.name), ['阿甲', '阿乙'], 'the earlier arrival acts first');
   assert.deepEqual(researchOrder(room).map((p) => p.name), ['阿甲', '阿乙'], 'and publishes first as well');
 
-  for (const player of room.players) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  for (const player of room.players) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.ASTEROID] });
   assert.deepEqual(viewFor(room, host.id).research.orderNames, ['阿甲', '阿乙'], 'the phase follows that order');
 });
 
@@ -857,7 +861,7 @@ test('arrival priority beats join order when moving onto an occupied sector', ()
   assert.deepEqual(view.turnOrder, [guest.id, host.id]);
   assert.equal(currentPlayer(room).id, guest.id);
   const phaseId = room.research.id;
-  for (const player of room.players) assert.equal(applyRoomAction(room, player.id, { kind: 'research-declare', phaseId, count: 1 }).ok, true);
+  for (const player of room.players) assert.equal(applyRoomAction(room, player.id, { kind: 'research-declare', phaseId, objectTypes: [Obj.ASTEROID] }).ok, true);
   assert.deepEqual(viewFor(room, host.id).research.order, [guest.id, host.id]);
   assert.equal(applyRoomAction(room, host.id, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.ASTEROID }).ok, false);
   const first = applyRoomAction(room, guest.id, { kind: 'research-submit', phaseId, sector: 0, objectType: Obj.ASTEROID });
@@ -891,7 +895,7 @@ test('window arithmetic: which sectors the shared dial passed over', () => {
 test('a wrong peer review moves the loser, and that month can move the window', () => {
   const { room, host, guest } = playing();
   walkToTheorySector(room, host.id);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] }).ok, true);
   assert.equal(applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 }).ok, true);
   const paper = publishNext(room, 4, Obj.COMET).entry;
   walkToTheorySector(room, host.id);
@@ -922,7 +926,7 @@ test('a wrong peer review moves the loser, and that month can move the window', 
 test('a penalty that leaves the window where it was triggers nothing', () => {
   const { room, host, guest } = playing();
   walkToTheorySector(room, host.id);
-  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 }).ok, true);
+  assert.equal(applyRoomAction(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.GAS_CLOUD] }).ok, true);
   assert.equal(applyRoomAction(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 }).ok, true);
   const paper = publishNext(room, 6, Obj.GAS_CLOUD).entry;
   for (let phase = 0; phase < 2; phase++) {
@@ -941,7 +945,9 @@ test('a penalty that leaves the window where it was triggers nothing', () => {
 test('one research phase puts every paper of that round on the same track space', () => {
   const { room, host, guest } = playing();
   walkToTheorySector(room, currentPlayer(room).id);
-  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  const trackOrder = researchOrder(room);
+  accepted(room, trackOrder[0].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
+  accepted(room, trackOrder[1].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.DWARF_PLANET] });
   publishNext(room, 2, Obj.COMET);
   publishNext(room, 5, Obj.DWARF_PLANET);
   const slots = () => room.session.entries.filter((e) => e.type === 'theory').map((e) => e.slot);
@@ -950,7 +956,7 @@ test('one research phase puts every paper of that round on the same track space'
   // the next phase publishes one more paper: the whole track steps forward, the fresh
   // paper included, so the previous round stays one space ahead
   walkToTheorySector(room, currentPlayer(room).id);
-  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.ASTEROID] });
   accepted(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 });
   publishNext(room, 7, Obj.ASTEROID);
   assert.deepEqual(slots(), [2, 2, 3], 'the second round follows the first one space behind');
@@ -965,25 +971,25 @@ test('one research phase puts every paper of that round on the same track space'
 test('duplicate and same-phase conflicting claims do not consume a publication slot', () => {
   const { room, host, guest } = playing('expert');
   walkToTheorySector(room, host.id);
-  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 2 });
+  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET, Obj.GAS_CLOUD] });
   accepted(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 });
   const first = publishNext(room, 2, Obj.COMET).entry;
-  for (const objectType of [Obj.COMET, Obj.ASTEROID]) {
+  for (const objectType of [Obj.COMET, Obj.GAS_CLOUD]) {
     const sessionBefore = structuredClone(room.session);
     const phaseBefore = structuredClone(room.research);
     const refused = applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 2, objectType });
     assert.equal(refused.ok, false);
-    assert.match(refused.error, objectType === Obj.COMET ? /重复/ : /同一学术研究阶段/);
+    assert.match(refused.error, objectType === Obj.COMET ? /已经选定/ : /同一学术研究阶段/);
     assert.deepEqual(room.session, sessionBefore);
     assert.deepEqual(room.research, phaseBefore);
   }
   publishNext(room, 4, Obj.GAS_CLOUD);
   walkToTheorySector(room, host.id);
-  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.DWARF_PLANET] });
   accepted(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 0 });
   const duplicate = applyRoomAction(room, host.id, { kind: 'research-submit', phaseId: room.research.id, sector: 2, objectType: Obj.COMET });
   assert.equal(duplicate.ok, false);
-  assert.match(duplicate.error, /重复/);
+  assert.match(duplicate.error, /已经选定/);
   assert.equal(room.research.left[host.id], 1);
   const revised = publishNext(room, 2, Obj.DWARF_PLANET).entry;
   assert.notEqual(first.publicationPhase, revised.publicationPhase, 'a different claim is legal in a later phase');
@@ -992,8 +998,9 @@ test('duplicate and same-phase conflicting claims do not consume a publication s
 test('zero-submission phases advance papers and queued phases wait for every pending review', () => {
   const { room, host, guest } = playing();
   walkToTheorySector(room, host.id);
-  accepted(room, host.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
-  accepted(room, guest.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  const queueOrder = researchOrder(room);
+  accepted(room, queueOrder[0].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
+  accepted(room, queueOrder[1].id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.GAS_CLOUD] });
   const first = publishNext(room, 1, Obj.COMET).entry;
   const second = publishNext(room, 4, Obj.GAS_CLOUD).entry;
   walkToTheorySector(room, host.id);
@@ -1043,7 +1050,7 @@ test('zero-submission phases advance papers and queued phases wait for every pen
 test('correct papers published in one phase share the leader bonus despite different entry ids', () => {
   const { room, host, guest } = playing();
   walkToTheorySector(room, host.id);
-  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, count: 1 });
+  for (const player of [host, guest]) accepted(room, player.id, { kind: 'research-declare', phaseId: room.research.id, objectTypes: [Obj.COMET] });
   const first = publishNext(room, 2, Obj.COMET).entry;
   const second = publishNext(room, 2, Obj.COMET).entry;
   assert.notEqual(first.id, second.id);

@@ -466,7 +466,8 @@ export function createApp(root) {
           if (resultEntry.type === 'located') toast(resultEntry.correct ? '定位正确！最后机会结束后自动揭晓并结算' : '定位不正确：位置或邻居不符，请继续推理', resultEntry.correct ? 'ok' : 'bad');
         }
         else if (kind === 'research-declare') {
-          toast(action.count ? `已选：这个阶段提交 ${action.count} 篇（不能改）` : '已选：这个阶段不提交', 'clue');
+          const count = Array.isArray(action.objectTypes) ? action.objectTypes.length : action.count;
+          toast(count ? `已秘密选定 ${count} 篇的天体（不能改）` : '已选：这个阶段不提交', 'clue');
         } else if (kind === 'research-submit') {
           const waiting = (res.view.knowledge.theories || []).filter((t) => t.review === 'pending' && t.slot <= 1).length;
           toast(res.view.playMode === 'builtin' ? '已提交学术研究；到期后系统自动评审' : waiting ? '已提交；有理论推进到评审格，去 app 触发同行评审' : '已提交学术研究', waiting ? 'clue' : 'ok');
