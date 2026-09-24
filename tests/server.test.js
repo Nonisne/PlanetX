@@ -880,6 +880,8 @@ for (const modeId of ['standard', 'expert']) {
       [validPaper, validPaper],
       [validPaper, { sector: 1, objectType: Obj.ASTEROID }],
       [validPaper, { sector: 10, objectType: Obj.COMET }],
+      // The guest already spent one comet token in the research phase, so a second comet here would be the third.
+      [validPaper, { sector: 4, objectType: Obj.COMET }],
     ]) {
       const refused = await roomAction(guest, { kind: 'final-theories', theories });
       assert.equal(refused.status, 400);
@@ -887,7 +889,9 @@ for (const modeId of ['standard', 'expert']) {
       assert.deepEqual(refused.body.view, beforeBatch[1], 'a bad second paper cannot publish the first or consume the choice');
       assert.deepEqual(await fetchViews(players), beforeBatch);
     }
-    const papers = [validPaper, { sector: 4, objectType: Obj.COMET }];
+    const overComet = await roomAction(guest, { kind: 'final-theories', theories: [validPaper, { sector: 4, objectType: Obj.COMET }] });
+    assert.match(overComet.body.error, /彗星理论标记已用完/);
+    const papers = [validPaper, { sector: 4, objectType: Obj.GAS_CLOUD }];
     const published = await acceptedAction(guest, { kind: 'final-theories', theories: papers });
     assert.equal(published.view.phase, 'reveal');
     assert.equal(published.view.status, 'reveal');
@@ -934,7 +938,7 @@ for (const modeId of ['standard', 'expert']) {
       assert.equal(view.entries.some((entry) => entry.type === 'penalty'), false);
       assert.equal(view.knowledge.theories.every((paper) => paper.revealed && paper.finalReview), true);
       assert.deepEqual(view.knowledge.theories.map((paper) => paper.review), ['correct', 'wrong', 'correct', 'wrong']);
-      assert.deepEqual(view.knowledge.theories.map((paper) => paper.objectType), [Obj.ASTEROID, Obj.COMET, Obj.COMET, Obj.COMET]);
+      assert.deepEqual(view.knowledge.theories.map((paper) => paper.objectType), [Obj.ASTEROID, Obj.COMET, Obj.COMET, Obj.GAS_CLOUD]);
       assert.deepEqual(view.scores.rows.map((row) => row.total), [13, 4]);
     }
     const repeated = await roomAction(guest, { kind: 'final-theories', theories: papers });
