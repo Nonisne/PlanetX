@@ -22,8 +22,8 @@ import { dirname } from 'node:path';
 
 import { hashPuzzle, simulateBotRun, scoreDifficulty, rankDifficulties, starsForScore } from './difficulty.js';
 
-export const BOT_VERSION = 'heuristic-10a';
-const DEFAULT_SAMPLE_SIZE = 32;
+export const BOT_VERSION = 'heuristic-10b';
+const DEFAULT_SAMPLE_SIZE = 8;
 const MAX_RECENT_ENTRIES = 4096;
 
 function emptyCache() {
@@ -121,8 +121,10 @@ export class DifficultyCache {
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn('[difficulty] simulation failed for', hash, ':', error.message);
-      // Still record a placeholder so we don't retry forever.
-      result = { puzzleId: hash, modeId, ticks: 0, finalScore: 0, maxTicks: 200, timedOut: false, locatedTick: null, _done: true };
+      throw error;
+    }
+    if (!result || !result._done) {
+      throw new Error(`simulation for ${hash} ended without a result`);
     }
     const rawScore = scoreDifficulty(result);
     const breakpoints = this.breakpointsFor(modeId);
@@ -162,14 +164,14 @@ export class DifficultyCache {
    * Progress is reported via `onProgress(index, total)` if provided.
    * Each simulation yields to the event loop between steps.
    */
-  async primeSamples({ puzzles, modeId = 'standard', onProgress } = {}) {
+  async primeSamples({ puzzles, modeId = 'standard', maxTicks, onProgress } = {}) {
     if (!Array.isArray(puzzles) || !puzzles.length) return [];
     const scores = [];
     for (let index = 0; index < puzzles.length; index += 1) {
       const puzzle = puzzles[index];
       // primeSamples uses a fixed seed so results are deterministic and stable
       // across restarts.
-      const options = { modeId, seed: index + 1, maxTicks: 150 };
+      const options = { modeId, seed: index + 1, maxTicks: maxTicks || 150 };
       let result;
       try {
         for await (const step of simulateBotRun(puzzle, options)) {
@@ -177,6 +179,10 @@ export class DifficultyCache {
         }
       } catch {
         // Skip puzzles that fail to simulate; they don't contribute to breakpoints.
+        if (typeof onProgress === 'function') onProgress(index + 1, puzzles.length);
+        continue;
+      }
+      if (!result || !result._done) {
         if (typeof onProgress === 'function') onProgress(index + 1, puzzles.length);
         continue;
       }

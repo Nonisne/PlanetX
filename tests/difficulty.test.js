@@ -36,6 +36,8 @@ test('simulateBotRunSync drives the room forward and either locates or times out
   assert.ok(result, 'simulation should return a result object');
   assert.ok(result.ticks > 0, 'simulation should run at least one tick');
   assert.equal(result.actionsApplied > 0, true, 'simulation should record at least one bot action');
+  // Locate-first 10 + every theory's points + one leader bonus per theory object.
+  assert.equal(result.maxTheoreticalScore, 45);
   // Solo-mode builtin is harder than multiplayer: a single bot has no peer
   // conferences to lean on, so timing out without locating is a legitimate
   // outcome for a tight tick budget. What we require here is that the

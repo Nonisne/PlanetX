@@ -513,19 +513,15 @@ function actionCost(action) {
  *
  * The bot does not know the survey's `count` in advance, so we score the
  * *guaranteed* part of the elimination:
- *   * any sector whose candidate set currently still contains `type` would
- *     see `type` removed in the worst case (count = 0)
- *   * any sector whose candidate set contains only `type` already gives +0
- *     (no future elimination possible)
+ *   * any sector that still lists `type` among other candidates loses that
+ *     type when the count is 0
+ *   * two candidates collapse to one object in that same worst case, so the
+ *     extra credit stays in `worst` at full weight
+ *   * a sector that cannot be `type` is unchanged by this survey
  *
- * Then we add the *expected* part, weighted by 0.5 so the worst-case still
- * dominates:
- *   * if a sector's candidate set is `mustShow(type)` (the only object is
- *     type), the survey returning count >= 1 is forced to confirm it — this
- *     collapses the sector (worth +1 object-sector pair).
- *
- * Returns the score in "object-sector pair units", so the caller can divide
- * by (cost + 1) and recover a per-month efficiency number.
+ * The *expected* part is weighted by 0.5 so the worst case still dominates:
+ * a sector that is already only `type` can be confirmed, but that is not
+ * guaranteed information.
  */
 function surveyElimination(knowledge, view, type, range) {
   let worst = 0;
@@ -533,23 +529,15 @@ function surveyElimination(knowledge, view, type, range) {
   for (const sector of range) {
     const possible = knowledge.possible(sector);
     if (!possible || possible.length === 0) continue;
-    // worst-case: finding `type` eliminates it and collapses the candidate set
-    // when `type` is NOT in the possible set (the result is certain: zero of `type`).
-    // Also count `type` in a multi-element set as +1: even if found, it does not
-    // eliminate all remaining possibilities.
-    if (!possible.includes(type)) worst += 1;
-    else if (possible.length > 1) worst += 1;
-    // expected-case: if only `type` is on the menu, the survey cannot reduce
-    // the set any further, but it can *confirm* — add 1 to the score to
-    // reflect that a survey here would lock the sector down for the next
-    // player to score the leader bonus.
+    if (possible.includes(type) && possible.length > 1) worst += 1;
     if (possible.length === 1 && possible[0] === type) expected += 1;
-    // partial-collapse case: if removing `type` would shrink the candidate
-    // set to size 1, the sector collapses even in the worst case. Worth
-    // +1.5 because that collapse reveals a new object elsewhere on the board.
-    if (possible.length === 2 && possible.includes(type)) expected += 1.5;
+    if (possible.length === 2 && possible.includes(type)) worst += 1.5;
   }
-  return worst + expected;
+  const pointless = range.filter((sector) => {
+    const possible = knowledge.possible(sector);
+    return !possible || !possible.includes(type) || possible.length === 1;
+  }).length;
+  return Math.max(0, worst + 0.5 * expected - 0.1 * pointless);
 }
 
 /**

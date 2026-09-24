@@ -104,19 +104,25 @@ test('cache returns sensible defaults for breakpoints when samples are empty', (
   }
 });
 
-test('primeSamples replaces fixed defaults with sample-derived breakpoints', async () => {
+test('primeSamples keeps fixed breakpoints until eight samples exist', async () => {
   const { cache, cleanup } = tempCache();
   try {
-    // Build a couple of slightly different puzzles.
     const puzzles = [PUZZLE, { ...PUZZLE, objects: PUZZLE.objects.slice().reverse() }];
     await cache.primeSamples({ puzzles, modeId: 'standard', maxTicks: 80 });
     const samples = cache.state.samples.standard;
     assert.ok(samples.length >= 1, `expected samples to be populated, got ${samples.length}`);
-    // With at least 1 sample, breakpoints should no longer be the default
-    // (assuming the samples are not exactly [0.2, 0.4, 0.6, 0.8]).
-    // The DEFAULT_SAMPLE_SIZE gate is 32, so breakpoints stay at default until then.
-    const breakpoints = cache.breakpointsFor('standard');
-    assert.equal(breakpoints.length, 4);
+    assert.deepEqual(cache.breakpointsFor('standard'), [0.2, 0.4, 0.6, 0.8]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('eight samples replace the fixed breakpoints', () => {
+  const { cache, cleanup } = tempCache();
+  try {
+    cache.state.samples.standard = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.9];
+    assert.deepEqual(cache.breakpointsFor('standard'), [0.2, 0.4, 0.5, 0.7]);
+    assert.deepEqual(cache.breakpointsFor('expert'), [0.2, 0.4, 0.6, 0.8]);
   } finally {
     cleanup();
   }
