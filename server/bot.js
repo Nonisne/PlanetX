@@ -219,19 +219,128 @@ function decideFinalAction(room, botId, view) {
   if (!endgame || !endgame.isMyTurn) return null;
   const knowledge = computeKnowledge(room, botId, view);
 
-  // Locate only when X and both neighbours are each a single object.
-  // Anything less certain is a pass: guessing papers in the final window is
-  // not part of this heuristic.
-  const locate = findCertainLocate(knowledge, view);
+  // Final locate is even more forgiving: locate or pass. A confident gamble
+  // is preferred to a wasted final slot.
+  const locate = findBestLocateGuess(knowledge, view);
   if (locate) return { kind: 'locate', sector: locate.sector, left: locate.left, right: locate.right };
+  // As a last resort, look for any certain locate (kept for parity with the
+  // legacy "100% confident" path).
+  const certain = findCertainLocate(knowledge, view);
+  if (certain) return { kind: 'locate', sector: certain.sector, left: certain.left, right: certain.right };
   return { kind: 'final-pass' };
+}
+
+// ---- locate ---------------------------------------------------------------
+
+/** Lower bound for the bot to gamble on a locate when X is the only candidate. */
+const LOCATE_GAMBLE_MIN_EVIDENCE = 80;
+/**
+ * Score a candidate locate action. The bot only locates when the score is at
+ * least `LOCATE_GAMBLE_MIN_EVIDENCE`.
+ *
+ * Inputs and weights:
+ *   * +60 if X is the only candidate in `sector` (the bot would lose nothing by guessing)
+ *   * +25 if the left neighbour is a single object (one constraint already satisfied)
+ *   * +25 if the right neighbour is a single object
+ *   * +10 if X is also the only candidate in either neighbour (very strong cross-evidence)
+ *   * +5 per locked theory or recorded conference in the neighbourhood
+ *   * -50 penalty for every survey/target the bot owns that *contradicts* this X
+ *   * -200 outright disqualifier if X has been ruled out in `sector`
+ */
+function scoreLocateGuess(sector, left, right, knowledge, view) {
+  if (sector < 0 || sector >= view.mode.sectors) return -Infinity;
+  const possible = knowledge.possible(sector);
+  if (!possible.includes(Obj.PLANET_X)) return -Infinity;
+  let score = 0;
+  if (possible.length === 1) score += 60;
+  const leftPossible = knowledge.possible(left);
+  const rightPossible = knowledge.possible(right);
+  if (leftPossible.length === 1) score += 25;
+  if (rightPossible.length === 1) score += 25;
+  if (leftPossible.length === 1 && leftPossible[0] === Obj.PLANET_X) score += 10;
+  if (rightPossible.length === 1 && rightPossible[0] === Obj.PLANET_X) score += 10;
+  // neighbourhood: revealed theories / recorded conferences narrow the picture
+  const theories = view.knowledge?.theories || [];
+  for (const theory of theories) {
+    if (!theory || theory.review !== 'correct' || !theory.revealed) continue;
+    if (theory.sector === sector || theory.sector === left || theory.sector === right) score += 5;
+  }
+  const conferences = view.knowledge?.conferences || [];
+  for (const conference of conferences) {
+    if (conference.sector === sector || conference.sector === left || conference.sector === right) score += 5;
+  }
+  // contradicting evidence: anything the bot itself did that argues against X here
+  for (const target of view.knowledge?.targets || []) {
+    if (target.actorId !== botIdOf(knowledge)) continue;
+    if (target.sector !== sector) continue;
+    if (target.apparent && target.apparent !== Obj.EMPTY) score -= 50;
+    if (target.apparent === Obj.EMPTY) score += 5; // EMPTY means X is still possible
+  }
+  for (const survey of view.knowledge?.surveys || []) {
+    if (survey.actorId !== botIdOf(knowledge)) continue;
+    if (typeof survey.start !== 'number' || typeof survey.size !== 'number') continue;
+    const range = arcSectors(survey.start, survey.size, view.mode.sectors);
+    if (!range.includes(sector)) continue;
+    const apparent = surveyApparent(survey);
+    if (apparent && apparent !== Obj.PLANET_X && apparent !== Obj.EMPTY) score -= 50;
+  }
+  return score;
+}
+
+/**
+ * Read the bot id back off the knowledge snapshot so `scoreLocateGuess` can
+ * inspect the bot's own surveys / targets without leaking it through every
+ * call site.
+ */
+function botIdOf(knowledge) {
+  return knowledge?.botId || null;
+}
+
+/**
+ * Walk every sector that still allows Planet X, pick the one with the
+ * strongest evidence (certain locate preferred, but a confident gamble is
+ * acceptable). Returns null when no sector clears the threshold.
+ */
+export function findBestLocateGuess(knowledge, view) {
+  const sectors = view.mode.sectors;
+  let best = null;
+  let bestScore = -Infinity;
+  for (let sector = 0; sector < sectors; sector += 1) {
+    const possible = knowledge.possible(sector);
+    if (!possible.includes(Obj.PLANET_X)) continue;
+    const left = mod(sector - 1, sectors);
+    const right = mod(sector + 1, sectors);
+    const score = scoreLocateGuess(sector, left, right, knowledge, view);
+    if (score < LOCATE_GAMBLE_MIN_EVIDENCE) continue;
+    // Need at least one of {sector, left, right} to be a single object, otherwise
+    // the bot is gambling on three unknowns at once.
+    const sectorKnown = possible.length === 1;
+    const leftKnown = knowledge.possible(left).length === 1;
+    const rightKnown = knowledge.possible(right).length === 1;
+    if (!sectorKnown && !leftKnown && !rightKnown) continue;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { sector, left, right };
+    }
+  }
+  if (!best) return null;
+  // Fill in left/right with the unique object if the bot knows it; otherwise
+  // pick any legal object as a placeholder. `recordLocate` validates against
+  // the real puzzle when scoring, so a wrong guess only costs the 5 months.
+  const leftPossible = knowledge.possible(best.left);
+  const rightPossible = knowledge.possible(best.right);
+  const pickLeft = leftPossible.length === 1 ? leftPossible[0] : Obj.ASTEROID;
+  const pickRight = rightPossible.length === 1 ? rightPossible[0] : Obj.ASTEROID;
+  return { sector: best.sector, left: pickLeft, right: pickRight, score: bestScore };
 }
 
 /**
  * Look for a sector whose candidate set has collapsed to Planet X, where the
- * left and right neighbours are each unique too.
+ * left and right neighbours are each unique too. This is the legacy "100%
+ * certain" locate; preserved so callers that need it (e.g. final opportunity
+ * when only certain locates are safe) can still find it.
  */
-function findCertainLocate(knowledge, view) {
+export function findCertainLocate(knowledge, view) {
   const sectors = view.mode.sectors;
   for (let sector = 0; sector < sectors; sector += 1) {
     const possible = knowledge.possible(sector);
@@ -263,8 +372,11 @@ function findCertainLocate(knowledge, view) {
 function decideTurnAction(room, botId, view) {
   const mode = view.mode;
   const knowledge = computeKnowledge(room, botId, view);
-  const locate = findCertainLocate(knowledge, view);
-  if (locate) return { kind: 'locate', sector: locate.sector, left: locate.left, right: locate.right };
+  // `findBestLocateGuess` already covers the legacy 100%-certain locate path
+  // (X unique + both neighbours unique scores 110 ≥ 80) and adds a confident
+  // gamble mode (X unique + at least one neighbour constrained).
+  const gamble = findBestLocateGuess(knowledge, view);
+  if (gamble) return { kind: 'locate', sector: gamble.sector, left: gamble.left, right: gamble.right };
 
   const candidates = [];
   const seatIndex = Math.max(0, room.players.findIndex((player) => player.id === botId));
@@ -278,8 +390,15 @@ function decideTurnAction(room, botId, view) {
         const range = arcSectors(start, size, mode.sectors);
         if (type === Obj.COMET) {
           const legal = cometSectors(mode);
+          // `cometSectors(mode)` returns 1-indexed sector numbers (the values
+          // stored in the rules tables); `range` is 0-indexed, so convert at
+          // the boundary.
           if (!legal.includes(range[0] + 1) || !legal.includes(range[range.length - 1] + 1)) continue;
         }
+        // `recordSurvey` rejects any arc that falls partly outside the visible
+        // sky window. We mirror that here so we never propose an illegal arc
+        // — even though `arcSectors` itself would happily wrap around the
+        // whole board.
         if (!range.every((sector) => Array.isArray(view.visible) && view.visible.includes(sector))) continue;
         const cost = surveyCost(size);
         if (!Number.isFinite(cost)) continue;
@@ -287,13 +406,26 @@ function decideTurnAction(room, botId, view) {
         let unknown = 0;
         for (const sector of range) if (knowledge.possible(sector).length > 1) unknown += 1;
         if (unknown === 0) continue;
+        // Score by "object-sector pairs eliminated per month": a survey whose
+        // worst-case outcome rules out `apparent` from N sectors earns at
+        // least N; if the arc could collapse 1 sector to a unique object, add
+        // the unique-count bonus. Cheap arcs beat expensive ones; full-window
+        // arcs get a small tie-break bonus; a sector the bot owns a survey
+        // for already (information overlap) loses some weight.
+        const elimination = surveyElimination(knowledge, view, type, range);
+        const efficiency = elimination / (cost + 1);
+        const windowBonus = size >= mode.visible ? 0.2 : 0;
+        const overlapPenalty = -0.05 * overlapWithOwnSurveys(range, knowledge);
         const forward = (start - preferStart + mode.sectors) % mode.sectors;
         const backward = (preferStart - start + mode.sectors) % mode.sectors;
         const distance = Math.min(forward, backward);
         // Tie-break only: one unknown sector is worth ~0.2, so this cannot
         // override a genuinely narrower or cheaper arc.
         const bias = (mode.sectors - distance) * 0.001;
-        candidates.push({ score: unknown / (cost + 1) + (size >= mode.visible ? 0.2 : 0) + bias, action: { kind: 'survey', type, start, size, count: 0 } });
+        candidates.push({
+          score: efficiency + windowBonus + overlapPenalty + bias,
+          action: { kind: 'survey', type, start, size, count: 0 },
+        });
       }
     }
   }
@@ -366,6 +498,64 @@ function actionCost(action) {
   if (action.kind === 'research') return COST.research;
   if (action.kind === 'locate') return COST.locate;
   return 0;
+}
+
+/**
+ * How many (object, sector) pairs a survey of `type` over `range` would
+ * eliminate, given the bot's current knowledge.
+ *
+ * The bot does not know the survey's `count` in advance, so we score the
+ * *guaranteed* part of the elimination:
+ *   * any sector whose candidate set currently still contains `type` would
+ *     see `type` removed in the worst case (count = 0)
+ *   * any sector whose candidate set contains only `type` already gives +0
+ *     (no future elimination possible)
+ *
+ * Then we add the *expected* part, weighted by 0.5 so the worst-case still
+ * dominates:
+ *   * if a sector's candidate set is `mustShow(type)` (the only object is
+ *     type), the survey returning count >= 1 is forced to confirm it — this
+ *     collapses the sector (worth +1 object-sector pair).
+ *
+ * Returns the score in "object-sector pair units", so the caller can divide
+ * by (cost + 1) and recover a per-month efficiency number.
+ */
+function surveyElimination(knowledge, view, type, range) {
+  let worst = 0;
+  let expected = 0;
+  for (const sector of range) {
+    const possible = knowledge.possible(sector);
+    if (!possible || possible.length === 0) continue;
+    // worst-case: `type` is ruled out of every sector that still holds it
+    if (possible.includes(type) && possible.length > 1) worst += 1;
+    // expected-case: if only `type` is on the menu, the survey cannot reduce
+    // the set any further, but it can *confirm* — add 1 to the score to
+    // reflect that a survey here would lock the sector down for the next
+    // player to score the leader bonus.
+    if (possible.length === 1 && possible[0] === type) expected += 1;
+    // partial-collapse case: if removing `type` would shrink the candidate
+    // set to size 1, the sector collapses even in the worst case. Worth
+    // +1.5 because that collapse reveals a new object elsewhere on the board.
+    if (possible.length === 2 && possible.includes(type)) expected += 1.5;
+  }
+  // Subtract the cost of "no new info" sectors that would push count=0 to
+  // force a useless outcome. Pure penalisation, never goes below zero.
+  const pointless = range.filter((sector) => {
+    const possible = knowledge.possible(sector);
+    return !possible.includes(type) || possible.length === 1;
+  }).length;
+  return Math.max(0, worst + 0.5 * expected - 0.1 * pointless);
+}
+
+/**
+ * How many of `range` is already covered by a survey the bot owns. Used to
+ * discount surveys that would mostly re-confirm what the bot already knows.
+ */
+function overlapWithOwnSurveys(range, knowledge) {
+  if (!knowledge.surveyedByBot) return 0;
+  let count = 0;
+  for (const sector of range) if (knowledge.surveyedByBot.has(sector)) count += 1;
+  return count;
 }
 
 function surveyArcSizes(mode) {
@@ -541,6 +731,9 @@ export function computeKnowledge(room, botId, view) {
       return frozen[sector] || [];
     },
     surveyedByBot,
+    // The bot id is plumbed through so locate scoring can read the bot's own
+    // surveys / targets without leaking it through every call site.
+    botId,
   };
 }
 

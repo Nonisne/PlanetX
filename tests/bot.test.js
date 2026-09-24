@@ -17,7 +17,7 @@ import { addPlayer, applyRoomAction, createRoom, currentPlayer, playerById, view
 import { BUILTIN_MAX_PLAYERS, isCometSector } from '../public/src/rules.js';
 import { Obj } from '../public/src/types.js';
 import { buildConferenceFeatures, buildResearchFeatures, researchClueText } from '../server/research.js';
-import { computeKnowledge, decideAction, parseResearchClue, pickTheoryPicks, preferredSurveyStart } from '../server/bot.js';
+import { computeKnowledge, decideAction, findBestLocateGuess, findCertainLocate, parseResearchClue, pickTheoryPicks, preferredSurveyStart } from '../server/bot.js';
 import { attachBotController, detachBotController } from '../server/bot-controller.js';
 
 // ---- fixtures ---------------------------------------------------------------
@@ -775,4 +775,102 @@ test('detach clears the timer and the controller reference', () => {
   assert.ok(room.__botController);
   detachBotController(room);
   assert.equal(room.__botController, null);
+});
+
+// ---- locate gambler --------------------------------------------------------
+
+test('findBestLocateGuess refuses to gamble when X has no neighbours pinned down', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // only X is locked; both neighbours still ambiguous.
+  view.knowledge = {
+    surveys: [],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [{ sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true }],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  assert.equal(findBestLocateGuess(knowledge, view), null);
+  // the legacy 100%-certain locator is also null in this configuration.
+  assert.equal(findCertainLocate(knowledge, view), null);
+});
+
+test('findBestLocateGuess locates when X is unique and at least one neighbour is known', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // X unique at sector 5, left neighbour locked to GAS_CLOUD, right still open.
+  view.knowledge = {
+    surveys: [],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.GAS_CLOUD, review: 'correct', revealed: true },
+      { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
+    ],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  const gamble = findBestLocateGuess(knowledge, view);
+  assert.ok(gamble, 'bot should take the gamble with X unique + one known neighbour');
+  assert.equal(gamble.sector, 5);
+  assert.equal(gamble.left, Obj.GAS_CLOUD);
+});
+
+test('findBestLocateGuess refuses when X is not the only candidate, even with neighbours known', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // Left neighbour locked, but sector 5 is still {X, EMPTY}. Even though the
+  // right neighbour is also locked, the gamble on X at sector 5 is too thin.
+  view.knowledge = {
+    surveys: [],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.ASTEROID, review: 'correct', revealed: true },
+      { sector: 6, objectType: Obj.ASTEROID, review: 'correct', revealed: true },
+    ],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  // Without an X-locked theory in the neighbourhood, sector 5 still has X
+  // as one of several candidates. No theory says X is at sector 5, so the
+  // bot should pass.
+  assert.equal(findBestLocateGuess(knowledge, view), null);
+});
+
+test('findBestLocateGuess down-weights when the bot own scan rules out X in the candidate sector', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.isMyTurn = true;
+  // X unique at sector 5 (via revealed theory), neighbour locked, BUT the
+  // bot itself scanned sector 5 and saw asteroid. The bot must not gamble on
+  // X in a sector where its own scan already contradicts X.
+  view.knowledge = {
+    surveys: [],
+    targets: [
+      { actorId: bot.id, sector: 5, apparent: Obj.ASTEROID },
+    ],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.GAS_CLOUD, review: 'correct', revealed: true },
+      { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
+    ],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  // The bot's own scan collapsed sector 5 to ASTEROID, so X is no longer
+  // possible there. The gambler must refuse to locate on sector 5.
+  assert.equal(findBestLocateGuess(knowledge, view), null);
 });
