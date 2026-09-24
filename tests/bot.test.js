@@ -17,7 +17,7 @@ import { addPlayer, applyRoomAction, createRoom, currentPlayer, playerById, view
 import { BUILTIN_MAX_PLAYERS, isCometSector } from '../public/src/rules.js';
 import { Obj } from '../public/src/types.js';
 import { buildConferenceFeatures, buildResearchFeatures, researchClueText } from '../server/research.js';
-import { computeKnowledge, decideAction, findBestLocateGuess, findCertainLocate, parseResearchClue, pickTheoryPicks, preferredSurveyStart } from '../server/bot.js';
+import { computeKnowledge, decideAction, findBestLocateGuess, findCertainLocate, parseResearchClue, pickTheoryPicks, preferredSurveyStart, preferredTopicIndex } from '../server/bot.js';
 import { attachBotController, detachBotController } from '../server/bot-controller.js';
 
 // ---- fixtures ---------------------------------------------------------------
@@ -873,4 +873,31 @@ test('findBestLocateGuess down-weights when the bot own scan rules out X in the 
   // The bot's own scan collapsed sector 5 to ASTEROID, so X is no longer
   // possible there. The gambler must refuse to locate on sector 5.
   assert.equal(findBestLocateGuess(knowledge, view), null);
+});
+
+test('findBestLocateGuess still locates when an overlapping survey does not rule X out', () => {
+  const room = builtinWithBots(1);
+  startGame(room);
+  const bot = room.players.find((player) => player.bot);
+  const view = viewFor(room, bot.id);
+  view.knowledge = {
+    surveys: [{ actorId: bot.id, surveyType: Obj.ASTEROID, start: 3, size: 4, count: 0 }],
+    targets: [],
+    clues: [],
+    conferences: [],
+    theories: [
+      { sector: 4, objectType: Obj.GAS_CLOUD, review: 'correct', revealed: true },
+      { sector: 5, objectType: Obj.PLANET_X, review: 'correct', revealed: true },
+    ],
+  };
+  const knowledge = computeKnowledge(room, bot.id, view);
+  const gamble = findBestLocateGuess(knowledge, view);
+  assert.equal(gamble?.sector, 5);
+  assert.equal(gamble.left, Obj.GAS_CLOUD);
+});
+
+test('preferred research topics stay inside A–F and differ by seat', () => {
+  const indexes = [0, 1, 2].map((seat) => preferredTopicIndex(`bot-${seat}`, seat));
+  assert.ok(indexes.every((index) => index >= 0 && index < 6));
+  assert.equal(new Set(indexes).size, 3);
 });
